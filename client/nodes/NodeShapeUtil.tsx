@@ -105,8 +105,7 @@ export class NodeShapeUtil extends ShapeUtil<NodeShape> {
 	getIndicatorPath(shape: NodeShape) {
 		const height = getNodeHeightPx(this.editor, shape)
 		const path = new Path2D()
-		const captionHeight = shape.props.node.stale ? 112 : 88
-		path.rect(0, 0, NODE_WIDTH_PX, shape.props.node.type === 'inspiration' ? height - captionHeight : height)
+		path.rect(0, 0, NODE_WIDTH_PX, height)
 		return path
 	}
 }

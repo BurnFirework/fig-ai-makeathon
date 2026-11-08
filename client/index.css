@@ -39,6 +39,8 @@
   --line: #e3e4df;
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --serif: Georgia, serif;
+  --script: 'Great Vibes', Georgia, cursive;
+  --hand: 'Caveat', var(--sans);
   font-family: var(--sans);
   color: var(--ink);
   font-synthesis: none;
@@ -83,7 +85,8 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .chrome { position: absolute; inset: 0; pointer-events: none; font-size: 13px; color: var(--ink); }
 .chrome button, .chrome a, .chrome input, .chrome textarea, .chrome select, .chat-panel, .activity-panel, .notice, .empty-state { pointer-events: auto; }
 .app-header { position: absolute; z-index: 5; inset: 0 0 auto; height: 64px; padding: 0 24px; display: flex; align-items: center; gap: 20px; background: var(--canvas); }
-.wordmark { font-size: 15px; font-weight: 600; letter-spacing: -.4px; text-decoration: none; color: var(--ink); flex-shrink: 0; }
+.wordmark { display: flex; align-items: center; gap: 2px; padding-top: 4px; font-family: var(--script); font-size: 34px; font-weight: 400; line-height: 1; letter-spacing: 0; text-decoration: none; color: var(--ink); flex-shrink: 0; }
+.wordmark .sticker { margin: -16px 0 0 2px; transform: rotate(14deg); }
 .header-navigation { display: flex; align-items: center; flex: 1; min-width: 0; gap: 4px; }
 .workspace-name { max-width: 230px; min-width: 80px; font-size: 13px; font-weight: 400; }
 .workspace-name > svg:first-child { display: none; }
@@ -131,31 +134,46 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .notice { position: absolute; z-index: 8; left: 50%; top: 72px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; width: max-content; max-width: min(540px, 90vw); border: 1px solid var(--line); background: var(--paper); border-radius: 8px; padding: 8px 12px; font-size: 12px; box-shadow: 0 2px 8px #22282008; }
 .board-storage-error { position: fixed; z-index: 1000; top: 70px; left: 50%; transform: translateX(-50%); max-width: 90vw; padding: 12px 16px; border-radius: 8px; background: var(--paper); color: #a43d3d; font-size: 13px; }
 
+/* Stickers, tape and ribbon (see decor.tsx); used sparingly so the photos stay the focus. */
+.sticker { filter: drop-shadow(1.3px 0 0 #fff) drop-shadow(-1.3px 0 0 #fff) drop-shadow(0 1.3px 0 #fff) drop-shadow(0 -1.3px 0 #fff) drop-shadow(0 3px 4px #2b2d3024); flex-shrink: 0; }
+.tape { position: absolute; z-index: 2; width: 70px; height: 19px; background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--accent-200) 80%, transparent) 0 6px, color-mix(in srgb, var(--accent-100) 85%, transparent) 6px 12px); box-shadow: 0 1px 2px #2b2d3014; clip-path: polygon(3% 0, 97% 4%, 100% 30%, 96% 55%, 100% 80%, 97% 100%, 2% 96%, 0 70%, 4% 45%, 0 18%); pointer-events: none; }
+.chapter-label { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; background: var(--accent-100); color: var(--accent-600); font-size: 9px; font-weight: 700; letter-spacing: 1.6px; }
+.chapter-label .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent-500); }
+.ribbon { display: inline-block; padding: 5px 22px 6px; background: var(--accent-100); color: var(--accent-600); font-family: var(--hand); font-size: 17px; line-height: 1.1; transform: rotate(-2deg); clip-path: polygon(0 0, 100% 0, 96% 50%, 100% 100%, 0 100%, 4% 50%); }
+.board-heading { position: absolute; z-index: 1; top: 84px; left: 32px; pointer-events: none; }
+.board-heading h1 { margin: 12px 0 8px; font-family: var(--serif); font-size: 30px; font-weight: 400; letter-spacing: -.5px; color: var(--ink); }
+.board-heading h1 em { font-family: var(--script); font-style: normal; font-size: 42px; line-height: .6; padding: 0 2px; color: var(--accent-500); }
+.board-heading p { margin: 0 0 0 -4px; }
+.has-focus-chat .board-heading { display: none; }
+
 /* Images are directly movable; only captions and actions handle their own pointer events. */
 .NodeShape { color: var(--ink); font-family: var(--sans); }
 .unfold-card { position: relative; width: 100%; height: 100%; background: var(--paper); border: 1px solid var(--line); border-radius: 7px; display: flex; flex-direction: column; }
-.card-inspiration { background: transparent; border: 0; border-radius: 0; }
+.card-inspiration { padding: 10px 10px 0; border-color: color-mix(in srgb, var(--accent-200) 70%, var(--line)); border-radius: 8px; box-shadow: 0 2px 6px #2b2d300d, 0 10px 26px #2b2d300f; }
+.card-inspiration > .tape { top: -9px; left: 50%; transform: translateX(-50%) rotate(-3deg); }
 .card-header { min-height: 40px; padding: 0 20px; display: flex; align-items: center; cursor: grab; }
 .card-eyebrow { font-size: 11px; font-weight: 500; color: var(--cocoa-soft); }
 .card-interactive { flex: 1; min-height: 0; display: flex; flex-direction: column; pointer-events: auto; }
-.inspiration-image { flex: 1; min-height: 0; overflow: hidden; border-radius: 4px; background: #e9ebe4; cursor: grab; }
+.inspiration-image { position: relative; flex: 1; min-height: 0; border-radius: 3px; background: var(--accent-50); cursor: grab; }
+.inspiration-image .card-sticker { position: absolute; right: -8px; bottom: -8px; transform: rotate(16deg); pointer-events: none; }
 .inspiration-image:active { cursor: grabbing; }
-.inspiration-image img { width: 100%; height: 100%; object-fit: contain; display: block; }
-.chat-is-open:not(.is-selected) .inspiration-image { outline: 1px solid #52759b; outline-offset: 3px; }
-.card-inspiration .card-interactive { flex: 0 0 88px; }
-.card-inspiration.is-stale .card-interactive { flex-basis: 112px; }
+.inspiration-image img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 3px; }
+.chat-is-open:not(.is-selected) .inspiration-image { outline: 1px solid var(--accent-500); outline-offset: 3px; }
+.card-inspiration .card-interactive { flex: 0 0 52px; }
+.card-inspiration.is-stale .card-interactive { flex-basis: 76px; }
 .image-placeholder { height: 100%; display: grid; place-items: center; color: #92968b; }
-.inspiration-content { padding: 13px 0 7px; }
-.inspiration-title { width: 100%; font-size: 15px; font-weight: 450; line-height: 1.5; color: var(--ink); }
+.inspiration-content { padding: 12px 4px 10px; }
+.inspiration-title { width: 100%; font-family: var(--serif); font-size: 17px; font-weight: 400; line-height: 1.4; color: var(--ink); }
 .inspiration-title:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 4px; border-radius: 2px; }
 .card-content { flex: 1; min-height: 0; padding: 4px 20px 12px; overflow: auto; overflow-wrap: anywhere; scrollbar-width: thin; }
 .card-content h2 { margin: 0 0 12px; font-size: 21px; font-weight: 500; line-height: 1.3; letter-spacing: -.4px; }
 .description { font-size: 13px; line-height: 1.7; color: var(--cocoa-soft); white-space: pre-wrap; }
 .node-benefits { border-top: 1px solid var(--line); margin-top: 12px; font-size: 12px; color: var(--cocoa-soft); line-height: 1.6; }
-.card-footer { margin-top: auto; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; padding: 4px 10px; min-height: 38px; }
-.card-footer > button:first-child { font-size: 12px; gap: 7px; }
-.card-inspiration .card-footer { padding: 0; }
-.card-inspiration .card-footer > button:first-child { padding-left: 0; }
+/* Card actions sit just under the frame, so the card itself stays a clean photo + caption. */
+.card-footer { position: absolute; z-index: 2; top: 100%; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center; padding: 8px 2px 0; pointer-events: auto; }
+.card-footer > button { box-shadow: 0 2px 8px #2b2d3014; }
+.explore-button { border-radius: 999px; padding-inline: 12px 10px; font-size: 12px; font-weight: 600; gap: 7px; }
+.remove-button { border-radius: 999px; }
 .sources, .outcome-sources { display: flex; flex-direction: column; gap: 7px; margin: 12px 0; }
 .sources a, .outcome-sources a { display: flex; align-items: center; justify-content: space-between; gap: 7px; color: var(--second-ink-dark); font-size: 12px; text-decoration: none; overflow-wrap: anywhere; }
 .sources a:hover, .outcome-sources a:hover { text-decoration: underline; }
@@ -171,8 +189,8 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .NodeShape:hover .Port, .NodeShape:focus-within .Port, .Port_hinting, .Port_eligible { opacity: 1; }
 .ConnectionShape path { fill: none; stroke: var(--accent-300); stroke-width: 1.25; stroke-linecap: round; }
 @media (hover: hover) and (pointer: fine) {
-  .card-footer { opacity: 0; }
-  .unfold-card:hover .card-footer, .unfold-card:focus-within .card-footer, .is-selected .card-footer, .chat-is-open .card-footer, .is-busy .card-footer { opacity: 1; }
+  .card-footer { opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .16s ease, transform .16s ease, visibility 0s linear .16s; }
+  .is-hovered .card-footer, .card-footer:hover, .unfold-card:focus-within .card-footer, .is-busy .card-footer { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
 }
 
 /* The source and conversation share a surface, keeping the image in view. */
@@ -258,10 +276,14 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .focus-mode .chat-compose { margin-bottom: 24px; }
 @media (max-width: 1100px) { .breadcrumb button { max-width: 105px; } .app-header { gap: 12px; padding-inline: 18px; } }
 @media (max-width: 850px) {
+  .wordmark { font-size: 30px; }
+  .board-heading { left: 16px; top: 78px; }
+  .board-heading h1 { font-size: 24px; }
+  .board-heading h1 em { font-size: 32px; }
+  .ribbon { font-size: 15px; max-width: 240px; }
   .app-header { padding-inline: 16px; gap: 8px; }
-  .wordmark { font-size: 14px; }
   .breadcrumbs { max-width: calc(100vw - 300px); }
-  .workspace-name { max-width: 155px; }
+  .workspace-name { max-width: min(155px, 100%); }
   .mode-label { display: none; }
   .chat-panel { width: min(440px, 100%); }
   .has-chat .bottom-toolbar { visibility: hidden; }
@@ -281,5 +303,7 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
   .focus-mode .user-message { margin-left: 25px; }
   .compose-footer > span { font-size: 9px; }
 }
+/* Phones: the script wordmark needs the room; the save status stays in the Workspace files menu title. */
+@media (max-width: 520px) { .header-right > [role=status] { display: none; } .wordmark .sticker { display: none; } .workspace-name { min-width: 0; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 }

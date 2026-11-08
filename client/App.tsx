@@ -2,6 +2,7 @@ import { WorkspaceContext, type WorkspaceController } from './workspace'
 import { WorkspaceBootstrap } from './workspace-bootstrap'
 import { WorkspaceControls } from './workspace-controls'
 import { StylePicker } from './StylePicker'
+import { Bow } from './decor'
 import { BoardSwitcher, BoardsContext } from './components/board-switcher'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select'
 import { Button } from './components/ui/button'
@@ -46,7 +47,7 @@ function Chrome() {
   const api = actions.get(editor)
   return <div className={`chrome ${state.activeChat ? `has-chat ${state.chatView === 'focus' ? 'has-focus-chat' : ''}` : ''}`} onPointerDown={event => { if (event.target !== event.currentTarget) editor.markEventAsHandled(event) }}>
     <header className="app-header">
-      <a className="wordmark" href="#" aria-label="Unfold home" onClick={event => { event.preventDefault(); api?.closeChat(); editor.selectNone(); editor.zoomToFit({ animation: { duration: 200 } }) }}>Unfold</a>
+      <a className="wordmark" href="#" aria-label="Unfold home" onClick={event => { event.preventDefault(); api?.closeChat(); editor.selectNone(); editor.zoomToFit({ animation: { duration: 200 } }) }}>Unfold<Bow size={26}/></a>
       <div className="header-navigation"><BoardSwitcher/><nav className="breadcrumbs" aria-label="Exploration breadcrumbs">{(path.length > 1 || state.activeChat) && path.map((record, index) => <span className="breadcrumb" key={record.id}><ChevronRight size={13}/><button aria-current={index === path.length - 1 && !state.activeChat ? 'location' : undefined} title={nodeTitle(record.node)} onClick={() => { const shape = nodes(editor).find(shape => shape.id === record.id); if (shape) { api?.closeChat(); editor.select(shape.id); editor.zoomToSelection() } }}>{nodeTitle(record.node)}</button></span>)}{state.activeChat && <span className="breadcrumb current"><ChevronRight size={13}/><MessageCircle size={13}/><span aria-current="location">Chat</span></span>}</nav></div>
       <div className="header-right"><WorkspaceControls/>
         {state.mode === 'demo' && <span className="mode-label">Preview</span>}
@@ -57,6 +58,7 @@ function Chrome() {
         </Button>
       </div>
     </header>
+    {roots.length > 0 && <div className="board-heading" aria-hidden="true"><div className="chapter-label"><span className="dot"/> A SPACE FOR WHAT’S NEXT</div><h1>Let your possibilities <em>unfold</em>.</h1><p><span className="ribbon">Start with something that moves you. Find a small way forward.</span></p></div>}
     {roots.length === 0 && <div className="empty-state"><div className="empty-mark" aria-hidden="true"><ImagePlus size={30} strokeWidth={1.25}/></div><h1>A little space for your ideas.</h1><p>Add an image that means something to you.<br/>See where it takes you.</p><Button size="lg" onClick={() => input.current?.click()}><ImagePlus size={17}/> Add inspiration</Button><Button variant="link" size="sm" onClick={() => { api?.samples().catch((error: unknown) => reportFailure(editor, error)) }}>Explore a sample board <ArrowRight size={14}/></Button></div>}
     <ChatPanel/>
     {roots.length > 0 && <div className="bottom-toolbar" role="toolbar" aria-label="Canvas tools">
@@ -64,9 +66,9 @@ function Chrome() {
       <span className="toolbar-divider"/>
       <Button variant="ghost" size="sm" className="add-image-tool" aria-label="Add inspiration" onClick={() => input.current?.click()}><Plus size={18}/><span>Add image</span></Button>
       <Button variant="ghost" size="icon" title="Connect two inspirations" aria-label="Connect goals" onClick={() => api?.connect()}><Link2 size={18}/></Button>
+      <Button variant="ghost" size="icon" title="See the whole picture" aria-label="Fit board" onClick={() => fitBoard(editor)}><Expand size={18}/></Button>
       <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label="More canvas actions" title="More canvas actions"/>}><MoreHorizontal size={18}/></DropdownMenuTrigger><DropdownMenuContent side="top" align="end" className="w-52" onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
-        {selected && <DropdownMenuItem onClick={() => api?.openChat(selected.id)}><MessageCircle/>Open attached chat</DropdownMenuItem>}
-        <DropdownMenuItem onClick={() => fitBoard(editor)}><Expand/>Fit board</DropdownMenuItem><DropdownMenuSeparator/>
+        {selected && <><DropdownMenuItem onClick={() => api?.openChat(selected.id)}><MessageCircle/>Open attached chat</DropdownMenuItem><DropdownMenuSeparator/></>}
         <DropdownMenuItem onClick={() => editor.undo()}><Undo2/>Undo</DropdownMenuItem><DropdownMenuItem onClick={() => editor.redo()}><Redo2/>Redo</DropdownMenuItem>
       </DropdownMenuContent></DropdownMenu>
     </div>}
