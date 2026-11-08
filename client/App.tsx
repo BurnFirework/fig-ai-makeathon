@@ -3,6 +3,7 @@ import { useRef } from 'react'
 import { Editor, type TLComponents, Tldraw, useEditor, useValue } from 'tldraw'
 import { Activity, ArrowDownToLine, ArrowRight, Check, Expand, Flower2, Hand, ImagePlus, Link2, MousePointer2, Plus, Sparkles, Undo2, Redo2, X } from 'lucide-react'
 import { Blossom, Bow, Heart, Rose, Sparkle, Tape } from './decor'
+import { StylePicker } from './StylePicker'
 import { actions, collapsedBranches, uiState } from './actions'
 import { NodeShapeUtil } from './nodes/NodeShapeUtil'
 import { ConnectionShapeUtil } from './connection/ConnectionShapeUtil'
@@ -33,7 +34,7 @@ function Chrome() {
   return <div className="chrome" onPointerDown={event => { if (event.target !== event.currentTarget) editor.markEventAsHandled(event) }}>
     <header className="app-header"><a className="wordmark" href="#" aria-label="Unfold home" onClick={event => { event.preventDefault(); editor.zoomToFit({ animation: { duration: 200 } }) }}>Unfold<Bow size={30}/></a><div className="header-divider"/><span className="workspace-name">Your next chapter <ChevronDownSmall/></span><div className="header-right"><span className="saved-status"><Check size={12}/> Saved on this device</span><select aria-label="Agent provider" disabled={jobs > 0} className={`provider-badge ${state.mode}`} value={state.mode === 'demo' ? 'demo' : state.provider.toLowerCase().includes('claude') ? 'claude' : 'codex'} onChange={event => {
       switchProvider(editor, event.currentTarget.value).catch((error: unknown) => reportFailure(editor, error))
-    }}><option value="demo">Preview agents</option><option value="claude">Claude Code</option><option value="codex">Codex CLI</option></select><button className={`activity-toggle ${state.panel ? 'active' : ''}`} onClick={() => uiState.update(editor, state => ({ ...state, panel: !state.panel }))}><Activity size={16}/><span>Agent activity</span>{jobs > 0 && <i>{jobs}</i>}</button></div></header>
+    }}><option value="demo">Preview agents</option><option value="claude">Claude Code</option><option value="codex">Codex CLI</option></select><StylePicker/><button className={`activity-toggle ${state.panel ? 'active' : ''}`} onClick={() => uiState.update(editor, state => ({ ...state, panel: !state.panel }))}><Activity size={16}/><span>Agent activity</span>{jobs > 0 && <i>{jobs}</i>}</button></div></header>
     <div className="board-heading"><div className="chapter-label"><span className="dot"/> A SPACE FOR WHAT’S NEXT</div><h1>Let your possibilities <em>unfold</em>.</h1><p><span className="ribbon">Start with something that moves you. Find a small way forward.</span></p></div>
     {roots.length > 0 && <nav className="inspiration-tabs" aria-label="Your inspirations">{roots.map((root, index) => <button key={root.id} title="Focus inspiration. Shift-click to select two." onClick={event => { if (event.shiftKey) editor.select(...new Set([...editor.getSelectedShapeIds(), root.id])); else { editor.select(root.id); editor.zoomToSelection({ animation: { duration: 200 } }) } }}><span>{String(index + 1).padStart(2, '0')}</span>{root.props.node.type === 'inspiration' ? root.props.node.goal : ''}</button>)}</nav>}
     <aside className="left-rail"><button aria-label="Add inspiration" title="Add inspiration" onClick={() => input.current?.click()}><Plus size={20}/></button><span/><button aria-label="Fit board" title="See the whole picture" onClick={() => editor.zoomToFit({ animation: { duration: 200 } })}><Expand size={18}/></button><button aria-label="Connect two inspirations" title="Connect two inspirations" onClick={() => api?.connect()}><Link2 size={18}/></button></aside>
@@ -67,8 +68,6 @@ export default function App() {
   const licenseKey = import.meta.env.VITE_TLDRAW_LICENSE_KEY
   return <Tldraw persistenceKey="unfold-board-v1" {...(licenseKey ? { licenseKey } : {})} shapeUtils={[NodeShapeUtil, ConnectionShapeUtil]} bindingUtils={[ConnectionBindingUtil]} components={components} options={{ maxPages: 1, zoomToFitPadding: 220 }} getShapeVisibility={shapeVisibility} onMount={editor => {
     editor.user.updateUserPreferences({ colorScheme: 'light', isSnapMode: true })
-    const theme = editor.getTheme('default')
-    if (theme) editor.updateTheme({ ...theme, colors: { ...theme.colors, light: { ...theme.colors.light, selectionStroke: '#de7499', selectionFill: '#de749933' } } })
     if (!editor.getStateDescendant('select.pointing_port')) editor.getStateDescendant('select')?.addChild(PointingPort)
     const cleanupConnections = keepConnectionsAtBottom(editor)
     const cleanup = setupUnfold(editor)
