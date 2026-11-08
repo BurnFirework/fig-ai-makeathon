@@ -1,0 +1,39 @@
+{
+  "name": "unfold",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"tsx watch server/index.ts\" \"vite --host 127.0.0.1\"",
+    "build": "tsc --noEmit && vite build",
+    "start": "tsx server/index.ts",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "check": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "classnames": "^2.5.1",
+    "lucide-react": "^0.468.0",
+    "react": "19.2.1",
+    "react-dom": "19.2.1",
+    "tldraw": "5.6.0",
+    "zod": "^4.1.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@openai/codex": "^0.167.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.4.1",
+    "concurrently": "^9.1.0",
+    "eslint": "^10.14.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.72.1",
+    "vite": "^6.4.1"
+  },
+  "overrides": {
+    "minimatch": "^11.0.1"
+  }
+}
