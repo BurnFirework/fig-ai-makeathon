@@ -35,6 +35,8 @@ The provider pattern is inspired by [T3 Code](https://github.com/pingdotgg/t3cod
 5. Accept a shared direction to request real web research and a small action, reject it to leave other paths open, or provide a refinement.
 6. Open **Agent activity** to inspect actual branch → research → branch and connection handoffs.
 
+Use **New board** in the header to create a mood board. Open the board name menu to switch boards or rename the current one. Each board saves its own canvas, images and decisions on this device; the selected board reopens after a reload. Use **Style** in the header to pick the main color (lavender, rose or sage), the canvas pattern and the canvas color; these preferences are saved in this browser. Existing boards are preserved automatically. Switching boards stops requests running on the previous board.
+
 Use Fold/Expand and Move branch to manage the board. Editing goals/answers marks dependent suggestions for review. Stop and retry are available during a request or after an error. Completed action cards accept a reflection. Board records, image assets and decisions persist in this browser's IndexedDB; activity and active processes are transient. Nothing books a class or takes the real-world step for you.
 
 ## Agents and source evidence
@@ -48,6 +50,12 @@ Use Fold/Expand and Move branch to manage the board. Editing goals/answers marks
 - Process cancellation propagates to the local provider process group. Subscription/provider processing may already have begun when cancellation happens.
 
 Preview mode is deliberately deterministic and text-based. It demonstrates the interactions but does not interpret images or perform live research; cards and the header identify it as preview. Use a signed-in CLI for the actual hackathon demo and alternate-image testing.
+
+## UI foundation
+
+The React UI uses local shadcn/ui **Base UI / Vega** components in `client/components/ui`, backed by `@base-ui/react`, Tailwind CSS 4 and shared theme tokens in `client/index.css`. This follows tutor-platform's local component, shared utility and token structure while keeping the React/Vite setup. tldraw continues to own the canvas and drawing interactions.
+
+`components.json` and the `@/*` alias configure the official shadcn registry. Add components with `pnpm dlx shadcn@latest add <component>`. Use the shared Button, Input, Textarea, Select, Dialog and DropdownMenu components for application controls. Button variants own action styling, including selected states; compact, text and pill sizes serve canvas controls. Global resets live in the base layer, tldraw styles in a vendor layer, and app layout in the component layer so Tailwind utilities retain precedence. The header uses two rows below 850px to keep every control reachable.
 
 ## Checks and production build
 

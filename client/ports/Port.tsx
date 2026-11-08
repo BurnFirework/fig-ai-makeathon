@@ -1,4 +1,4 @@
-import classNames from 'classnames'
+import { cn } from '../lib/utils'
 import { T, type TLShapeId, useEditor, useValue } from 'tldraw'
 import { getNodePortConnections } from '../nodes/nodePorts'
 import { portState } from './portState'
@@ -61,7 +61,7 @@ export function Port({ shapeId, port }: { shapeId: TLShapeId; port: ShapePort })
 
 	return (
 		<div
-			className={classNames(
+			className={cn(
 				`Port`,
 				isHinting ? 'Port_hinting' : isEligible ? 'Port_eligible' : undefined
 			)}

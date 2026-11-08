@@ -75,7 +75,7 @@ export function StylePicker() {
 
   const current = PALETTES.find(item => item.id === palette) ?? PALETTES[1]
   return <div className="style-picker" ref={root}>
-    <button className={`style-toggle ${open ? 'active' : ''}`} aria-haspopup="true" aria-expanded={open} title="Colors and canvas" onClick={() => setOpen(value => !value)}>
+    <button className={`style-toggle ${open ? 'active' : ''}`} aria-label="Board style" aria-haspopup="true" aria-expanded={open} title="Colors and canvas" onClick={() => setOpen(value => !value)}>
       <i style={{ background: current.swatch }}/><span>Style</span>
     </button>
     {open && <div className="style-menu" role="dialog" aria-label="Board style">
