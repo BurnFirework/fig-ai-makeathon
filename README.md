@@ -4,11 +4,11 @@ A vision board that grows into a practical first step: two images → separate q
 
 ## Run locally
 
-Requires Node 22.14+ and npm.
+Requires Node 22.14+ and pnpm 10.33.1 (pinned in `package.json`).
 
 ```sh
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 Open **http://127.0.0.1:5173**. The frontend proxies to the local agent server on port 3001. The server intentionally listens on loopback only.
@@ -17,7 +17,7 @@ Open **http://127.0.0.1:5173**. The frontend proxies to the local agent server o
 
 No API key is required. Unfold launches **Claude Code** or **Codex CLI** on the same computer as its server, using the CLI's existing sign-in. It does not extract, copy or send login tokens to the browser. Provider subscription limits and CLI availability still apply.
 
-- **Codex:** the official CLI is a project dependency. Run `npx codex login` if needed; verify with `npx codex login status`.
+- **Codex:** the official CLI is a project dependency. Run `pnpm exec codex login` if needed; verify with `pnpm exec codex login status`.
 - **Claude Code:** install the official CLI using [Anthropic's instructions](https://code.claude.com/docs/en/overview), run `claude auth login`, and make `claude` available on the server's PATH.
 - Choose a provider in the app's header. Automatic startup prefers an installed Claude CLI, then Codex. If neither executable works, the app uses clearly labeled preview agents. A live authentication or search failure is shown as an error, never silently replaced with sample research.
 - Provider status checks establish that the binary works, not that subscription usage is available. The first real request verifies authentication and model access.
@@ -52,16 +52,16 @@ Preview mode is deliberately deterministic and text-based. It demonstrates the i
 ## Checks and production build
 
 ```sh
-npm run check
-npm run lint
-npm test
-npm run build
-npm start
+pnpm check
+pnpm lint
+pnpm test
+pnpm build
+pnpm start
 ```
 
 TypeScript checks are selected from `~/Code/tutor-platform/tsconfig.base.json` and its typed ESLint configuration. Unfold enforces strict indexed access, exact optional properties, type-only imports, checked external values, safe assertions, handled promises and exhaustive switches across `.ts` and `.tsx`, including starter-derived code. Svelte, application-specific and formatting rules are not imported. The owning configurations are `tsconfig.json` and `eslint.config.js`.
 
-`npm start` serves the built frontend and agent routes at **http://127.0.0.1:3001**. A hosted browser-only deployment cannot launch your local CLI; subscription mode requires this local Node server (or an equivalent trusted server running an authenticated CLI). Before sharing a production build, set `VITE_TLDRAW_LICENSE_KEY` to an active trial or other suitable key and rebuild. [tldraw licensing](https://tldraw.dev/community/license).
+`pnpm start` serves the built frontend and agent routes at **http://127.0.0.1:3001**. A hosted browser-only deployment cannot launch your local CLI; subscription mode requires this local Node server (or an equivalent trusted server running an authenticated CLI). Before sharing a production build, set `VITE_TLDRAW_LICENSE_KEY` to an active trial or other suitable key and rebuild. [tldraw licensing](https://tldraw.dev/community/license).
 
 The focused tests cover branch isolation, dependency invalidation, stale responses, CLI source-evidence parsing and fragmented response streams. Browser smoke testing covers the user journey separately.
 

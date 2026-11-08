@@ -72,7 +72,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   const file = resolve(root, '.' + decodedPath)
   if (file !== root && !file.startsWith(root + sep)) { response.writeHead(403); response.end(); return }
   const target = existsSync(file) && extname(file) ? file : extname(pathname) ? '' : resolve(root, 'index.html')
-  if (!target || !existsSync(target)) { response.writeHead(404); response.end('Run npm run dev, or build the app first.'); return }
+  if (!target || !existsSync(target)) { response.writeHead(404); response.end('Run pnpm dev, or build the app first.'); return }
   response.writeHead(200, { 'Content-Type': types[extname(target)] || 'application/octet-stream' })
   response.end(readFileSync(target))
 }

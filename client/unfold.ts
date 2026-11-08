@@ -202,7 +202,7 @@ export function setupUnfold(editor: Editor) {
   }
   actions.set(editor, api)
   const Config = z.object({ mode: z.enum(['live', 'demo']), provider: z.string() })
-  fetch('/api/config').then(response => { if (!response.ok) throw new Error(); return response.json() }).then(value => { const config = Config.parse(value); uiState.update(editor, state => ({ ...state, ...config })) }).catch(() => notice('The agent server is unavailable. Your board still works; restart npm run dev to reconnect.'))
+  fetch('/api/config').then(response => { if (!response.ok) throw new Error(); return response.json() }).then(value => { const config = Config.parse(value); uiState.update(editor, state => ({ ...state, ...config })) }).catch(() => notice('The agent server is unavailable. Your board still works; restart pnpm dev to reconnect.'))
   const unlisten = editor.store.listen(() => {
     for (const [id] of running) if (!nodeAt(editor, id)) cancel(id)
   }, { scope: 'document' })
