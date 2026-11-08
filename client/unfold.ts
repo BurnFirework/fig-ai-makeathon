@@ -1,10 +1,11 @@
 import { createShapeId, Editor, type TLShapeId } from 'tldraw'
 import { z } from 'zod'
-import { type AgentRequest, NodeSchema, type Proposal, type UnfoldNode, revisionsMatch } from '../shared/schema'
-import { branchContext, invalidatedBy } from '../shared/context'
-import { actions, collapsedBranches, uiState, type UnfoldActions } from './actions'
+import { type Chat, type ChatMessage, NodeSchema, type UnfoldNode, revisionsMatch } from '../shared/schema'
+import { invalidatedBy } from '../shared/context'
+import { canPublish, chatContext, foldLegacyMessages, lineage, nodeTitle } from '../shared/chats'
+import { actions, uiState, type UnfoldActions } from './actions'
 import { requestAgent } from './agentClient'
-import { createOrUpdateConnectionBinding } from './connection/ConnectionBindingUtil'
+import { createOrUpdateConnectionBinding, getConnectionBindings } from './connection/ConnectionBindingUtil'
 import { getNextConnectionIndex } from './connection/keepConnectionsAtBottom'
 import type { NodeShape } from './nodes/NodeShapeUtil'
 import { getNodeHeightPx } from './nodes/nodeTypes'
@@ -38,69 +39,86 @@ async function rasterize(file: File): Promise<File> {
 }
 
 export function setupUnfold(editor: Editor) {
-  const running = new Map<TLShapeId, { requestId: string; controller: AbortController; branches: string[] }>()
-  const retries = new Map<TLShapeId, () => void>()
+  const running = new Map<string, { requestId: string; controller: AbortController; sourceId: TLShapeId; lastMessageId: string | undefined; dependencies: UnfoldNode['dependsOn'] }>()
+  const retries = new Map<string, () => void>()
+  const records = () => nodes(editor).map(shape => ({ id: shape.id, node: shape.props.node }))
   const notice = (message: string) => uiState.update(editor, state => ({ ...state, notice: message }))
   const activity = (role: string, message: string) => uiState.update(editor, state => ({ ...state, activity: [...state.activity.slice(-99), { id: crypto.randomUUID(), role, message, time: Date.now() }] }))
   const launch = (promise: Promise<void>) => { promise.catch((error: unknown) => notice(error instanceof Error ? error.message : 'The operation could not finish. Please retry.')) }
-  const clearJob = (id: TLShapeId) => uiState.update(editor, state => { const jobs = { ...state.jobs }; delete jobs[id]; return { ...state, jobs } })
-  const cancel = (id: TLShapeId) => { running.get(id)?.controller.abort(); running.delete(id); clearJob(id) }
-  const invalidate = (id: TLShapeId) => {
-    const affected = invalidatedBy(nodes(editor).map(shape => ({ id: shape.id, node: shape.props.node })), id)
-    for (const shape of nodes(editor)) if (affected.has(shape.id)) update(editor, shape.id, node => ({ ...node, stale: true, revision: node.revision + 1 }))
-    for (const [jobId] of running) cancel(jobId)
+  const clearJob = (id: string) => uiState.update(editor, state => { const jobs = { ...state.jobs }; delete jobs[id]; return { ...state, jobs } })
+  const cancel = (id: string) => { running.get(id)?.controller.abort(); running.delete(id); clearJob(id) }
+  const chatAt = (id: TLShapeId, chatId: string) => nodeAt(editor, id)?.props.node.chats?.find(chat => chat.id === chatId)
+  const editChat = (id: TLShapeId, chatId: string, transform: (chat: Chat) => Chat) => update(editor, id, node => ({ ...node, chats: node.chats?.map(chat => chat.id === chatId ? transform(chat) : chat) }))
+  const focus = (id: TLShapeId) => {
+    editor.select(id)
+    const bounds = editor.getShapePageBounds(id)
+    if (bounds) {
+      const zoom = Math.min(editor.getZoomLevel(), 1)
+      // Reserve space for the attached chat, keeping its source visible on the same canvas.
+      editor.setCamera({ x: -bounds.center.x + (editor.getViewportScreenBounds().w - 440) / (2 * zoom), y: -bounds.center.y + editor.getViewportScreenBounds().h / (2 * zoom), z: zoom })
+    }
   }
-  const addNode = (node: UnfoldNode, parentIds: TLShapeId[], position?: { x: number; y: number }) => {
-    const parent = parentIds[0] ? nodeAt(editor, parentIds[0]) : undefined
-    const x = position?.x ?? parent?.x ?? 160
-    let y = position?.y ?? (parent ? parent.y + getNodeHeightPx(editor, parent) + 65 : 200)
+  const activate = (id: TLShapeId, chat: Chat) => {
+    uiState.update(editor, state => ({ ...state, activeChat: { nodeId: id, chatId: chat.id }, panel: false }))
+    focus(id)
+  }
+  const sourceBranches = (id: TLShapeId) => {
+    const node = nodeAt(editor, id)?.props.node
+    if (!node) return []
+    if (node.type === 'opportunity') return node.sourceBranchIds
+    const shared = nodes(editor).find(shape => shape.props.node.type === 'opportunity' && shape.props.node.branchId === node.branchId)?.props.node
+    return shared?.type === 'opportunity' ? shared.sourceBranchIds : [node.branchId]
+  }
+  const createChat = (id: TLShapeId, sourceIds: TLShapeId[] = [id], branchIds = sourceBranches(id), operation: Chat['operation'] = 'branch') => {
+    const node = nodeAt(editor, id)?.props.node
+    if (!node || !branchIds.length) return
+    const contextChats = operation === 'connect' ? sourceIds.flatMap(sourceId => {
+      const previous = nodeAt(editor, sourceId)?.props.node.chats?.filter(chat => chat.operation !== 'connect').at(-1)
+      const lastMessage = previous?.messages.at(-1)
+      return previous ? [{ nodeId: sourceId, chatId: previous.id, ...(lastMessage ? { messageId: lastMessage.id } : {}) }] : []
+    }) : []
+    const chat: Chat = { id: crypto.randomUUID(), title: operation === 'connect' ? 'Find a shared direction' : `Exploration ${(node.chats?.length ?? 0) + 1}`, contextChats, sourceIds, branchIds, operation, messages: [], createdAt: Date.now() }
+    editor.markHistoryStoppingPoint('start exploration')
+    update(editor, id, node => ({ ...node, ...(node.type === 'inspiration' ? { started: true } : {}), chats: [...(node.chats ?? []), chat] }))
+    activate(id, chat)
+    return chat
+  }
+  const invalidate = (id: TLShapeId) => {
+    const affected = invalidatedBy(records(), id)
+    for (const shape of nodes(editor)) if (affected.has(shape.id)) update(editor, shape.id, node => ({ ...node, stale: true, revision: node.revision + 1 }))
+    for (const [jobId, job] of running) if (job.dependencies.some(dependency => dependency.id === id || affected.has(dependency.id))) cancel(jobId)
+  }
+  const addNode = (node: UnfoldNode, parentIds: TLShapeId[]) => {
+    const parents = parentIds.flatMap(id => { const shape = nodeAt(editor, id); return shape ? [shape] : [] })
+    const x = parents.reduce((total, shape) => total + shape.x, 0) / parents.length
+    let y = Math.max(...parents.map(shape => shape.y + getNodeHeightPx(editor, shape))) + 80
     for (let i = 0; i < 40; i++) {
-      const collision = nodes(editor).find(shape => Math.abs(shape.x - x) < 355 && shape.y < y + 250 && shape.y + getNodeHeightPx(editor, shape) > y - 40)
+      const collision = nodes(editor).find(shape => Math.abs(shape.x - x) < 355 && shape.y < y + 330 && shape.y + getNodeHeightPx(editor, shape) > y - 40)
       if (!collision) break
       y = collision.y + getNodeHeightPx(editor, collision) + 65
     }
     const id = createShapeId()
     editor.createShape<NodeShape>({ id, type: 'node', x, y, props: { node } })
-    parentIds.forEach((parentId, index) => link(editor, parentId, id, parentIds.length === 2 ? `goal-${index}` : 'input'))
+    parentIds.forEach((parentId, index) => link(editor, parentId, id, parentIds.length === 2 && node.type === 'opportunity' ? `goal-${index}` : 'input'))
     return id
   }
-  const applyProposal = (proposal: Proposal, sourceId: TLShapeId, branchIds: string[], dependencies: UnfoldNode['dependsOn']) => {
+  const run = async (sourceId: TLShapeId, chatId: string) => {
     const source = nodeAt(editor, sourceId)
-    if (!source) return
-    const common = { ...baseNode(source.props.node.branchId, proposal.kind === 'opportunity' ? 'connection' : 'branch'), dependsOn: dependencies }
-    let id: TLShapeId | undefined
-    editor.markHistoryStoppingPoint('agent step')
-    editor.run(() => {
-      if (proposal.kind === 'question') id = addNode({ ...common, type: 'question', prompt: proposal.prompt, options: proposal.options, purpose: proposal.purpose }, [sourceId])
-      if (proposal.kind === 'action') id = addNode({ ...common, type: 'action', title: proposal.title, description: proposal.description, sources: proposal.sources, completed: false, reflection: '' }, [sourceId])
-      if (proposal.kind === 'opportunity') {
-        const roots = branchIds.flatMap(branch => nodes(editor).filter(shape => shape.props.node.branchId === branch && !shape.props.node.stale).sort((a,b) => b.props.node.sequence - a.props.node.sequence).slice(0, 1))
-        if (roots.length !== 2 || !roots[0] || !roots[1]) return
-        const a = roots[0], b = roots[1]
-        id = addNode({ ...common, branchId: `shared-${crypto.randomUUID()}`, type: 'opportunity', title: proposal.title, description: proposal.description, benefitA: proposal.benefitA, benefitB: proposal.benefitB, status: 'proposed', refinement: '', sourceBranchIds: branchIds }, [a.id, b.id], { x: (a.x + b.x) / 2, y: Math.max(a.y + getNodeHeightPx(editor, a), b.y + getNodeHeightPx(editor, b)) + 90 })
-      }
-    })
-    if (id) { editor.select(id); editor.zoomToSelection({ animation: { duration: 250 } }) }
-  }
-  const run = async (sourceId: TLShapeId, operation: AgentRequest['operation'], note = '', explicitBranches?: string[]) => {
-    const source = nodeAt(editor, sourceId)
-    if (!source) return
-    const sourceNode = source.props.node
-    const sharedSource = nodes(editor).find(shape => shape.props.node.type === 'opportunity' && shape.props.node.branchId === sourceNode.branchId)?.props.node
-    const branchIds = explicitBranches || (sourceNode.type === 'opportunity' ? sourceNode.sourceBranchIds : sharedSource?.type === 'opportunity' ? sharedSource.sourceBranchIds : [sourceNode.branchId])
-    for (const [id, job] of running) if (job.branches.some(branch => branchIds.includes(branch))) cancel(id)
+    const chat = chatAt(sourceId, chatId)
+    if (!source || !chat) return
+    cancel(chatId)
     const controller = new AbortController(); const requestId = crypto.randomUUID()
-    running.set(sourceId, { requestId, controller, branches: branchIds })
-    retries.set(sourceId, () => launch(run(sourceId, operation, note, explicitBranches)))
-    uiState.update(editor, state => ({ ...state, notice: '', jobs: { ...state.jobs, [sourceId]: { status: 'running', message: operation === 'connect' ? 'Finding the thread between your goals…' : operation === 'research' ? 'Looking for a real first step…' : 'Following your inspiration…' } } }))
+    const all = records()
+    const dependencyIds = new Set([...chat.branchIds, ...chat.sourceIds.flatMap(id => lineage(all, id).map(record => record.id))])
+    const dependencies = all.filter(record => dependencyIds.has(record.id)).map(record => ({ id: record.id, revision: record.node.revision }))
+    running.set(chatId, { requestId, controller, sourceId, lastMessageId: chat.messages.at(-1)?.id, dependencies })
+    retries.set(chatId, () => launch(run(sourceId, chatId)))
+    uiState.update(editor, state => ({ ...state, notice: '', jobs: { ...state.jobs, [chatId]: { status: 'running', message: chat.operation === 'connect' ? 'Finding a shared direction…' : chat.operation === 'research' ? 'Looking for a real first step…' : 'Following your inspiration…' } } }))
     try {
-      const records = nodes(editor).map(shape => ({ id: shape.id, node: shape.props.node }))
-      const dependencies = records.filter(record => branchIds.includes(record.node.branchId) && !record.node.stale).map(record => ({ id: record.id, revision: record.node.revision }))
-      if (!dependencies.some(dependency => dependency.id === sourceId)) dependencies.push({ id: sourceId, revision: sourceNode.revision })
-      const branches = branchIds.map(id => branchContext(records, id))
+      const branches = chat.branchIds.map(branchId => chatContext(all, sourceId, chat, branchId))
       let image: string | undefined
-      const root = nodes(editor).find(shape => shape.id === branchIds[0])?.props.node
-      if (operation === 'branch' && root?.type === 'inspiration' && uiState.get(editor).mode === 'live') {
+      const root = all.find(record => record.id === chat.branchIds[0])?.node
+      if (chat.operation === 'branch' && root?.type === 'inspiration' && uiState.get(editor).mode === 'live') {
         const asset = editor.getAssets().find(asset => asset.id === root.assetId)
         if (asset?.type === 'image' && asset.props.src) {
           const url = await editor.resolveAssetUrl(asset.id, { shouldResolveToOriginal: true })
@@ -109,69 +127,87 @@ export function setupUnfold(editor: Editor) {
           else { const blob = await (await fetch(url, { signal: controller.signal })).blob(); image = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Could not read the image.')); reader.onerror = () => reject(new Error('Could not read the image.')); reader.readAsDataURL(blob) }) }
         }
       }
-      const selectedContext = sourceNode.type === 'opportunity' ? `Selected shared direction: ${sourceNode.title}. ${sourceNode.description}. Benefits: ${sourceNode.benefitA}; ${sourceNode.benefitB}. Status: ${sourceNode.status}.`
-        : sourceNode.type === 'action' ? `Previous step: ${sourceNode.title}. User's reflection: ${sourceNode.reflection || 'not yet provided'}.` : ''
-      const result = await requestAgent({ requestId, operation, branches, image, note: [note, selectedContext].filter(Boolean).join('\n').slice(0, 2000) }, controller.signal, event => activity(event.role, event.message))
-      const current = new Map(nodes(editor).map(shape => [shape.id, shape.props.node.revision]))
-      if (controller.signal.aborted || running.get(sourceId)?.requestId !== requestId || !revisionsMatch(dependencies, current)) return
+      const selectedContext = source.props.node.type === 'inspiration' ? '' : `Build from this outcome: ${nodeTitle(source.props.node)}. ${source.props.node.type === 'action' || source.props.node.type === 'opportunity' ? source.props.node.description : ''}`
+      const latest = chat.messages.filter(message => message.role === 'user').at(-1)
+      const result = await requestAgent({ requestId, operation: chat.operation, branches, image, note: [selectedContext, latest?.role === 'user' ? latest.text : ''].filter(Boolean).join('\n').slice(0, 2000) }, controller.signal, event => {
+        if (running.get(chatId)?.requestId === requestId) activity(event.role, event.message)
+      })
+      if (controller.signal.aborted || running.get(chatId)?.requestId !== requestId || !chatAt(sourceId, chatId) || !revisionsMatch(dependencies, new Map(records().map(record => [record.id, record.node.revision])))) return
+      running.delete(chatId)
+      editChat(sourceId, chatId, current => ({ ...current, messages: [...current.messages, { id: crypto.randomUUID(), role: 'assistant', proposal: result.proposal, dependsOn: dependencies }] }))
       if (result.mode !== uiState.get(editor).mode) uiState.update(editor, state => ({ ...state, mode: result.mode }))
-      applyProposal(result.proposal, sourceId, branchIds, dependencies)
-      clearJob(sourceId)
-      activity('coordinator', 'Your next step is ready. You decide where this goes.')
-      if (operation === 'branch' && !nodes(editor).some(shape => shape.props.node.type === 'opportunity')) {
-        const roots = nodes(editor).filter(shape => shape.props.node.type === 'inspiration' && shape.props.node.started && branchContext(nodes(editor).map(s => ({ id: s.id, node: s.props.node })), shape.id).answers.length > 0).slice(0, 2)
-        if (roots.length === 2) queueMicrotask(() => api.connect(roots.map(root => root.id)))
-      }
+      clearJob(chatId)
+      activity('coordinator', 'Reply ready in your chat. Add an outcome to the canvas when it feels right.')
     } catch (error) {
-      if (!controller.signal.aborted && running.get(sourceId)?.requestId === requestId) uiState.update(editor, state => ({ ...state, jobs: { ...state.jobs, [sourceId]: { status: 'error', message: error instanceof Error ? error.message : 'Something went wrong. Please retry.' } } }))
-    } finally { if (running.get(sourceId)?.requestId === requestId) { if (uiState.get(editor).jobs[sourceId]?.status === 'running') clearJob(sourceId); running.delete(sourceId) } }
+      if (!controller.signal.aborted && running.get(chatId)?.requestId === requestId) uiState.update(editor, state => ({ ...state, jobs: { ...state.jobs, [chatId]: { status: 'error', message: error instanceof Error ? error.message : 'Something went wrong. Please retry.' } } }))
+    } finally {
+      if (running.get(chatId)?.requestId === requestId) { if (uiState.get(editor).jobs[chatId]?.status === 'running') clearJob(chatId); running.delete(chatId) }
+    }
   }
   const api: UnfoldActions = {
-    start(id) {
-      const shape = nodeAt(editor, id)
-      if (!shape) return
-      if (shape.props.node.type === 'inspiration') update(editor, id, node => node.type === 'inspiration' ? { ...node, started: true } : node)
-      launch(run(id, 'branch'))
+    openChat(id, chatId) {
+      const node = nodeAt(editor, id)?.props.node
+      if (!node) return
+      const chat = chatId ? node.chats?.find(chat => chat.id === chatId) : node.chats?.at(-1)
+      if (chat) activate(id, chat)
+      else { const next = createChat(id, [id], sourceBranches(id), node.type === 'opportunity' ? 'research' : 'branch'); if (next) launch(run(id, next.id)) }
     },
-    answer(id, choice, comment) {
-      const shape = nodeAt(editor, id)
-      if (!shape || shape.props.node.type !== 'question') return
-      const existing = nodes(editor).find(item => item.props.node.type === 'answer' && item.props.node.questionId === id)
-      const text = [choice, comment.trim()].filter(Boolean).join(' — ')
-      if (!text) { notice('Choose an answer or add a short comment.'); return }
-      if (existing) { api.updateAnswer(existing.id, text); launch(run(existing.id, 'branch')); return }
-      editor.markHistoryStoppingPoint('answer question')
-      let answerId: TLShapeId | undefined
-      editor.run(() => { answerId = addNode({ ...baseNode(shape.props.node.branchId), type: 'answer', text, questionId: id, dependsOn: [{ id, revision: shape.props.node.revision }] }, [id]) })
-      if (answerId) launch(run(answerId, 'branch'))
+    newChat(id) { const chat = createChat(id, [id], sourceBranches(id), nodeAt(editor, id)?.props.node.type === 'opportunity' ? 'research' : 'branch'); if (chat) launch(run(id, chat.id)) },
+    closeChat() { uiState.update(editor, state => ({ ...state, activeChat: null })) },
+    send(id, chatId, text, replyTo) {
+      const chat = chatAt(id, chatId)
+      if (!text.trim() || !chat || uiState.get(editor).jobs[chatId]?.status === 'running') return
+      const message: ChatMessage = { id: crypto.randomUUID(), role: 'user', text: text.trim().slice(0, 2000), ...(replyTo ? { replyTo } : {}) }
+      editor.markHistoryStoppingPoint('chat message')
+      editChat(id, chatId, current => ({ ...current, messages: [...current.messages, message] }))
+      launch(run(id, chatId))
+    },
+    publish(id, chatId, messageId) {
+      const chat = chatAt(id, chatId)
+      const message = chat?.messages.find(message => message.id === messageId)
+      const source = nodeAt(editor, id)
+      if (!chat || !source || !message || !canPublish(message) || message.role !== 'assistant') return
+      if (!revisionsMatch(message.dependsOn, new Map(records().map(record => [record.id, record.node.revision])))) { notice('Your sources changed. Continue the chat to update this outcome before adding it.'); return }
+      const parents = chat.sourceIds.flatMap(id => nodes(editor).filter(shape => shape.id === id).map(shape => shape.id))
+      if (parents.length !== chat.sourceIds.length) { notice('A source was removed. Start a new exploration from an existing node.'); return }
+      const proposal = message.proposal
+      const common = { ...baseNode(source.props.node.branchId, proposal.kind === 'opportunity' ? 'connection' : 'research'), dependsOn: message.dependsOn, origin: { nodeId: id, chatId, messageId } }
+      editor.markHistoryStoppingPoint('add outcome to canvas')
+      editor.run(() => {
+        let outcomeId: TLShapeId
+        if (proposal.kind === 'action') outcomeId = addNode({ ...common, type: 'action', title: proposal.title, description: proposal.description, sources: proposal.sources, completed: false, reflection: '' }, parents)
+        else if (proposal.kind === 'opportunity') outcomeId = addNode({ ...common, branchId: `shared-${crypto.randomUUID()}`, type: 'opportunity', title: proposal.title, description: proposal.description, benefitA: proposal.benefitA, benefitB: proposal.benefitB, status: 'accepted', refinement: '', sourceBranchIds: chat.branchIds }, parents)
+        else return
+        editChat(id, chatId, current => ({ ...current, messages: current.messages.map(item => item.id === messageId ? { ...item, outcomeId } : item) }))
+        editor.select(outcomeId)
+        const bounds = [...parents, outcomeId].flatMap(id => { const bounds = editor.getShapePageBounds(id); return bounds ? [bounds] : [] })
+        const minX = Math.min(...bounds.map(bounds => bounds.x)), minY = Math.min(...bounds.map(bounds => bounds.y))
+        const maxX = Math.max(...bounds.map(bounds => bounds.maxX)), maxY = Math.max(...bounds.map(bounds => bounds.maxY))
+        const screen = editor.getViewportScreenBounds()
+        const width = screen.w > 850 ? screen.w - 440 : screen.w
+        const zoom = Math.min(1, (width - 100) / (maxX - minX), (screen.h - 200) / (maxY - minY))
+        editor.setCamera({ x: -(minX + maxX) / 2 + width / (2 * zoom), y: -(minY + maxY) / 2 + screen.h / (2 * zoom), z: zoom })
+      })
+      notice('Added to your canvas. Your conversation stays with its source.')
     },
     connect(ids) {
       let selected = (ids || editor.getSelectedShapeIds()).flatMap(id => { const shape = nodeAt(editor, id); return shape ? [shape] : [] })
-      if (!ids && selected.length !== 2) selected = nodes(editor).filter(shape => shape.props.node.type === 'inspiration' && shape.props.node.started).slice(0, 2)
+      if (!ids && selected.length !== 2) selected = nodes(editor).filter(shape => shape.props.node.type === 'inspiration').slice(0, 2)
       const first = selected[0], second = selected[1]
-      if (!first || !second || first.props.node.branchId === second.props.node.branchId) { notice('Start two inspirations, or select a node in each branch to connect them.'); return }
-      const idsToConnect = [first.props.node.branchId, second.props.node.branchId]
-      if (idsToConnect.some(id => !nodes(editor).some(shape => shape.id === id && shape.props.node.type === 'inspiration'))) { notice('Choose two original inspiration branches.'); return }
-      launch(run(first.id, 'connect', '', idsToConnect))
+      if (!first || !second || first.props.node.branchId === second.props.node.branchId) { notice('Select a node from each of two inspirations to find a shared direction.'); return }
+      const branchIds = [first.props.node.branchId, second.props.node.branchId]
+      if (branchIds.some(id => !records().some(record => record.id === id && record.node.type === 'inspiration'))) { notice('Choose two original inspiration branches.'); return }
+      const existing = first.props.node.chats?.find(chat => chat.operation === 'connect' && chat.sourceIds.includes(second.id) && chat.sourceIds.includes(first.id))
+      if (existing) { activate(first.id, existing); return }
+      const chat = createChat(first.id, [first.id, second.id], branchIds, 'connect')
+      if (chat) launch(run(first.id, chat.id))
     },
     manualConnect(a, b) { api.connect([a, b]) },
-    research(id, note) { const shape = nodeAt(editor, id); if (!shape || (shape.props.node.type === 'opportunity' && shape.props.node.status !== 'accepted')) return; launch(run(id, 'research', note)) },
     retry(id) { retries.get(id)?.() },
-    stop(id) { cancel(id); activity('coordinator', 'Stopped. Your saved decisions are unchanged.') },
-    decide(id, accepted) {
-      editor.markHistoryStoppingPoint('decide opportunity')
-      update(editor, id, node => node.type === 'opportunity' ? { ...node, status: accepted ? 'accepted' : 'rejected', revision: node.revision + 1 } : node)
-      activity('you', accepted ? 'Accepted the shared direction.' : 'Set this connection aside.')
-      if (accepted) api.research(id, 'Find one real opportunity for the accepted shared direction. Include a small first step and cite evidence.')
-      else cancel(id)
-    },
-    refine(id, note) { if (note.trim()) launch(run(id, 'connect', note)) },
-    updateGoal(id, goal) { if (!goal.trim()) return; editor.markHistoryStoppingPoint('edit goal'); invalidate(id); update(editor, id, node => node.type === 'inspiration' ? { ...node, goal: goal.trim(), revision: node.revision + 1 } : node); notice('Goal updated. Earlier suggestions are marked for review.') },
-    updateAnswer(id, text) { editor.markHistoryStoppingPoint('edit answer'); invalidate(id); update(editor, id, node => node.type === 'answer' ? { ...node, text, revision: node.revision + 1 } : node) },
+    stop(id) { cancel(id); activity('coordinator', 'Stopped. Your conversation is saved; continue whenever you like.') },
+    updateGoal(id, goal) { if (!goal.trim()) return; editor.markHistoryStoppingPoint('edit goal'); invalidate(id); update(editor, id, node => node.type === 'inspiration' ? { ...node, goal: goal.trim(), revision: node.revision + 1 } : node); notice('Goal updated. Earlier outcomes may need a fresh look.') },
     complete(id, reflection) { update(editor, id, node => node.type === 'action' ? { ...node, completed: true, reflection, revision: node.revision + 1 } : node); activity('you', 'Recorded your first step and reflection.') },
-    remove(id) { editor.markHistoryStoppingPoint('remove option'); invalidate(id); editor.deleteShapes([id]); notice('Removed. Dependent suggestions are marked for review.') },
-    collapse(branchId) { collapsedBranches.update(editor, branches => branches.includes(branchId) ? branches.filter(id => id !== branchId) : [...branches, branchId]) },
-    moveBranch(branchId) { editor.select(...nodes(editor).filter(shape => shape.props.node.branchId === branchId).map(shape => shape.id)); notice('Branch selected. Drag a card to move the branch together.') },
+    remove(id) { editor.markHistoryStoppingPoint('remove option'); invalidate(id); editor.deleteShapes([id]); notice('Removed. Use Undo to restore it.') },
     async importFiles(files) {
       try {
         for (const file of files) {
@@ -200,11 +236,31 @@ export function setupUnfold(editor: Editor) {
       } catch { notice('Could not load the sample inspirations. Try uploading your own images.') }
     },
   }
+  const legacy = foldLegacyMessages(records())
+  if (legacy.removed.length) editor.run(() => {
+    for (const record of legacy.updates) {
+      const shape = nodes(editor).find(shape => shape.id === record.id)
+      if (shape) update(editor, shape.id, () => record.node)
+    }
+    for (const shape of editor.getCurrentPageShapes()) {
+      if (!editor.isShapeOfType(shape, 'connection')) continue
+      const bindings = getConnectionBindings(editor, shape)
+      if (!bindings.start || !bindings.end || !legacy.removed.includes(bindings.start.toId) || legacy.removed.includes(bindings.end.toId)) continue
+      const old = nodeAt(editor, bindings.start.toId)
+      const root = nodes(editor).find(shape => shape.id === old?.props.node.branchId)
+      if (root) createOrUpdateConnectionBinding(editor, shape, root, bindings.start.props)
+    }
+    editor.deleteShapes(nodes(editor).filter(shape => legacy.removed.includes(shape.id)).map(shape => shape.id))
+  })
   actions.set(editor, api)
   const Config = z.object({ mode: z.enum(['live', 'demo']), provider: z.string() })
   fetch('/api/config').then(response => { if (!response.ok) throw new Error(); return response.json() }).then(value => { const config = Config.parse(value); uiState.update(editor, state => ({ ...state, ...config })) }).catch(() => notice('The agent server is unavailable. Your board still works; restart pnpm dev to reconnect.'))
   const unlisten = editor.store.listen(() => {
-    for (const [id] of running) if (!nodeAt(editor, id)) cancel(id)
+    const current = new Map(records().map(record => [record.id, record.node.revision]))
+    for (const [id, job] of running) if (!revisionsMatch(job.dependencies, current) || !chatAt(job.sourceId, id) || chatAt(job.sourceId, id)?.messages.at(-1)?.id !== job.lastMessageId) cancel(id)
+    const active = uiState.get(editor).activeChat
+    if (active && !chatAt(active.nodeId, active.chatId)) api.closeChat()
+
   }, { scope: 'document' })
   return () => { for (const [id] of running) cancel(id); unlisten(); actions.delete(editor) }
 }

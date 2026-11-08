@@ -4,7 +4,27 @@ const safeUrl = z.url().refine(value => ['https:', 'http:'].includes(new URL(val
 export const SourceSchema = z.object({ id: z.string(), title: z.string(), url: safeUrl })
 export type Source = z.infer<typeof SourceSchema>
 export const DependencySchema = z.object({ id: z.string(), revision: z.number().int().nonnegative() })
+export const ProposalSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('question'), prompt: z.string().min(1), options: z.array(z.string()).min(2).max(4), purpose: z.string() }),
+  z.object({ kind: z.literal('research'), brief: z.string().min(1) }),
+  z.object({ kind: z.literal('opportunity'), title: z.string().min(1), description: z.string(), benefitA: z.string(), benefitB: z.string() }),
+  z.object({ kind: z.literal('action'), title: z.string().min(1), description: z.string(), sources: z.array(SourceSchema) }),
+])
+export type Proposal = z.infer<typeof ProposalSchema>
+export const ChatMessageSchema = z.discriminatedUnion('role', [
+  z.object({ id: z.string(), role: z.literal('user'), text: z.string().max(2000), replyTo: z.string().optional() }),
+  z.object({ id: z.string(), role: z.literal('assistant'), proposal: ProposalSchema, dependsOn: z.array(DependencySchema), outcomeId: z.string().optional() }),
+])
+export const ChatSchema = z.object({
+  id: z.string(), title: z.string().max(120), contextChats: z.array(z.object({ nodeId: z.string(), chatId: z.string(), messageId: z.string().optional() })).optional(), sourceIds: z.array(z.string()).min(1).max(2),
+  branchIds: z.array(z.string()).min(1).max(2), operation: z.enum(['branch', 'connect', 'research']),
+  messages: z.array(ChatMessageSchema), createdAt: z.number(),
+})
+export type Chat = z.infer<typeof ChatSchema>
+export type ChatMessage = z.infer<typeof ChatMessageSchema>
 const base = {
+  chats: z.array(ChatSchema).optional(),
+  origin: z.object({ nodeId: z.string(), chatId: z.string(), messageId: z.string() }).optional(),
   branchId: z.string(), sequence: z.number(), revision: z.number().int().nonnegative(), stale: z.boolean(),
   dependsOn: z.array(DependencySchema), agent: z.enum(['you', 'branch', 'research', 'connection']), createdAt: z.number(),
 }
@@ -30,13 +50,6 @@ export const RequestSchema = z.object({
   image: z.string().max(6_000_000).optional(), note: z.string().max(2000),
 })
 export type AgentRequest = z.infer<typeof RequestSchema>
-export const ProposalSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('question'), prompt: z.string().min(1), options: z.array(z.string()).min(2).max(4), purpose: z.string() }),
-  z.object({ kind: z.literal('research'), brief: z.string().min(1) }),
-  z.object({ kind: z.literal('opportunity'), title: z.string().min(1), description: z.string(), benefitA: z.string(), benefitB: z.string() }),
-  z.object({ kind: z.literal('action'), title: z.string().min(1), description: z.string(), sources: z.array(SourceSchema) }),
-])
-export type Proposal = z.infer<typeof ProposalSchema>
 export const ActivitySchema = z.object({ role: z.enum(['branch', 'research', 'connection', 'coordinator']), message: z.string() })
 export const ResultSchema = z.object({ requestId: z.string(), proposal: ProposalSchema, activity: z.array(ActivitySchema), mode: z.enum(['live', 'demo']) })
 export type AgentResult = z.infer<typeof ResultSchema>

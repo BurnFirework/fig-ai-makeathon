@@ -5,17 +5,19 @@ export interface UiState {
   mode: 'live' | 'demo'; provider: string; activity: Activity[]; panel: boolean;
   jobs: Record<string, { status: 'running' | 'error'; message: string }>;
   notice: string; saved: boolean;
+  chatView: 'focus' | 'board';
+  activeChat: { nodeId: TLShapeId; chatId: string } | null;
 }
-export const uiState = new EditorAtom<UiState>('unfold-ui', () => ({ mode: 'demo', provider: 'Preview', activity: [], panel: false, jobs: {}, notice: '', saved: true }))
-export const collapsedBranches = new EditorAtom<string[]>('unfold-collapsed', () => [])
+export const uiState = new EditorAtom<UiState>('unfold-ui', () => ({ mode: 'demo', provider: 'Preview', activity: [], panel: false, jobs: {}, notice: '', saved: true, activeChat: null, chatView: 'focus' }))
 export interface UnfoldActions {
-  start(id: TLShapeId): void; answer(id: TLShapeId, choice: string, comment: string): void;
+  openChat(id: TLShapeId, chatId?: string): void; newChat(id: TLShapeId): void; closeChat(): void;
+  send(id: TLShapeId, chatId: string, text: string, replyTo?: string): void;
+  publish(id: TLShapeId, chatId: string, messageId: string): void;
+
   connect(ids?: TLShapeId[]): void; manualConnect(a: TLShapeId, b: TLShapeId): void;
-  research(id: TLShapeId, note?: string): void; retry(id: TLShapeId): void; stop(id: TLShapeId): void;
-  decide(id: TLShapeId, accepted: boolean): void; refine(id: TLShapeId, note: string): void;
-  updateGoal(id: TLShapeId, goal: string): void; updateAnswer(id: TLShapeId, text: string): void;
+  retry(id: string): void; stop(id: string): void;
+  updateGoal(id: TLShapeId, goal: string): void;
   complete(id: TLShapeId, reflection: string): void; remove(id: TLShapeId): void;
-  collapse(branchId: string): void; moveBranch(branchId: string): void;
   importFiles(files: File[]): Promise<void>; samples(): Promise<void>;
 }
 export const actions = new WeakMap<Editor, UnfoldActions>()

@@ -2,20 +2,21 @@ import { BOARD_CATALOG_KEY, readBoardCatalog, initialBoardCatalog, type BoardCat
 import { BoardSwitcher, BoardsContext } from './components/board-switcher'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select'
 import { Button } from './components/ui/button'
+import { ChatPanel } from './components/chat-panel'
+import { lineage, nodeTitle } from '../shared/chats'
 import { Input } from './components/ui/input'
 import { z } from 'zod'
 import { useRef, useState } from 'react'
 import { Editor, type TLComponents, Tldraw, useEditor, useValue } from 'tldraw'
-import { Activity, ArrowDownToLine, ArrowRight, Check, Expand, Flower2, Hand, ImagePlus, Link2, MousePointer2, Plus, Sparkles, Undo2, Redo2, X } from 'lucide-react'
-import { Blossom, Bow, Heart, Rose, Sparkle, Tape } from './decor'
+import { Activity, ArrowDownToLine, ArrowRight, Check, ChevronRight, Expand, Hand, ImagePlus, Link2, MessageCircle, MousePointer2, Undo2, Redo2, X } from 'lucide-react'
 import { StylePicker } from './StylePicker'
-import { actions, collapsedBranches, uiState } from './actions'
+import { actions, uiState } from './actions'
 import { NodeShapeUtil } from './nodes/NodeShapeUtil'
 import { ConnectionShapeUtil } from './connection/ConnectionShapeUtil'
-import { ConnectionBindingUtil, getConnectionBindings } from './connection/ConnectionBindingUtil'
+import { ConnectionBindingUtil } from './connection/ConnectionBindingUtil'
 import { keepConnectionsAtBottom } from './connection/keepConnectionsAtBottom'
 import { PointingPort } from './ports/PointingPort'
-import { nodeAt, nodes, setupUnfold } from './unfold'
+import { nodes, setupUnfold } from './unfold'
 
 function reportFailure(editor: Editor, error: unknown) {
   uiState.update(editor, state => ({ ...state, notice: error instanceof Error ? error.message : 'The operation could not finish. Please retry.' }))
@@ -33,15 +34,20 @@ function Chrome() {
   const editor = useEditor(); const input = useRef<HTMLInputElement>(null)
   const state = useValue('chrome state', () => uiState.get(editor), [editor])
   const roots = useValue('roots', () => nodes(editor).filter(shape => shape.props.node.type === 'inspiration'), [editor])
+  const path = useValue('exploration path', () => {
+    const id = state.activeChat?.nodeId ?? editor.getSelectedShapeIds()[0]
+    return id ? lineage(nodes(editor).map(shape => ({ id: shape.id, node: shape.props.node })), id) : []
+  }, [editor, state.activeChat])
+  const selected = useValue('selected node', () => editor.getSelectedShapes().find(shape => editor.isShapeOfType(shape, 'node')), [editor])
   const tool = useValue('tool', () => editor.getCurrentToolId(), [editor])
   const jobs = Object.values(state.jobs).filter(job => job.status === 'running').length
   const api = actions.get(editor)
-  return <div className="chrome" onPointerDown={event => { if (event.target !== event.currentTarget) editor.markEventAsHandled(event) }}>
+  return <div className={`chrome ${state.activeChat ? `has-chat ${state.chatView === 'focus' ? 'has-focus-chat' : ''}` : ''}`} onPointerDown={event => { if (event.target !== event.currentTarget) editor.markEventAsHandled(event) }}>
     <header className="app-header">
-      <a className="wordmark" href="#" aria-label="Unfold home" onClick={event => { event.preventDefault(); editor.zoomToFit({ animation: { duration: 200 } }) }}>Unfold<Bow size={30}/></a>
-      <BoardSwitcher/>
+      <a className="wordmark" href="#" aria-label="Unfold home" onClick={event => { event.preventDefault(); api?.closeChat(); editor.selectNone(); editor.zoomToFit({ animation: { duration: 200 } }) }}>Unfold<span className="wordmark-flower">✳</span></a>
+      <div className="header-navigation"><BoardSwitcher/><nav className="breadcrumbs" aria-label="Exploration breadcrumbs">{path.map((record, index) => <span className="breadcrumb" key={record.id}><ChevronRight size={13}/><button aria-current={index === path.length - 1 && !state.activeChat ? 'location' : undefined} title={nodeTitle(record.node)} onClick={() => { const shape = nodes(editor).find(shape => shape.id === record.id); if (shape) { api?.closeChat(); editor.select(shape.id); editor.zoomToSelection() } }}>{nodeTitle(record.node)}</button></span>)}{state.activeChat && <span className="breadcrumb current"><ChevronRight size={13}/><MessageCircle size={13}/><span aria-current="location">Chat</span></span>}</nav></div>
       <div className="header-right">
-        <span className="saved-status"><Check size={12}/> Saved on this device</span>
+        <span className="saved-status" title="Stored in this browser on this device"><Check size={12}/> On this device</span>
         <Select items={[{ value: 'demo', label: 'Preview agents' }, { value: 'claude', label: 'Claude Code' }, { value: 'codex', label: 'Codex CLI' }]} disabled={jobs > 0} value={state.mode === 'demo' ? 'demo' : state.provider.toLowerCase().includes('claude') ? 'claude' : 'codex'} onValueChange={provider => {
           if (provider) switchProvider(editor, provider).catch((error: unknown) => reportFailure(editor, error))
         }}>
@@ -50,38 +56,21 @@ function Chrome() {
         </Select>
         <StylePicker/>
         <Button variant="ghost" size="sm" aria-label="Agent activity" aria-pressed={state.panel} onClick={() => uiState.update(editor, state => ({ ...state, panel: !state.panel }))}>
-          <Activity/><span>Agent activity</span>{jobs > 0 && <span className="rounded-full bg-secondary px-1.5 text-xs">{jobs}</span>}
+          <Activity/>{jobs > 0 && <span className="rounded-full bg-secondary px-1.5 text-xs">{jobs}</span>}
         </Button>
       </div>
     </header>
-    <div className="board-heading"><div className="chapter-label"><span className="dot"/> A SPACE FOR WHAT’S NEXT</div><h1>Let your possibilities <em>unfold</em>.</h1><p><span className="ribbon">Start with something that moves you. Find a small way forward.</span></p></div>
-    {roots.length > 0 && <nav className="inspiration-tabs" aria-label="Your inspirations">{roots.map((root, index) => <Button variant="outline" size="pill" key={root.id} title="Focus inspiration. Shift-click to select two." onClick={event => { if (event.shiftKey) editor.select(...new Set([...editor.getSelectedShapeIds(), root.id])); else { editor.select(root.id); editor.zoomToSelection({ animation: { duration: 200 } }) } }}><span className="font-bold text-primary">{String(index + 1).padStart(2, '0')}</span><span className="truncate">{root.props.node.type === 'inspiration' ? root.props.node.goal : ''}</span></Button>)}</nav>}
-    <aside className="left-rail"><Button size="icon-sm" aria-label="Add inspiration" title="Add inspiration" onClick={() => input.current?.click()}><Plus size={20}/></Button><span/><Button variant="ghost" size="icon-sm" aria-label="Fit board" title="See the whole picture" onClick={() => editor.zoomToFit({ animation: { duration: 200 } })}><Expand size={18}/></Button><Button variant="ghost" size="icon-sm" aria-label="Connect two inspirations" title="Connect two inspirations" onClick={() => api?.connect()}><Link2 size={18}/></Button></aside>
-    {roots.length === 0 && <div className="empty-state"><div className="empty-illustration" aria-hidden="true"><Sparkle className="deco-sparkle-a" size={16}/><Sparkle className="deco-sparkle-b" size={22} color="var(--second-200)"/><span className="empty-paper first"><Tape/><span>a little<br/>curiosity <Sparkles size={22}/></span><small>for me</small></span><span className="empty-paper second"><Tape className="sage"/><span>something<br/>new <StarSmall/></span><small>soon ✿</small></span><Bow className="bow" size={58}/><Blossom className="deco-blossom" size={34}/></div><h2>Every next chapter<br/>starts with <em className="highlight">a little spark.</em></h2><p>Bring two images that speak to you.<br/>We’ll help you find the possibilities between them.</p><Button size="lg" className="empty-cta rounded-full px-6 text-xs font-bold uppercase tracking-[1.2px]" onClick={() => input.current?.click()}><ImagePlus size={17}/> Add your inspirations</Button><Button variant="link" size="text" className="mx-auto mt-3 flex font-serif text-[15px] font-normal italic" onClick={() => { api?.samples().catch((error: unknown) => reportFailure(editor, error)) }}>Or explore a sample board <ArrowRight size={14}/></Button><small>YOUR PACE · YOUR CHOICES · YOUR NEXT STEP</small></div>}
-    {roots.length > 0 && roots.every(root => root.props.node.type === 'inspiration' && !root.props.node.started) && <div className="board-hint"><span className="hint-star"><Heart size={16}/></span> Tap the heart to explore an inspiration.<span className="hint-separator">·</span> Select two branches to find a connection.</div>}
-    <div className="bottom-toolbar"><div className="tool-group"><Button variant="ghost" size="icon-sm" aria-pressed={tool === 'select'} title="Select (V)" aria-label="Select tool" onClick={() => editor.setCurrentTool('select')}><MousePointer2 size={18}/></Button><Button variant="ghost" size="icon-sm" aria-pressed={tool === 'hand'} title="Pan (H)" aria-label="Pan tool" onClick={() => editor.setCurrentTool('hand')}><Hand size={18}/></Button></div><span/><Button size="sm" className="add-image-tool rounded-full px-3.5 text-[10px] font-bold" aria-label="Add inspiration" onClick={() => input.current?.click()}><ImagePlus size={18}/><span>Add inspiration</span></Button><span/><Button variant="ghost" size="icon-sm" title="Connect goals" aria-label="Connect goals" onClick={() => api?.connect()}><Link2 size={18}/></Button><Button variant="ghost" size="icon-sm" title="Fit board" aria-label="Fit all nodes" onClick={() => editor.zoomToFit({ animation: { duration: 200 } })}><Expand size={18}/></Button><span/><Button variant="ghost" size="icon-sm" title="Undo" aria-label="Undo" onClick={() => editor.undo()}><Undo2 size={17}/></Button><Button variant="ghost" size="icon-sm" title="Redo" aria-label="Redo" onClick={() => editor.redo()}><Redo2 size={17}/></Button></div>
+    {roots.length === 0 && <div className="empty-state minimal-empty"><div className="empty-mark" aria-hidden="true">✳</div><span className="micro-label">A LITTLE ROOM FOR POSSIBILITY</span><h1>Start with a spark.</h1><p>Bring an image. Follow a conversation.<br/>Keep the ideas worth building on.</p><Button size="lg" onClick={() => input.current?.click()}><ImagePlus size={17}/> Add inspiration</Button><Button variant="link" size="sm" onClick={() => { api?.samples().catch((error: unknown) => reportFailure(editor, error)) }}>Explore a sample board <ArrowRight size={14}/></Button></div>}
+    {roots.length > 0 && !state.activeChat && <div className="canvas-caption"><span className="micro-label">YOUR THINKING, TAKING SHAPE</span><span>Open a chat from any inspiration. Keep what matters.</span></div>}
+    <ChatPanel/>
+    <div className="bottom-toolbar"><div className="tool-group"><Button variant="ghost" size="icon-sm" aria-pressed={tool === 'select'} title="Select (V)" aria-label="Select tool" onClick={() => editor.setCurrentTool('select')}><MousePointer2 size={18}/></Button><Button variant="ghost" size="icon-sm" aria-pressed={tool === 'hand'} title="Pan (H)" aria-label="Pan tool" onClick={() => editor.setCurrentTool('hand')}><Hand size={18}/></Button></div><span/><Button size="sm" className="add-image-tool rounded-full px-3.5 text-[10px] font-bold" aria-label="Add inspiration" onClick={() => input.current?.click()}><ImagePlus size={18}/><span>Add inspiration</span></Button>{selected && <Button variant="ghost" size="icon-sm" title="Open attached chat" aria-label="Open attached chat" onClick={() => api?.openChat(selected.id)}><MessageCircle size={18}/></Button>}<span/><Button variant="ghost" size="icon-sm" title="Connect goals" aria-label="Connect goals" onClick={() => api?.connect()}><Link2 size={18}/></Button><Button variant="ghost" size="icon-sm" title="Fit board" aria-label="Fit all nodes" onClick={() => editor.zoomToFit({ animation: { duration: 200 } })}><Expand size={18}/></Button><span/><Button variant="ghost" size="icon-sm" title="Undo" aria-label="Undo" onClick={() => editor.undo()}><Undo2 size={17}/></Button><Button variant="ghost" size="icon-sm" title="Redo" aria-label="Redo" onClick={() => editor.redo()}><Redo2 size={17}/></Button></div>
     <div className="bottom-note">{state.mode === 'demo' ? 'Preview mode · sample responses, no live web search' : `${state.provider} · your subscription, your choices`}</div>
-    <Rose className="corner-rose" size={72}/>
     {state.notice && <div className="notice" role="status"><span>{state.notice}</span><Button variant="ghost" size="icon-sm" aria-label="Dismiss notification" onClick={() => uiState.update(editor, state => ({ ...state, notice: '' }))}><X size={15}/></Button></div>}
-    {state.panel && <aside className="activity-panel"><header><div><span className="chapter-label"><span className="dot"/> BEHIND THE POSSIBILITIES</span><h2>A little <em>teamwork.</em></h2></div><Button variant="ghost" size="icon-sm" aria-label="Close activity" onClick={() => uiState.update(editor, state => ({ ...state, panel: false }))}><X size={17}/></Button></header><p>Your agents explore. You choose the direction.</p><div className="agent-roster"><span><i className="branch-dot"/> Branch</span><span><i className="research-dot"/> Research</span><span><i className="connection-dot"/> Connection</span></div><div className="activity-list">{state.activity.length === 0 ? <div className="activity-empty"><Heart size={28}/><p>Start with a heart.<br/>The story of your exploration will appear here.</p></div> : state.activity.map(item => <div className={`activity-item role-${item.role}`} key={item.id}><span className="activity-dot"/><div><strong>{item.role === 'you' ? 'You' : item.role.charAt(0).toUpperCase() + item.role.slice(1)}</strong><p>{item.message}</p></div><time>{new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>)}</div><footer><ArrowDownToLine size={13}/> Decisions are saved with your board.</footer></aside>}
+    {state.panel && <aside className="activity-panel"><header><div><span className="chapter-label"><span className="dot"/> BEHIND THE POSSIBILITIES</span><h2>A little <em>teamwork.</em></h2></div><Button variant="ghost" size="icon-sm" aria-label="Close activity" onClick={() => uiState.update(editor, state => ({ ...state, panel: false }))}><X size={17}/></Button></header><p>Your agents explore. You choose the direction.</p><div className="agent-roster"><span><i className="branch-dot"/> Branch</span><span><i className="research-dot"/> Research</span><span><i className="connection-dot"/> Connection</span></div><div className="activity-list">{state.activity.length === 0 ? <div className="activity-empty"><MessageCircle size={28}/><p>Start a conversation.<br/>The story of your exploration will appear here.</p></div> : state.activity.map(item => <div className={`activity-item role-${item.role}`} key={item.id}><span className="activity-dot"/><div><strong>{item.role === 'you' ? 'You' : item.role.charAt(0).toUpperCase() + item.role.slice(1)}</strong><p>{item.message}</p></div><time>{new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>)}</div><footer><ArrowDownToLine size={13}/> Decisions are saved with your board.</footer></aside>}
     <Input ref={input} type="file" accept="image/png,image/jpeg,image/webp" multiple hidden onChange={event => { api?.importFiles(Array.from(event.target.files || [])).catch((error: unknown) => reportFailure(editor, error)); event.target.value = '' }}/>
   </div>
 }
-function StarSmall() { return <Flower2 size={22}/> }
 const components: TLComponents = { Toolbar: null, MenuPanel: null, StylePanel: null, PageMenu: null, NavigationPanel: null, HelpMenu: null, ActionsMenu: null, QuickActions: null, InFrontOfTheCanvas: Chrome }
-function shapeVisibility(shape: Parameters<NonNullable<React.ComponentProps<typeof Tldraw>['getShapeVisibility']>>[0], editor: Editor) {
-  const hidden = collapsedBranches.get(editor)
-  if (editor.isShapeOfType(shape, 'node')) return shape.props.node.type !== 'inspiration' && hidden.includes(shape.props.node.branchId) ? 'hidden' : 'inherit'
-  if (editor.isShapeOfType(shape, 'connection')) {
-    const bindings = getConnectionBindings(editor, shape)
-    for (const binding of [bindings.start, bindings.end]) {
-      const node = binding ? nodeAt(editor, binding.toId)?.props.node : undefined
-      if (node && node.type !== 'inspiration' && hidden.includes(node.branchId)) return 'hidden'
-    }
-  }
-  return 'inherit'
-}
-
 export default function App() {
   const [initial] = useState(() => {
     try { return { catalog: readBoardCatalog(localStorage), error: '' } }
@@ -102,7 +91,7 @@ export default function App() {
     }
   }
   const licenseKey = import.meta.env.VITE_TLDRAW_LICENSE_KEY
-  return <BoardsContext.Provider value={{ catalog, update }}>{error && <div className="board-storage-error" role="alert">{error}</div>}<Tldraw key={catalog.activeId} persistenceKey={catalog.activeId} {...(licenseKey ? { licenseKey } : {})} shapeUtils={[NodeShapeUtil, ConnectionShapeUtil]} bindingUtils={[ConnectionBindingUtil]} components={components} options={{ maxPages: 1, zoomToFitPadding: 220 }} getShapeVisibility={shapeVisibility} onMount={editor => {
+  return <BoardsContext.Provider value={{ catalog, update }}>{error && <div className="board-storage-error" role="alert">{error}</div>}<Tldraw key={catalog.activeId} persistenceKey={catalog.activeId} {...(licenseKey ? { licenseKey } : {})} shapeUtils={[NodeShapeUtil, ConnectionShapeUtil]} bindingUtils={[ConnectionBindingUtil]} components={components} options={{ maxPages: 1, zoomToFitPadding: 100 }} onMount={editor => {
     editor.user.updateUserPreferences({ colorScheme: 'light', isSnapMode: true })
     if (!editor.getStateDescendant('select.pointing_port')) editor.getStateDescendant('select')?.addChild(PointingPort)
     const cleanupConnections = keepConnectionsAtBottom(editor)

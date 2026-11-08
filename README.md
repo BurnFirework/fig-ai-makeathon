@@ -1,6 +1,6 @@
 # Unfold
 
-A vision board that grows into a practical first step: two images → separate question/answer branches → a shared possibility → a sourced action. Built with React, TypeScript and tldraw, using the official Branching Chat template's node, port and binding foundation.
+A vision board that grows into a practical first step: images → attached conversations → meaningful outcomes → a sourced first step, all on one canvas. Built with React, TypeScript and tldraw, using the official Branching Chat template's node, port and binding foundation.
 
 For the hackathon brief, judging rubric, submission checklist and open organizer questions, read the [Track 1 reference](HACKATHON.md). It separates organizer requirements from Unfold's product decisions and records the source links and verification limits.
 
@@ -30,24 +30,25 @@ The provider pattern is inspired by [T3 Code](https://github.com/pingdotgg/t3cod
 
 ## Try the journey
 
-1. Add two PNG/JPEG/WebP images, or load the original sample illustrations.
-2. Edit each inspiration's title to describe your goal. Click its heart.
-3. Answer a question and add a short comment. Answers become their own connected cards. Continue one step at a time.
-4. After both branches have answers, agents can suggest a shared direction. You can also click **Connect goals**, select two nodes and connect them, or drag a port from one branch to the other inspiration's top port.
-5. Accept a shared direction to request real web research and a small action, reject it to leave other paths open, or provide a refinement.
-6. Open **Agent activity** to inspect actual branch → research → branch and connection handoffs.
+1. Add PNG/JPEG/WebP images, or load the sample illustrations.
+2. Edit an inspiration's title to describe your goal, then choose **Explore** to open its attached chat.
+3. The default **Focus** view shows the source content above the conversation. Switch to **Board & chat** to browse the same canvas alongside the chat. Switching views preserves the conversation and unsent draft.
+4. Answer suggestions or type freely. Questions, answers and proposed outcomes stay inside the chat. **New conversation** starts a separate exploration from the same node.
+5. Choose **Add to canvas** on a useful outcome to create one connected card. Open that card's chat to build on it. Breadcrumbs focus source nodes on the same canvas; there are no nested boards.
+6. Choose **Connect goals** (or select two nodes from different inspiration branches) to explore a shared direction in a chat. Add the result when ready, then explore it for a sourced first step.
+7. Open **Agent activity** to inspect branch, research and connection handoffs. Stop and retry controls appear in the chat while work runs or after an error.
 
-Use **New board** in the header to create a mood board. Open the board name menu to switch boards or rename the current one. Each board saves its own canvas, images and decisions on this device; the selected board reopens after a reload. Use **Style** in the header to pick the main color (lavender, rose or sage), the canvas pattern and the canvas color; these preferences are saved in this browser. Existing boards are preserved automatically. Switching boards stops requests running on the previous board.
+Use the board name menu to create, switch or rename mood boards. Each board keeps its own canvas, images and conversations on this device. Switching boards stops its running requests. **Style** controls the existing color and canvas preferences.
 
-Use Fold/Expand and Move branch to manage the board. Editing goals/answers marks dependent suggestions for review. Stop and retry are available during a request or after an error. Completed action cards accept a reflection. Board records, image assets and decisions persist in this browser's IndexedDB; activity and active processes are transient. Nothing books a class or takes the real-world step for you.
+Older question and answer cards are folded into an **Earlier exploration** chat on their inspiration. Existing outcome cards and their connections are preserved. Editing a source goal marks dependent outcomes for review and prevents older replies from being added. Nothing books a class or takes the real-world step for you.
 
 ## Data storage
 
 The current app keeps vision board data in the browser. The planned Electron desktop app will save directly to local workspace files while sharing the web application's code. No hosted application backend, hosted database/image storage, account system, or cloud sync is planned.
 
-- tldraw automatically saves each board's canvas, connections, image assets, and card data in IndexedDB, using the board ID as its persistence key. Card data includes goals, answers, suggestions, decisions, completed actions, and reflections.
+- tldraw automatically saves each board's canvas, connections, image assets, and card data in IndexedDB, using the board ID as its persistence key. Card data includes goals, attached chats, message history, proposed and published outcomes, source provenance, completed actions, and reflections.
 - `localStorage` stores board IDs, names, and the selected board under `unfold-boards-v1`.
-- Activity history, running requests, and folded branches are temporary and reset when the board closes or reloads.
+- Activity history, running requests, the open chat and its view mode are temporary and reset when the board closes or reloads.
 
 Saved data belongs to the browser profile and site origin. Clearing site data removes the boards. There is no automatic backup or cross-device sync.
 
@@ -61,7 +62,7 @@ The [web and Electron implementation plan](ARCHITECTURE.md) specifies desktop fi
 - Claude runs with only web search/fetch tools enabled for research and no built-in tools for question/synthesis calls. Project hooks and MCP servers are not loaded.
 - Codex runs ephemerally in a temporary directory, with a read-only sandbox, shell tools/hooks disabled and live search enabled only for research.
 - Uploaded images are resized locally and passed to the CLI for image understanding. Temporary files are removed after the process exits. The CLI still sends model inputs to its provider.
-- Model proposals are validated against Zod schemas. Only complete results change the graph; partial events are activity. Results carry dependency revisions so late responses cannot overwrite edited/deleted sources.
+- Model proposals are validated against Zod schemas. Only complete results enter chats; adding an outcome to the canvas is an explicit user action. Partial events are activity. Results carry dependency revisions so late responses cannot overwrite edited/deleted sources.
 - Research must execute a web-search tool and return sources also visible in tool events. Unsupported URLs are rejected. Those URLs are passed to the branch agent, and its final citations must match them. This establishes tool provenance, not a guarantee that every organizer fact is correct; the user still checks price/availability on the linked page.
 - Process cancellation propagates to the local provider process group. Subscription/provider processing may already have begun when cancellation happens.
 
@@ -87,7 +88,7 @@ TypeScript checks are selected from `~/Code/tutor-platform/tsconfig.base.json` a
 
 `pnpm start` serves the built frontend and agent routes at **http://127.0.0.1:3001**. A hosted browser-only deployment cannot launch your local CLI; subscription mode requires this local Node server (or an equivalent trusted server running an authenticated CLI). Before sharing a production build, set `VITE_TLDRAW_LICENSE_KEY` to an active trial or other suitable key and rebuild. [tldraw licensing](https://tldraw.dev/community/license).
 
-The focused tests cover branch isolation, dependency invalidation, stale responses, CLI source-evidence parsing and fragmented response streams. Browser smoke testing covers the user journey separately.
+The focused tests cover chat isolation and inheritance, legacy-message migration, breadcrumbs, outcome publication rules, dependency invalidation, stale responses, CLI source-evidence parsing and fragmented response streams. Browser smoke testing covers the user journey separately.
 
 ## Source and scope
 
@@ -103,4 +104,6 @@ This is a local single-user hackathon MVP. Cross-device synchronization, multi-u
 
 ## Verification in this workspace
 
-The production build and all five focused tests passed. An isolated browser exercised sample-image import, separate answers/comments, automatic and button-triggered connection proposals, rejection, acceptance, and restoration after reload. Both persisted images decoded successfully after reload. Codex CLI was tested with the existing ChatGPT sign-in: a real image-based branch produced a context-sensitive question, and an accepted shared direction produced a practical action citing official web pages whose URLs appeared in tool events. Claude Code is not installed here, so its adapter was inspected against official CLI documentation but not live-tested.
+The attached-chat implementation passes TypeScript checking, lint, all 16 unit tests, and the production build. The isolated production-browser preview flow exercised both chat views with draft preservation, five messages without additional nodes, explicit outcome publication with undo/redo, source breadcrumbs, separate chats, shared outcomes and research follow-up, request failure/retry and stop, saved chats/images after reload, and a narrow focused layout. A legacy fixture preserved its outcome, question and answer across migration and subsequent reloads. The repeatable browser flow is in [tests/attached-chats.smoke.js](tests/attached-chats.smoke.js).
+
+Live CLI calls were not repeated for this UI/context change. Earlier Codex verification with the existing ChatGPT sign-in produced an image-based question and a practical action citing official web pages observed in tool events; that verification predates attached chats. Claude Code was not installed for the earlier live check.
