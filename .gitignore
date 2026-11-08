@@ -6,3 +6,4 @@ dist/
 output/
 .playwright-cli/
 .pnpm-store/
+.DS_Store
