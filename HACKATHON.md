@@ -130,7 +130,7 @@ Unfold helps a person move from visual inspiration to a clarified goal and a sma
 | Real-world applicability | Offer one modest, relevant action with sources and known constraints; do not imply that booking or another external action has already happened. |
 | Potential impact | Explain what the user gains over collecting images or chatting in a linear thread. Keep impact claims proportional to demonstrated evidence. |
 
-The project uses tldraw and subscription-backed local AI CLIs. Keep the browser-local architecture and storage policy in the [README](../README.md#data-storage). See the [implementation plan](unfold-implementation-plan.md) for technical scope; this reference does not replace current code or verification evidence.
+The project uses tldraw and subscription-backed local AI CLIs. Keep the browser-local architecture and storage policy in the [README](README.md#data-storage). See the [README](README.md) for current implementation scope and [architecture plan](ARCHITECTURE.md) for the planned web/desktop boundary; this reference does not replace current code or verification evidence.
 
 ## Demo and submission preparation
 

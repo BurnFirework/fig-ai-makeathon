@@ -2,7 +2,7 @@
 
 A vision board that grows into a practical first step: two images → separate question/answer branches → a shared possibility → a sourced action. Built with React, TypeScript and tldraw, using the official Branching Chat template's node, port and binding foundation.
 
-For the hackathon brief, judging rubric, submission checklist and open organizer questions, read the [Track 1 reference](research/hackathon-track-1.md). It separates organizer requirements from Unfold's product decisions and records the source links and verification limits.
+For the hackathon brief, judging rubric, submission checklist and open organizer questions, read the [Track 1 reference](HACKATHON.md). It separates organizer requirements from Unfold's product decisions and records the source links and verification limits.
 
 ## Run locally
 
@@ -41,6 +41,20 @@ Use **New board** in the header to create a mood board. Open the board name menu
 
 Use Fold/Expand and Move branch to manage the board. Editing goals/answers marks dependent suggestions for review. Stop and retry are available during a request or after an error. Completed action cards accept a reflection. Board records, image assets and decisions persist in this browser's IndexedDB; activity and active processes are transient. Nothing books a class or takes the real-world step for you.
 
+## Data storage
+
+The current app keeps vision board data in the browser. The planned Electron desktop app will save directly to local workspace files while sharing the web application's code. No hosted application backend, hosted database/image storage, account system, or cloud sync is planned.
+
+- tldraw automatically saves each board's canvas, connections, image assets, and card data in IndexedDB, using the board ID as its persistence key. Card data includes goals, answers, suggestions, decisions, completed actions, and reflections.
+- `localStorage` stores board IDs, names, and the selected board under `unfold-boards-v1`.
+- Activity history, running requests, and folded branches are temporary and reset when the board closes or reloads.
+
+Saved data belongs to the browser profile and site origin. Clearing site data removes the boards. There is no automatic backup or cross-device sync.
+
+The existing local Node server runs the AI CLIs and serves the built app. It does not store boards. Live AI still requires this local process and sends model inputs to the selected provider.
+
+The [web and Electron implementation plan](ARCHITECTURE.md) specifies desktop file autosave and browser IndexedDB with complete export/import for Safari and other browsers. These capabilities are planned, not yet implemented.
+
 ## Agents and source evidence
 
 - The coordinator routes bounded role calls. Each branch has separate explicit context; synthesis gets both contexts and the selected shared direction.
@@ -77,8 +91,10 @@ The focused tests cover branch isolation, dependency invalidation, stale respons
 
 ## Source and scope
 
-- [Detailed implementation plan](research/unfold-implementation-plan.md)
-- [Agent starter inspection](research/unfold-agent-starter-inspection.md)
+- [Hackathon brief, judging and submission](HACKATHON.md)
+- [Product inspiration: PureRef, Apple Freeform and Allume](PRODUCT_INSPIRATION.md)
+- [Technical inspiration: T3Code, tldraw, dim0 and Excalidraw](TECH_INSPIRATION.md)
+- [Web and Electron architecture plan](ARCHITECTURE.md)
 - Starter source: [tldraw templates at commit 69f43954](https://github.com/tldraw/tldraw/tree/69f43954f15a171b3a6edb45134d27b71560de02/templates). Template-derived code is covered by `LICENSE.starter.md`; the tldraw SDK has its own license.
 - Agent starter patterns adapted here: typed actions, structured context, complete/partial event separation and explicit request lifecycle. Its generic drawing assistant and drawing-diff approval UI are not included.
 - Sample SVG illustrations are original to this project. No external photo service is required.
