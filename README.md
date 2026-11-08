@@ -29,7 +29,7 @@ The provider pattern is inspired by [T3 Code](https://github.com/pingdotgg/t3cod
 ## Try the journey
 
 1. Add two PNG/JPEG/WebP images, or load the original sample illustrations.
-2. Edit each inspiration's title to describe your goal. Click its star.
+2. Edit each inspiration's title to describe your goal. Click its heart.
 3. Answer a question and add a short comment. Answers become their own connected cards. Continue one step at a time.
 4. After both branches have answers, agents can suggest a shared direction. You can also click **Connect goals**, select two nodes and connect them, or drag a port from one branch to the other inspiration's top port.
 5. Accept a shared direction to request real web research and a small action, reject it to leave other paths open, or provide a refinement.
