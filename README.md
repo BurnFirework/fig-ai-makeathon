@@ -21,7 +21,7 @@ No API key is required. Unfold launches **Claude Code** or **Codex CLI** on the 
 
 - **Codex:** the official CLI is a project dependency. Run `pnpm exec codex login` if needed; verify with `pnpm exec codex login status`.
 - **Claude Code:** install the official CLI using [Anthropic's instructions](https://code.claude.com/docs/en/overview), run `claude auth login`, and make `claude` available on the server's PATH.
-- Choose a provider in the app's header. Automatic startup prefers an installed Claude CLI, then Codex. If neither executable works, the app uses clearly labeled preview agents. A live authentication or search failure is shown as an error, never silently replaced with sample research.
+- Choose a provider in **Board settings**. Automatic startup prefers an installed Claude CLI, then Codex. If neither executable works, the app uses clearly labeled preview agents. A live authentication or search failure is shown as an error, never silently replaced with sample research.
 - Provider status checks establish that the binary works, not that subscription usage is available. The first real request verifies authentication and model access.
 
 Optional server configuration: copy `.env.example` to `.env`, set `UNFOLD_PROVIDER=claude`, `codex`, `auto` or `demo`, and restart. `UNFOLD_CLAUDE_BIN` / `UNFOLD_CODEX_BIN` accept executable paths, not shell commands. `UNFOLD_MODEL` overrides the CLI's default model.
@@ -72,7 +72,7 @@ Preview mode is deliberately deterministic and text-based. It demonstrates the i
 
 The React UI uses local shadcn/ui **Base UI / Vega** components in `client/components/ui`, backed by `@base-ui/react`, Tailwind CSS 4 and shared theme tokens in `client/index.css`. This follows tutor-platform's local component, shared utility and token structure while keeping the React/Vite setup. tldraw continues to own the canvas and drawing interactions.
 
-`components.json` and the `@/*` alias configure the official shadcn registry. Add components with `pnpm dlx shadcn@latest add <component>`. Use the shared Button, Input, Textarea, Select, Dialog and DropdownMenu components for application controls. Button variants own action styling, including selected states; compact, text and pill sizes serve canvas controls. Global resets live in the base layer, tldraw styles in a vendor layer, and app layout in the component layer so Tailwind utilities retain precedence. The header uses two rows below 850px to keep every control reachable.
+`components.json` and the `@/*` alias configure the official shadcn registry. Add components with `pnpm dlx shadcn@latest add <component>`. Use the shared Button, Input, Textarea, Select, Dialog and DropdownMenu components for application controls. Button variants own action styling, including selected states; compact, text and pill sizes serve canvas controls. Global resets live in the base layer, tldraw styles in a vendor layer, and app layout in the component layer so Tailwind utilities retain precedence. The neutral canvas keeps image proportions intact. Card actions appear on hover, selection or keyboard focus, and stay visible on touch devices. Provider settings live in Board settings; history and fit commands live in the canvas actions menu. Focus view places source content beside its conversation on wide screens and above it on narrow screens.
 
 ## Checks and production build
 

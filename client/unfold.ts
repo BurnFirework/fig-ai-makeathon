@@ -12,6 +12,15 @@ import { getNodeHeightPx } from './nodes/nodeTypes'
 
 export function nodes(editor: Editor): NodeShape[] { return editor.getCurrentPageShapes().filter((shape): shape is NodeShape => editor.isShapeOfType(shape, 'node')) }
 export function nodeAt(editor: Editor, id: TLShapeId) { const shape = editor.getShape(id); return shape && editor.isShapeOfType(shape, 'node') ? shape : undefined }
+export function fitBoard(editor: Editor) {
+  const bounds = editor.getCurrentPageBounds()
+  if (!bounds) return
+  const screen = editor.getViewportScreenBounds()
+  const state = uiState.get(editor)
+  const width = screen.w > 850 && state.activeChat && state.chatView === 'board' ? screen.w - 440 : screen.w
+  const zoom = Math.min(1, (width - 120) / bounds.w, (screen.h - 200) / bounds.h)
+  editor.setCamera({ x: -bounds.center.x + width / (2 * zoom), y: -bounds.center.y + screen.h / (2 * zoom), z: zoom })
+}
 export function baseNode(branchId: string, agent: UnfoldNode['agent'] = 'you') { return { branchId, sequence: Date.now(), revision: 0, stale: false, dependsOn: [], agent, createdAt: Date.now() } }
 export function defaultInspiration(): Extract<UnfoldNode, { type: 'inspiration' }> { return { ...baseNode(''), type: 'inspiration', assetId: '', goal: 'Something I want to explore', started: false } }
 function update(editor: Editor, id: TLShapeId, transform: (node: UnfoldNode) => UnfoldNode) {
