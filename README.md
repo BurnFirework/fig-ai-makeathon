@@ -2,6 +2,8 @@
 
 A vision board that grows into a practical first step: two images → separate question/answer branches → a shared possibility → a sourced action. Built with React, TypeScript and tldraw, using the official Branching Chat template's node, port and binding foundation.
 
+For the hackathon brief, judging rubric, submission checklist and open organizer questions, read the [Track 1 reference](research/hackathon-track-1.md). It separates organizer requirements from Unfold's product decisions and records the source links and verification limits.
+
 ## Run locally
 
 Requires Node 22.14+ and pnpm 10.33.1 (pinned in `package.json`).
