@@ -1,10 +1,9 @@
 import { createShapeId, Editor, type TLShapeId } from 'tldraw'
-import { z } from 'zod'
 import { type Chat, type ChatMessage, NodeSchema, type UnfoldNode, revisionsMatch } from '../shared/schema'
 import { invalidatedBy } from '../shared/context'
 import { canPublish, chatContext, foldLegacyMessages, lineage, nodeTitle } from '../shared/chats'
 import { actions, uiState, type UnfoldActions } from './actions'
-import { requestAgent } from './agentClient'
+import { requestAgent, getAgentConfig } from './agentClient'
 import { createOrUpdateConnectionBinding, getConnectionBindings } from './connection/ConnectionBindingUtil'
 import { getNextConnectionIndex } from './connection/keepConnectionsAtBottom'
 import type { NodeShape } from './nodes/NodeShapeUtil'
@@ -262,8 +261,7 @@ export function setupUnfold(editor: Editor) {
     editor.deleteShapes(nodes(editor).filter(shape => legacy.removed.includes(shape.id)).map(shape => shape.id))
   })
   actions.set(editor, api)
-  const Config = z.object({ mode: z.enum(['live', 'demo']), provider: z.string() })
-  fetch('/api/config').then(response => { if (!response.ok) throw new Error(); return response.json() }).then(value => { const config = Config.parse(value); uiState.update(editor, state => ({ ...state, ...config })) }).catch(() => notice('The agent server is unavailable. Your board still works; restart pnpm dev to reconnect.'))
+  getAgentConfig().then(config => uiState.update(editor, state => ({ ...state, ...config }))).catch(() => notice('Local agents are unavailable. Your board is still saved; try reopening the app.'))
   const unlisten = editor.store.listen(() => {
     const current = new Map(records().map(record => [record.id, record.node.revision]))
     for (const [id, job] of running) if (!revisionsMatch(job.dependencies, current) || !chatAt(job.sourceId, id) || chatAt(job.sourceId, id)?.messages.at(-1)?.id !== job.lastMessageId) cancel(id)

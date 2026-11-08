@@ -38,6 +38,7 @@
     "shared",
     "server",
     "tests",
-    "vite.config.ts"
+    "vite.config.ts",
+    "desktop"
   ]
 }

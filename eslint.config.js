@@ -3,7 +3,7 @@ import ts from 'typescript-eslint'
 
 // Selected from tutor-platform/eslint.config.js; framework and style rules stay local to that app.
 export default ts.config(
-  { ignores: ['node_modules/**', 'dist/**', 'output/**', '.playwright-cli/**'] },
+  { ignores: ['node_modules/**', 'dist/**', 'dist-desktop/**', 'output/**', '.playwright-cli/**'] },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [js.configs.recommended, ...ts.configs.recommendedTypeChecked],

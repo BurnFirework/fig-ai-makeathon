@@ -1,0 +1,104 @@
+import { test, expect } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
+import { decodeWorkspace } from '../shared/workspace-format'
+
+test('legacy boards and images survive migration, reload, export and additive import', async ({ page }, testInfo) => {
+  page.on('pageerror', error => console.error('BROWSER ERROR', error))
+  await page.goto(`/tests/fixtures/legacy.html${testInfo.project.name === 'webkit' ? '?inline=1' : ''}`)
+  await expect(page.locator('body')).toHaveAttribute('data-seeded', 'true')
+  await page.goto('/')
+  await expect(page.getByRole('img', { name: 'Legacy image 1', exact: true })).toBeVisible()
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('img', { name: 'Legacy image 1', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Explore Legacy image 1', exact: true }).click()
+  await expect(page.locator('.assistant-message')).toHaveCount(1)
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('I want a gentle creative activity near home')
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
+  await expect(page.locator('.assistant-message')).toHaveCount(2)
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Close chat', exact: true }).click()
+  await page.getByRole('button', { name: 'Workspace files', exact: true }).click()
+  const downloading = page.waitForEvent('download')
+  await page.getByRole('menuitem', { name: 'Export all boards' }).click()
+  const download = await downloading
+  const path = testInfo.outputPath('roundtrip.unfold')
+  await download.saveAs(path)
+  const workspace = decodeWorkspace(new Uint8Array(await readFile(path)))
+  expect(workspace.catalog.boards).toHaveLength(2)
+  expect(workspace.appearance).toEqual({ palette: 'sage', pattern: 'grid', tone: 'linen' })
+  expect(Object.keys(workspace.assets)).toHaveLength(1)
+  await page.locator('input[aria-label="Import workspace backup"]').setInputFiles(path)
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Mood boards: Legacy 1', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: 'Legacy 2', exact: true })).toHaveCount(2)
+  await page.keyboard.press('Escape')
+  await page.reload()
+  await expect(page.getByRole('img', { name: 'Legacy image 1', exact: true })).toBeVisible()
+  const image = page.getByRole('img', { name: 'Legacy image 1', exact: true })
+  await expect(image).toHaveJSProperty('naturalWidth', 2)
+  await page.getByRole('button', { name: 'Explore Legacy image 1', exact: true }).click()
+  await expect(page.getByRole('log', { name: 'Conversation messages' })).toContainText('I want a gentle creative activity near home')
+  await expect(page.locator('.assistant-message')).toHaveCount(2)
+  expect(await page.evaluate(() => localStorage.getItem('unfold-boards-v1'))).toContain('unfold-board-legacy-second')
+  await page.getByRole('button', { name: 'Close chat', exact: true }).click()
+  const asset = Object.values(workspace.assets)[0]
+  expect(asset).toBeDefined()
+  if (!asset) throw new Error('Exported image missing')
+  await page.locator('input[accept="image/png,image/jpeg,image/webp"]').setInputFiles({ name: 'fresh.png', mimeType: 'image/png', buffer: Buffer.from(asset.data, 'base64') })
+  await expect(page.getByRole('img', { name: 'fresh', exact: true })).toBeVisible()
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('img', { name: 'fresh', exact: true })).toBeVisible()
+})
+
+test('invalid browser data reports a recoverable error instead of hanging or replacing it', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open('unfold-workspaces-v1', 1)
+      request.onerror = () => reject(request.error ?? new Error('Database unavailable'))
+      request.onsuccess = () => {
+        const db = request.result
+        const transaction = db.transaction('workspaces', 'readwrite')
+        transaction.objectStore('workspaces').put({ broken: true }, 'current')
+        transaction.oncomplete = () => { db.close(); resolve() }
+        transaction.onerror = () => reject(transaction.error ?? new Error('Write failed'))
+      }
+    })
+  })
+  await page.reload()
+  await expect(page.getByRole('alert')).toContainText('Your saved boards are still on this device.')
+  expect(await page.evaluate(() => new Promise<unknown>((resolve, reject) => {
+    const opening = indexedDB.open('unfold-workspaces-v1', 1)
+    opening.onerror = () => reject(opening.error ?? new Error('Database unavailable'))
+    opening.onsuccess = () => {
+      const db = opening.result
+      const read = db.transaction('workspaces').objectStore('workspaces').get('current')
+      read.onsuccess = () => { const value: unknown = read.result; db.close(); resolve(value) }
+    }
+  }))).toEqual({ broken: true })
+})
+
+test('a stale second tab cannot overwrite a newer saved workspace', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  const other = await page.context().newPage()
+  try {
+    await other.goto('/')
+    await expect(other.getByText('Saved in browser', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Mood boards: Your next chapter', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Rename board', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Board name', exact: true }).fill('Newer saved name')
+    await page.getByRole('button', { name: 'Save name', exact: true }).click()
+    await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+    await other.getByRole('button', { name: 'Mood boards: Your next chapter', exact: true }).click()
+    await other.getByRole('menuitem', { name: 'Rename board', exact: true }).click()
+    await other.getByRole('textbox', { name: 'Board name', exact: true }).fill('Stale name')
+    await other.getByRole('button', { name: 'Save name', exact: true }).click()
+    await expect(other.getByRole('alert')).toContainText('changed in another tab')
+    await page.reload()
+    await expect(page.getByRole('button', { name: 'Mood boards: Newer saved name', exact: true })).toBeVisible()
+  } finally { await other.close() }
+})

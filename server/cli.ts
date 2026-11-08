@@ -99,7 +99,16 @@ export async function callCli(config: CliConfig, prompt: string, signal: AbortSi
       const child = spawn(config.binary, args, { cwd: directory, env, stdio: ['pipe', 'pipe', 'pipe'], shell: false, detached: process.platform !== 'win32' })
       let buffer = ''; let text = ''; let searched = false; let stderr = ''; let total = 0; let eventError = ''
       const urls = new Set<string>()
-      const kill = () => { try { if (child.pid && process.platform !== 'win32') process.kill(-child.pid, 'SIGTERM'); else child.kill('SIGTERM') } catch { /* Already exited. */ } }
+      let terminateDone: Promise<void> | undefined
+      const kill = () => {
+        try { if (child.pid && process.platform !== 'win32') process.kill(-child.pid, 'SIGTERM'); else child.kill('SIGTERM') } catch { /* Already exited. */ }
+        terminateDone ??= new Promise<void>(resolve => {
+          setTimeout(() => {
+            try { if (child.pid && process.platform !== 'win32') process.kill(-child.pid, 'SIGKILL'); else child.kill('SIGKILL') } catch { /* Already exited. */ }
+            resolve()
+          }, 1000)
+        })
+      }
       const timer = setTimeout(kill, 115_000)
       const abort = () => kill()
       signal.addEventListener('abort', abort, { once: true })
@@ -120,7 +129,7 @@ export async function callCli(config: CliConfig, prompt: string, signal: AbortSi
       child.on('error', error => { clearTimeout(timer); signal.removeEventListener('abort', abort); reject(new Error(`Could not launch ${provider}: ${error.message}`)) })
       child.on('close', code => {
         clearTimeout(timer); signal.removeEventListener('abort', abort)
-        if (signal.aborted) { reject(new Error('Stopped.')); return }
+        if (signal.aborted) { (terminateDone ?? Promise.resolve()).then(() => reject(new Error('Stopped.'))).catch((error: unknown) => reject(error instanceof Error ? error : new Error('Termination failed'))); return }
         if (code !== 0 || eventError || !text) { reject(new Error(eventError || `${provider === 'claude' ? 'Claude Code' : 'Codex CLI'} could not complete the request. Run its login command and check subscription availability.${/auth|login|sign in/i.test(stderr) ? ' Sign-in is required.' : ''}`)); return }
         resolve({ text, searched, urls: [...urls] })
       })

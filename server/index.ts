@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { existsSync, readFileSync } from 'node:fs'
 import { extname, resolve, sep } from 'node:path'
-import { RequestSchema } from '../shared/schema'
+import { parseAgentRequest } from './runtime'
 import { runAgents } from './agents'
 import { discoverProviders, providerConfig, publicConfig, selectProvider } from './cli'
 import { z } from 'zod'
@@ -50,14 +50,10 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         if (size > 8_000_000) { response.writeHead(413); response.end('Image or request is too large.'); return }
         chunks.push(bytes)
       }
-      const parsed = RequestSchema.safeParse(JSON.parse(Buffer.concat(chunks).toString()))
-      if (!parsed.success) { response.writeHead(400); response.end('Invalid agent request.'); return }
-      if (parsed.data.operation === 'connect' && parsed.data.branches.length !== 2) { response.writeHead(400); response.end('Choose two different branches.'); return }
-      if (parsed.data.branches.length === 2 && parsed.data.branches[0]?.id === parsed.data.branches[1]?.id) { response.writeHead(400); response.end('Choose two different branches.'); return }
-      if (parsed.data.image && !/^data:image\/(png|jpeg|webp);base64,/.test(parsed.data.image)) { response.writeHead(400); response.end('Unsupported image.'); return }
+      const parsed = parseAgentRequest(JSON.parse(Buffer.concat(chunks).toString()))
       response.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store' })
       const emit = (event: unknown) => { if (!response.destroyed) response.write(JSON.stringify(event) + '\n') }
-      const result = await runAgents(parsed.data, providerConfig(), controller.signal, emit)
+      const result = await runAgents(parsed, providerConfig(), controller.signal, emit)
       if (!controller.signal.aborted) emit({ type: 'result', result })
     } catch (error) {
       if (!response.headersSent) response.writeHead(400, { 'Content-Type': 'application/x-ndjson' })

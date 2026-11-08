@@ -1,6 +1,60 @@
 import { type AgentEvent, type AgentRequest, type AgentResult, EventSchema } from '../shared/schema'
+import { AgentConfigSchema, AgentEventEnvelopeSchema, AgentFailureSchema, ProviderSchema, type AgentConfig } from '../shared/agent-contract'
+import { demoProposal } from '../shared/preview'
 
+const previewConfig: AgentConfig = { mode: 'demo', provider: 'Preview', providers: [{ id: 'demo', available: true, version: '', message: 'Local preview; no model or search.' }] }
+let localPreview = false
+export async function getAgentConfig(): Promise<AgentConfig> {
+  const desktop = typeof window === 'undefined' ? undefined : window.unfoldDesktop
+  if (desktop) return AgentConfigSchema.parse(await desktop.agents.config())
+  try {
+    const response = await fetch('/api/config')
+    if (!response.ok) throw new Error('No local runtime')
+    const result = AgentConfigSchema.parse(await response.json()); localPreview = false; return result
+  } catch { localPreview = true; return previewConfig }
+}
+export async function selectAgentProvider(value: string): Promise<AgentConfig> {
+  const provider = ProviderSchema.parse(value)
+  const desktop = typeof window === 'undefined' ? undefined : window.unfoldDesktop
+  if (desktop) return AgentConfigSchema.parse(await desktop.agents.select(provider))
+  if (localPreview) {
+    if (provider !== 'demo') throw new Error('Live AI requires the desktop app or local helper.')
+    return previewConfig
+  }
+  const response = await fetch('/api/provider', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider }) })
+  if (!response.ok) throw new Error('Provider unavailable. Check its installation and sign-in.')
+  const config = await fetch('/api/config')
+  if (!config.ok) throw new Error('Provider configuration is unavailable.')
+  return AgentConfigSchema.parse(await config.json())
+}
 export async function requestAgent(request: AgentRequest, signal: AbortSignal, onActivity: (event: Extract<AgentEvent, { type: 'activity' }>) => void): Promise<AgentResult> {
+  signal.throwIfAborted()
+  const bridge = typeof window === 'undefined' ? undefined : window.unfoldDesktop
+  if (bridge) return new Promise<AgentResult>((resolve, reject) => {
+    const finish = (error?: Error, result?: AgentResult) => { unsubscribe(); unsubscribeFailure(); signal.removeEventListener('abort', abort); clearTimeout(timer); if (error) reject(error); else if (result) resolve(result) }
+    const abort = () => { bridge.agents.cancel(request.requestId).catch(() => {}); finish(new Error('Stopped.')) }
+    const unsubscribe = bridge.agents.onEvent(value => {
+      const parsed = AgentEventEnvelopeSchema.safeParse(value)
+      if (!parsed.success || parsed.data.requestId !== request.requestId) return
+      const event = parsed.data.event
+      if (event.type === 'activity') onActivity(event)
+      else if (event.type === 'result') finish(undefined, event.result)
+      else finish(new Error(event.message))
+    })
+    const unsubscribeFailure = bridge.agents.onFailure(value => {
+      const parsed = AgentFailureSchema.safeParse(value)
+      if (parsed.success && parsed.data.requestId === request.requestId) finish(new Error(parsed.data.message))
+    })
+    const timer = setTimeout(() => { bridge.agents.cancel(request.requestId).catch(() => {}); finish(new Error('The request timed out. Please retry.')) }, 125_000)
+    signal.addEventListener('abort', abort, { once: true })
+    bridge.agents.run(request).catch((error: unknown) => finish(error instanceof Error ? error : new Error('Local agents unavailable.')))
+  })
+  if (localPreview) {
+    onActivity({ type: 'activity', role: 'coordinator', message: 'Preview only. No live model or web search is being used.' })
+    await new Promise<void>((resolve, reject) => { const abort = () => { clearTimeout(timer); reject(new Error('Stopped.')) }; const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve() }, 200); signal.addEventListener('abort', abort, { once: true }) })
+    signal.throwIfAborted()
+    return { requestId: request.requestId, proposal: demoProposal(request), activity: [], mode: 'demo' }
+  }
   const response = await fetch('/api/agent', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) })
   if (!response.ok) throw new Error(`Agent request failed (${response.status}). Please retry.`)
   if (!response.body) throw new Error('The agent returned an empty response.')

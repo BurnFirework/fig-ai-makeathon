@@ -44,17 +44,27 @@ Older question and answer cards are folded into an **Earlier exploration** chat 
 
 ## Data storage
 
-The current app keeps vision board data in the browser. The planned Electron desktop app will save directly to local workspace files while sharing the web application's code. No hosted application backend, hosted database/image storage, account system, or cloud sync is planned.
+The web and Electron desktop app share the same React/tldraw interface and board logic. Data stays on your device. There is no hosted board backend, account system, or automatic cloud sync.
 
-- tldraw automatically saves each board's canvas, connections, image assets, and card data in IndexedDB, using the board ID as its persistence key. Card data includes goals, attached chats, message history, proposed and published outcomes, source provenance, completed actions, and reflections.
-- `localStorage` stores board IDs, names, and the selected board under `unfold-boards-v1`.
-- Activity history, running requests, the open chat and its view mode are temporary and reset when the board closes or reloads.
+- **Browser:** boards, images, attached conversations, decisions, source links, and reflections save in IndexedDB. Existing tldraw boards are migrated through the editor's public loading path; their original databases and catalog are retained. A stale tab cannot overwrite a newer committed workspace.
+- **Desktop:** use **Workspace files** or the native File menu to Open, Save, and Save As. Once you choose a `.unfold` file, edits autosave there. Unsaved work also has a local recovery checkpoint. Conflicting external file edits stop overwriting and can be recovered with Save As.
+- **Backup/restore:** **Export all boards** creates one `.unfold` ZIP containing every board and its actual stored image bytes. **Import boards** adds them without replacing your current boards. Safari uses ordinary download/file-input APIs, with no installation or native browser filesystem API required.
+- Running processes, the open chat/view mode, and undo history are temporary. Backups preserve stored resized images, not discarded full-resolution originals.
 
-Saved data belongs to the browser profile and site origin. Clearing site data removes the boards. There is no automatic backup or cross-device sync.
+Browser data belongs to its profile and site origin; clearing site data removes it. Export a backup to keep a portable copy. Desktop and browser workspaces move through explicit export/import rather than synchronizing automatically.
 
-The existing local Node server runs the AI CLIs and serves the built app. It does not store boards. Live AI still requires this local process and sends model inputs to the selected provider.
+Static web builds can run preview conversations locally. Live AI requires the desktop app or the existing localhost helper and the selected CLI's sign-in; model inputs still go to that provider. The desktop runs its local agent process separately so agent failure does not disable file saving.
 
-The [web and Electron implementation plan](ARCHITECTURE.md) specifies desktop file autosave and browser IndexedDB with complete export/import for Safari and other browsers. These capabilities are planned, not yet implemented.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for ownership, save/recovery semantics, T3 Code source references, and accepted limits.
+
+## Run the macOS desktop app
+
+```sh
+pnpm desktop:dev
+pnpm desktop:package
+```
+
+The local packaged app is written to `output/desktop/mac-arm64/Unfold.app` on Apple Silicon. The initial packaging script creates an unsigned local app; signing/notarization for public distribution is not configured. Development settings/recovery use a separate profile from the packaged app. No Vite server or project-local Node installation is required to run the packaged app. Install/sign in to Claude Code or Codex separately for live AI.
 
 ## Agents and source evidence
 
@@ -84,6 +94,8 @@ pnpm build
 pnpm start
 ```
 
+Platform regressions: `pnpm test:web` runs Chromium and WebKit migration/export/import checks; `pnpm desktop:package && pnpm test:desktop` checks the packaged macOS app in an isolated profile. Add `UNFOLD_SMOKE_LIVE=1` to the desktop test command for one synthetic signed-in Codex request. Node tests register their cases before awaiting them and use `--test-force-exit` because importing tldraw retains a scheduler MessagePort. Failed tests still exit nonzero.
+
 TypeScript checks are selected from `~/Code/tutor-platform/tsconfig.base.json` and its typed ESLint configuration. Unfold enforces strict indexed access, exact optional properties, type-only imports, checked external values, safe assertions, handled promises and exhaustive switches across `.ts` and `.tsx`, including starter-derived code. Svelte, application-specific and formatting rules are not imported. The owning configurations are `tsconfig.json` and `eslint.config.js`.
 
 `pnpm start` serves the built frontend and agent routes at **http://127.0.0.1:3001**. A hosted browser-only deployment cannot launch your local CLI; subscription mode requires this local Node server (or an equivalent trusted server running an authenticated CLI). Before sharing a production build, set `VITE_TLDRAW_LICENSE_KEY` to an active trial or other suitable key and rebuild. [tldraw licensing](https://tldraw.dev/community/license).
@@ -107,3 +119,10 @@ This is a local single-user hackathon MVP. Cross-device synchronization, multi-u
 The attached-chat implementation passes TypeScript checking, lint, all 16 unit tests, and the production build. The isolated production-browser preview flow exercised both chat views with draft preservation, five messages without additional nodes, explicit outcome publication with undo/redo, source breadcrumbs, separate chats, shared outcomes and research follow-up, request failure/retry and stop, saved chats/images after reload, and a narrow focused layout. A legacy fixture preserved its outcome, question and answer across migration and subsequent reloads. The repeatable browser flow is in [tests/attached-chats.smoke.js](tests/attached-chats.smoke.js).
 
 Live CLI calls were not repeated for this UI/context change. Earlier Codex verification with the existing ChatGPT sign-in produced an image-based question and a practical action citing official web pages observed in tool events; that verification predates attached chats. Claude Code was not installed for the earlier live check.
+
+## Web and desktop verification — November 8, 2026
+
+- `pnpm check`, `pnpm lint`, `pnpm test`, and production web/desktop packaging pass; the Node suite has 33 passing tests.
+- Six Chromium/WebKit checks cover existing two-board migration, appearance and image preservation, reload, complete export/additive import, fresh image upload, static preview chats, invalid storage, and stale-tab protection. WebKit's legacy fixture uses supported inline images because old tldraw File-to-IndexedDB upload aborts before migration in that engine; Chromium covers binary legacy IndexedDB assets. New image upload and persistence pass in both. WebKit coverage is not a claim of testing every Safari version.
+- The packaged Apple Silicon macOS app passes native save, two-board/image archive, local agent process, quit, and reopen checks. A separate live smoke discovered the installed Codex CLI and completed a synthetic request outside the project cwd. Claude Code was not live-tested.
+- Independent Sol storage and native reviewers reproduced the reported failure cases, verified their fixes, and approved their scoped reviews with no unresolved findings. No public distribution signing/notarization was performed.

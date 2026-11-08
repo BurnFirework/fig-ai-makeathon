@@ -10,7 +10,8 @@ const question: ChatMessage = { id: 'q', role: 'assistant', proposal: { kind: 'q
 const chat = (id: string, answer: string, branchId = 'a'): Chat => ({ id, title: id, sourceIds: [branchId], branchIds: [branchId], operation: 'branch', messages: [question, { id: `${id}-answer`, role: 'user', text: answer, replyTo: 'q' }], createdAt: 0 })
 const action = (id: string, origin: UnfoldNode['origin']): NodeRecord => ({ id, node: NodeSchema.parse({ ...base, type: 'action', title: 'Try a class', description: 'Make a small pot', sources: [], completed: false, reflection: '', origin }) })
 
-await test('chat context isolates sibling explorations and retains question/answer pairing', () => {
+const cases: Promise<void>[] = []
+cases.push(test('chat context isolates sibling explorations and retains question/answer pairing', () => {
   const current = chat('budget', 'Under $50, in Oakland')
   const sibling = chat('other', 'A week in Tokyo')
   const siblingOutcome = action('sibling-result', { nodeId: 'a', chatId: sibling.id, messageId: 'other-answer' })
@@ -21,9 +22,9 @@ await test('chat context isolates sibling explorations and retains question/answ
   assert.ok(!JSON.stringify(context).includes('Private sibling reflection'))
   assert.ok(!context.previousSuggestions.includes('Try a class'))
   assert.ok(!JSON.stringify(context).includes('Meet people'))
-})
+}))
 
-await test('derived outcomes inherit their originating chat, not newer sibling chats', () => {
+cases.push(test('derived outcomes inherit their originating chat, not newer sibling chats', () => {
   const original = chat('original', 'Under $50')
   original.messages.push({ id: 'later', role: 'user', text: 'A later unrelated thought' })
   const newer = chat('newer', '$5000')
@@ -31,9 +32,9 @@ await test('derived outcomes inherit their originating chat, not newer sibling c
   const followup = { ...chat('followup', 'Saturday mornings'), sourceIds: ['outcome'] }
   const context = chatContext([root('a', [original, newer]), outcome], 'outcome', followup, 'a')
   assert.deepEqual(context.answers.map(answer => answer.answer), ['Under $50', 'Saturday mornings'])
-})
+}))
 
-await test('shared outcomes preserve each branch context without mixing their answers', () => {
+cases.push(test('shared outcomes preserve each branch context without mixing their answers', () => {
   const first = chat('pottery', 'Under $50')
   const second = chat('social', 'A small group', 'b')
   const shared: Chat = { id: 'shared-chat', title: 'Connect', sourceIds: ['a', 'b'], branchIds: ['a', 'b'], operation: 'connect', contextChats: [{ nodeId: 'a', chatId: first.id }, { nodeId: 'b', chatId: second.id }], messages: [{ id: 'correction', role: 'user', text: 'Keep it local' }], createdAt: 0 }
@@ -42,25 +43,25 @@ await test('shared outcomes preserve each branch context without mixing their an
   const records = [root('a', [first, shared]), root('b', [second]), sharedNode]
   assert.deepEqual(chatContext(records, 'shared', followup, 'a').answers.map(answer => answer.answer), ['Under $50', 'Keep it local'])
   assert.deepEqual(chatContext(records, 'shared', followup, 'b').answers.map(answer => answer.answer), ['A small group', 'Keep it local'])
-})
+}))
 
-await test('breadcrumbs follow outcome provenance and terminate at cycles or removed ancestors', () => {
+cases.push(test('breadcrumbs follow outcome provenance and terminate at cycles or removed ancestors', () => {
   const outcome = action('outcome', { nodeId: 'a', chatId: 'one', messageId: 'result' })
   assert.deepEqual(lineage([root('a'), outcome], 'outcome').map(record => record.id), ['a', 'outcome'])
   assert.deepEqual(lineage([outcome], 'outcome').map(record => record.id), ['outcome'])
   const cycle = { ...outcome, node: { ...outcome.node, origin: { nodeId: 'outcome', chatId: 'one', messageId: 'result' } } }
   assert.deepEqual(lineage([cycle], 'outcome').map(record => record.id), ['outcome'])
-})
+}))
 
-await test('only unpublished outcomes can be added to the canvas', () => {
+cases.push(test('only unpublished outcomes can be added to the canvas', () => {
   const outcome: ChatMessage = { id: 'result', role: 'assistant', proposal: { kind: 'action', title: 'Try it', description: '', sources: [] }, dependsOn: [] }
   assert.equal(canPublish(question), false)
   assert.equal(canPublish({ id: 'user', role: 'user', text: 'Hello' }), false)
   assert.equal(canPublish(outcome), true)
   assert.equal(canPublish({ ...outcome, outcomeId: 'shape:published' }), false)
-})
+}))
 
-await test('legacy migration preserves messages and outcomes, rewrites dependencies, and is idempotent', () => {
+cases.push(test('legacy migration preserves messages and outcomes, rewrites dependencies, and is idempotent', () => {
   const oldQuestion: NodeRecord = { id: 'question', node: NodeSchema.parse({ ...base, type: 'question', ...question.proposal, sequence: 1 }) }
   const oldAnswer: NodeRecord = { id: 'answer', node: NodeSchema.parse({ ...base, type: 'answer', text: 'Oakland, under $50', questionId: 'question', sequence: 2 }) }
   const outcome = action('outcome', undefined)
@@ -79,12 +80,14 @@ await test('legacy migration preserves messages and outcomes, rewrites dependenc
   assert.ok(thread)
   assert.deepEqual(chatContext(migrated, 'a', thread, 'a').answers, [{ question: 'What is your budget?', answer: 'Oakland, under $50' }])
   assert.ok(migrated.every(record => NodeSchema.safeParse(record.node).success))
-})
+}))
 
-await test('legacy orphan messages are left intact and saved chats round-trip through node validation', () => {
+cases.push(test('legacy orphan messages are left intact and saved chats round-trip through node validation', () => {
   const orphan: NodeRecord = { id: 'orphan', node: NodeSchema.parse({ ...base, type: 'answer', text: 'Keep me', questionId: 'missing' }) }
   assert.deepEqual(foldLegacyMessages([orphan]), { updates: [], removed: [] })
   const saved = root('a', [chat('saved', 'Local only')])
   assert.deepEqual(NodeSchema.parse(JSON.parse(JSON.stringify(saved.node))), saved.node)
   assert.equal(ChatSchema.safeParse({ ...chat('invalid', ''), sourceIds: [] }).success, false)
-})
+}))
+
+await Promise.all(cases)

@@ -7,3 +7,7 @@ output/
 .playwright-cli/
 .pnpm-store/
 .DS_Store
+
+dist-desktop/
+test-results/
+playwright-report/

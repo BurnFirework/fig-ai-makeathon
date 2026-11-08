@@ -1,6 +1,8 @@
 # Shared web and Electron architecture
 
-Status: proposed implementation plan, November 7, 2026. Electron is the accepted desktop framework. No runtime implementation is included in this plan.
+Status: implemented initial web/macOS version, November 8, 2026. The sections below retain the design contract and reasoning. Current implementation and verification commands are in README.md.
+
+Implementation notes: the browser adapter uses transactional ID/revision comparison to reject stale writers rather than a renewable ownership lease. Archive assets use safe numeric ZIP entry paths with CRC/size verification and byte deduplication; no hash-authenticity claim is made. Native file revisions are session-fenced; recovery is a separate atomically written checkpoint, and Save As works after a failed original save. Packaging currently produces an unsigned local macOS app; public signing/notarization and other-OS distribution are not configured. A static browser runs preview locally; live AI needs the local helper or installed desktop. The independent Sol storage and native reviews found issues that were reproduced, fixed, and rechecked.
 
 ## Outcome and scope
 
@@ -235,4 +237,4 @@ Keeping tldraw IndexedDB as a desktop authority and mirroring it to a file was r
 
 The first implementation step is the two-board archive round trip and legacy-image extraction fixture. No Electron dependency or live persistence change is needed to prove that data boundary first.
 
-Verification for this planning pass: inspected current Unfold storage/agent code, compared both candidate designs, checked pinned T3 source, and reviewed Electron documentation. Runtime tests and desktop packaging have not been performed.
+Verification record: implementation checks and platform smoke results are recorded in README.md and the accompanying test scripts. Do not interpret the original planning acceptance table as proof of untested platform or distribution capabilities.
