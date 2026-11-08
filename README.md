@@ -21,7 +21,7 @@ No API key is required. Unfold launches **Claude Code** or **Codex CLI** on the 
 
 - **Codex:** the official CLI is a project dependency. Run `pnpm exec codex login` if needed; verify with `pnpm exec codex login status`.
 - **Claude Code:** install the official CLI using [Anthropic's instructions](https://code.claude.com/docs/en/overview), run `claude auth login`, and make `claude` available on the server's PATH.
-- Choose a provider in **Board settings**. Automatic startup prefers an installed Claude CLI, then Codex. If neither executable works, the app uses clearly labeled preview agents. A live authentication or search failure is shown as an error, never silently replaced with sample research.
+- Choose a provider in **Board settings**. Automatic startup prefers an installed Claude CLI, then Codex. A CLI that is installed but signed out is listed as unavailable with the command to sign in. If neither CLI works, the app uses clearly labeled preview agents. A live authentication or search failure is shown as an error, never silently replaced with sample research.
 - Provider status checks establish that the binary works, not that subscription usage is available. The first real request verifies authentication and model access.
 
 Optional server configuration: copy `.env.example` to `.env`, set `UNFOLD_PROVIDER=claude`, `codex`, `auto` or `demo`, and restart. `UNFOLD_CLAUDE_BIN` / `UNFOLD_CODEX_BIN` accept executable paths, not shell commands. `UNFOLD_MODEL` overrides the CLI's default model.

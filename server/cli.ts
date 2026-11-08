@@ -17,12 +17,23 @@ function candidates(provider: 'claude' | 'codex') {
   const override = provider === 'claude' ? process.env.UNFOLD_CLAUDE_BIN : process.env.UNFOLD_CODEX_BIN
   return override ? [override] : provider === 'codex' ? [resolve('node_modules/.bin/codex'), 'codex'] : ['claude']
 }
+/** Environment for CLI processes: subscription login stays with the CLI; don't silently choose API-key billing. */
+function cliEnv() {
+  const env = { ...process.env }
+  for (const key of ['OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'CLAUDECODE']) delete env[key]
+  return env
+}
+const loginCommand = (provider: 'claude' | 'codex') => provider === 'claude' ? 'claude auth login' : 'pnpm exec codex login'
 async function probe(provider: 'claude' | 'codex'): Promise<{ config?: CliConfig; status: ProviderStatus }> {
   for (const binary of candidates(provider)) {
+    let version: string
     try {
-      const { stdout } = await exec(binary, ['--version'], { timeout: 7000, maxBuffer: 32_000 })
-      return { config: { provider, binary, ...(process.env.UNFOLD_MODEL ? { model: process.env.UNFOLD_MODEL } : {}) }, status: { id: provider, available: true, version: stdout.trim(), message: 'Installed. Uses your existing CLI sign-in.' } }
-    } catch { /* Try the next configured local binary. */ }
+      version = (await exec(binary, ['--version'], { timeout: 7000, maxBuffer: 32_000 })).stdout.trim()
+    } catch { continue /* Try the next configured local binary. */ }
+    // An installed CLI is not enough: a signed-out CLI fails every request, so check its own login status.
+    const signedIn = await exec(binary, provider === 'claude' ? ['auth', 'status'] : ['login', 'status'], { timeout: 7000, maxBuffer: 32_000, env: cliEnv() }).then(() => true, () => false)
+    if (!signedIn) return { status: { id: provider, available: false, version, message: `Installed, but not signed in. Run \`${loginCommand(provider)}\` in a terminal, then choose it again.` } }
+    return { config: { provider, binary, ...(process.env.UNFOLD_MODEL ? { model: process.env.UNFOLD_MODEL } : {}) }, status: { id: provider, available: true, version, message: 'Installed and signed in. Uses your existing CLI sign-in.' } }
   }
   return { status: { id: provider, available: false, version: '', message: `Install and sign in to ${provider === 'claude' ? 'Claude Code' : 'Codex CLI'} on this computer.` } }
 }
@@ -37,6 +48,7 @@ export function publicConfig() { return { mode: active.provider === 'demo' ? 'de
 export async function selectProvider(provider: CliProvider) {
   if (provider === 'demo') { active = { provider: 'demo', binary: '' }; return }
   const result = await probe(provider)
+  statuses = statuses.map(status => status.id === provider ? result.status : status)
   if (!result.config) throw new Error(result.status.message)
   active = result.config
 }
@@ -86,9 +98,7 @@ export async function callCli(config: CliConfig, prompt: string, signal: AbortSi
     const args = provider === 'codex'
       ? ['exec', '--json', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check', '--sandbox', 'read-only', '--disable', 'shell_tool', '--disable', 'hooks', '-c', `web_search="${options.search ? 'live' : 'disabled'}"`, ...(config.model ? ['--model', config.model] : []), ...(imagePath ? ['--image', imagePath] : []), '-']
       : ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--max-turns', '8', '--permission-mode', 'dontAsk', '--tools', options.search ? 'WebSearch,WebFetch' : '', '--allowedTools', options.search ? 'WebSearch,WebFetch' : '', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '', '--settings', '{"disableAllHooks":true}', ...(config.model ? ['--model', config.model] : [])]
-    const env = { ...process.env }
-    // Subscription login stays with the CLI; don't silently choose API-key billing.
-    for (const key of ['OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'CLAUDECODE']) delete env[key]
+    const env = cliEnv()
     let input = prompt
     if (provider === 'claude') {
       const content: unknown[] = [{ type: 'text', text: prompt }]

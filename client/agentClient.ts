@@ -1,6 +1,7 @@
 import { type AgentEvent, type AgentRequest, type AgentResult, EventSchema } from '../shared/schema'
 import { AgentConfigSchema, AgentEventEnvelopeSchema, AgentFailureSchema, ProviderSchema, type AgentConfig } from '../shared/agent-contract'
 import { demoProposal } from '../shared/preview'
+import { z } from 'zod'
 
 const previewConfig: AgentConfig = { mode: 'demo', provider: 'Preview', providers: [{ id: 'demo', available: true, version: '', message: 'Local preview; no model or search.' }] }
 let localPreview = false
@@ -22,7 +23,10 @@ export async function selectAgentProvider(value: string): Promise<AgentConfig> {
     return previewConfig
   }
   const response = await fetch('/api/provider', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider }) })
-  if (!response.ok) throw new Error('Provider unavailable. Check its installation and sign-in.')
+  if (!response.ok) {
+    const detail = await response.json().then((body: unknown) => z.object({ error: z.string() }).safeParse(body).data?.error, () => undefined)
+    throw new Error(detail || 'Provider unavailable. Check its installation and sign-in.')
+  }
   const config = await fetch('/api/config')
   if (!config.ok) throw new Error('Provider configuration is unavailable.')
   return AgentConfigSchema.parse(await config.json())
