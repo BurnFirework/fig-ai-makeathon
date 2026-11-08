@@ -22,7 +22,7 @@
   --color-popover-foreground: var(--ink);
   --color-border: var(--line);
   --color-input: var(--line);
-  --color-ring: #52759b;
+  --color-ring: var(--accent-500);
   --color-destructive: #a43d3d;
   --radius-sm: 5px;
   --radius-md: 8px;
@@ -32,20 +32,11 @@
 
 @layer base {
 :root {
-  --canvas: #f7f7f5;
+  --canvas: #fcf6e9; /* canvas tone: see data-canvas-tone below */
   --paper: #fff;
   --ink: #2b2d30;
   --cocoa-soft: #73766f;
   --line: #e3e4df;
-  --accent-50: #f0f1ed;
-  --accent-100: #e7eae3;
-  --accent-200: #d7dcd2;
-  --accent-300: #b6bdb0;
-  --accent-400: #8a9880;
-  --accent-500: #4f6247;
-  --accent-600: #3e5037;
-  --accent-glow: #4f624719;
-  --second-ink-dark: #3e5037;
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --serif: Georgia, serif;
   font-family: var(--sans);
@@ -53,13 +44,41 @@
   font-synthesis: none;
   font-weight: 400;
 }
+/* Main color, chosen in the Style menu and saved in workspace.appearance (data-palette on <html>). */
+:root, :root[data-palette="rose"] {
+  --accent-50: #fdf2f5; --accent-100: #fbe7ee; --accent-200: #f5cbd8; --accent-300: #eca8bd;
+  --accent-400: #e5829f; --accent-500: #de7499; --accent-600: #c95a82; --accent-dot: #efcfd8; --accent-glow: #de74991f;
+  --second-ink-dark: #4a5c38;
+  --st-light: #f7c6d4; --st-mid: #f3b6c8; --st-deep: #ec9fb8; --st-line: #d6809f; --st-shine: #e39ab2;
+}
+:root[data-palette="lavender"] {
+  --accent-50: #f6f2fa; --accent-100: #eee6f6; --accent-200: #ddcfec; --accent-300: #c6b1de;
+  --accent-400: #b39bd0; --accent-500: #9c80c0; --accent-600: #7f63a6; --accent-dot: #e1d6ee; --accent-glow: #9c80c01f;
+  --second-ink-dark: #4a5c38;
+  --st-light: #e3d6f1; --st-mid: #d6c4ea; --st-deep: #c2a9df; --st-line: #9c80c0; --st-shine: #b49bd4;
+}
+:root[data-palette="sage"] {
+  --accent-50: #f3f6ec; --accent-100: #e8efdd; --accent-200: #d3e1c4; --accent-300: #b6cca0;
+  --accent-400: #97b37e; --accent-500: #809f67; --accent-600: #5f7d48; --accent-dot: #d7e3c9; --accent-glow: #809f671f;
+  --second-ink-dark: #8f3f5f;
+  --st-light: #dbe8cc; --st-mid: #c9dcb5; --st-deep: #adc694; --st-line: #809f67; --st-shine: #9fbb85;
+}
+/* Canvas tone and pattern (data-canvas-tone / data-pattern; tiles in the Style menu reuse the patterns). */
+:root[data-canvas-tone="white"] { --canvas: #fffefb; }
+:root[data-canvas-tone="linen"] { --canvas: #f3eadb; }
+:root[data-canvas-tone="tint"] { --canvas: color-mix(in srgb, var(--accent-100) 60%, #fffcf3); }
+:root, [data-pattern="dots"] { --pat-image: radial-gradient(var(--accent-dot) 1.1px, transparent 1.3px); --pat-size: 26px 26px; --pat-tile: 12px 12px; }
+[data-pattern="grid"] { --pat-image: linear-gradient(var(--accent-dot) 1px, transparent 1px), linear-gradient(90deg, var(--accent-dot) 1px, transparent 1px); --pat-size: 28px 28px; --pat-tile: 11px 11px; }
+[data-pattern="lined"] { --pat-image: linear-gradient(transparent calc(100% - 1px), var(--accent-dot) calc(100% - 1px)); --pat-size: 100% 30px; --pat-tile: 100% 10px; }
+[data-pattern="gingham"] { --pat-image: linear-gradient(90deg, color-mix(in srgb, var(--accent-200) 20%, transparent) 50%, transparent 50%), linear-gradient(color-mix(in srgb, var(--accent-200) 20%, transparent) 50%, transparent 50%); --pat-size: 36px 36px; --pat-tile: 14px 14px; }
+[data-pattern="plain"] { --pat-image: none; }
 html, body, #root { margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--canvas); }
 a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 }
 
 @layer components {
-.tl-container, .tl-container.tl-theme__light { --tl-color-background: var(--canvas); --tl-color-text-1: var(--ink); --tl-color-selected: #52759b; --tl-color-selection-fill: #52759b12; --tl-color-selection-stroke: #52759b; font-family: var(--sans); }
-.tl-background { background: var(--canvas); }
+.tl-container, .tl-container.tl-theme__light { --tl-color-background: var(--canvas); --tl-color-text-1: var(--ink); --tl-color-selected: var(--accent-500); --tl-color-selection-fill: var(--accent-glow); --tl-color-selection-stroke: var(--accent-500); font-family: var(--sans); }
+.tl-background { background-color: var(--canvas); background-image: var(--pat-image); background-size: var(--pat-size); }
 .tl-grid { display: none; }
 .chrome { position: absolute; inset: 0; pointer-events: none; font-size: 13px; color: var(--ink); }
 .chrome button, .chrome a, .chrome input, .chrome textarea, .chrome select, .chat-panel, .activity-panel, .notice, .empty-state { pointer-events: auto; }
@@ -76,6 +95,22 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .breadcrumb.current { font-size: 12px; color: var(--ink); }
 .breadcrumb + .breadcrumb { margin-left: 9px; }
 .header-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.style-picker { position: relative; }
+.style-swatch { width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px #ffffffb3, 0 0 0 1px #2b2d3026; }
+.style-menu { position: absolute; top: calc(100% + 8px); right: 0; z-index: 10; width: 268px; padding: 12px 12px 6px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px #2b2d301a; }
+.style-menu-title { margin: 0 4px 6px; font-size: 13px; font-weight: 500; color: var(--ink); }
+.style-menu section { padding: 8px 0 10px; border-top: 1px solid var(--line); }
+.style-menu h3 { margin: 0 4px 8px; font-size: 11px; font-weight: 500; color: var(--cocoa-soft); }
+.style-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.style-options.patterns { grid-template-columns: repeat(5, 1fr); }
+.style-options.tones { grid-template-columns: repeat(4, 1fr); }
+.style-options button { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 7px 2px 6px; border-radius: 8px; font-size: 10px; color: var(--cocoa-soft); cursor: pointer; }
+.style-options button:hover { background: var(--accent-50); color: var(--ink); }
+.style-options button.selected { background: var(--accent-100); color: var(--accent-600); }
+.style-options button:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 1px; }
+.style-options .swatch { width: 24px; height: 24px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px #ffffffb3, 0 0 0 1px #2b2d3026; }
+.style-options button.selected .swatch, .style-options button.selected .pattern-tile { box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px var(--accent-500); }
+.pattern-tile { width: 36px; height: 30px; border-radius: 6px; background-color: var(--canvas); background-image: var(--pat-image); background-size: var(--pat-tile); box-shadow: 0 0 0 1px var(--line); }
 .mode-label { font-size: 11px; color: var(--cocoa-soft); margin-right: 8px; }
 .settings-label { font-size: 13px; font-weight: 500; }
 .settings-note { font-size: 12px; line-height: 1.6; color: var(--cocoa-soft); }
@@ -132,9 +167,9 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .stale-banner { flex-shrink: 0; font-size: 11px; padding: 7px 12px; background: #fbf0dc; color: #816138; }
 .card-inspiration:has(.stale-banner) .inspiration-content { padding-block: 5px; }
 .card-inspiration .stale-banner { padding-block: 2px; }
-.Port { position: absolute; width: 10px; height: 10px; top: -5px; left: -5px; border: 2px solid var(--canvas); border-radius: 50%; background: #a5aea0; cursor: crosshair; pointer-events: auto; opacity: 0; z-index: 4; }
+.Port { position: absolute; width: 10px; height: 10px; top: -5px; left: -5px; border: 2px solid var(--canvas); border-radius: 50%; background: var(--accent-300); cursor: crosshair; pointer-events: auto; opacity: 0; z-index: 4; }
 .NodeShape:hover .Port, .NodeShape:focus-within .Port, .Port_hinting, .Port_eligible { opacity: 1; }
-.ConnectionShape path { fill: none; stroke: #c7ccc2; stroke-width: 1.25; stroke-linecap: round; }
+.ConnectionShape path { fill: none; stroke: var(--accent-300); stroke-width: 1.25; stroke-linecap: round; }
 @media (hover: hover) and (pointer: fine) {
   .card-footer { opacity: 0; }
   .unfold-card:hover .card-footer, .unfold-card:focus-within .card-footer, .is-selected .card-footer, .chat-is-open .card-footer, .is-busy .card-footer { opacity: 1; }
@@ -172,7 +207,7 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .chat-job > span { flex: 1; }
 .chat-job.error { color: #a43d3d; }
 .chat-compose { margin: 8px 20px 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); padding: 10px; }
-.chat-compose:focus-within { border-color: #a2ada0; }
+.chat-compose:focus-within { border-color: var(--accent-300); }
 .chat-compose textarea { border: 0; border-radius: 0; background: transparent; resize: none; box-shadow: none; outline: none; min-height: 63px; max-height: 180px; field-sizing: content; padding: 5px 4px; font-size: 14px; line-height: 1.6; }
 .chat-compose textarea:focus-visible { box-shadow: none; }
 .compose-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-left: 4px; }

@@ -20,6 +20,21 @@ const cases: Promise<void>[] = []
 cases.push(test('fresh workspaces contain a valid document and page before the first editor mounts', () => {
   assert.doesNotThrow(() => parseWorkspace(emptyWorkspace()))
 }))
+cases.push(test('board style is saved with the workspace', async () => {
+  let saved: unknown
+  const desktop = desktopFiles({ save: value => { saved = value.workspace.appearance; return Promise.resolve({ session: value.session, revision: value.workspace.revision, name: 'project.unfold', savedAt: Date.now() }) } })
+  const controller = new WorkspaceController(workspaceFixture(), { desktop, session: 'session', name: 'project.unfold', persisted: true })
+  const revision = controller.getSnapshot().workspace.revision
+  assert.equal(controller.updateAppearance({ palette: 'lavender', pattern: 'gingham', tone: 'tint' }), true)
+  assert.deepEqual(controller.getSnapshot().workspace.appearance, { palette: 'lavender', pattern: 'gingham', tone: 'tint' })
+  assert.equal(controller.getSnapshot().workspace.revision, revision + 1)
+  assert.equal(controller.updateAppearance({ palette: 'lavender', pattern: 'gingham', tone: 'tint' }), true)
+  assert.equal(controller.getSnapshot().workspace.revision, revision + 1, 'choosing the current style is not a change')
+  await controller.flush()
+  assert.deepEqual(saved, { palette: 'lavender', pattern: 'gingham', tone: 'tint' })
+  assert.doesNotThrow(() => parseWorkspace(controller.getSnapshot().workspace))
+  controller.dispose()
+}))
 cases.push(test('Save As recovers after the original destination fails', async () => {
   let copies = 0
   const desktop = desktopFiles({ save: () => Promise.reject(new Error('Disk unavailable')), saveAs: value => { copies++; return Promise.resolve({ session: value.session, revision: value.workspace.revision, name: 'copy.unfold', savedAt: 1 }) } })

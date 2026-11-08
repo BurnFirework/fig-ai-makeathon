@@ -80,6 +80,14 @@ export class WorkspaceController {
       return true
     } catch (error) { this.report(error); return false }
   }
+  /** Viewer look of the whole workspace (main color, canvas pattern and tone); saved with the workspace. */
+  updateAppearance(appearance: Workspace['appearance']): boolean {
+    if (this.current.busy) return false
+    const current = this.current.workspace.appearance
+    if (current.palette === appearance.palette && current.pattern === appearance.pattern && current.tone === appearance.tone) return true
+    this.change({ ...this.current.workspace, appearance })
+    return true
+  }
   private capture() {
     if (!this.editor) return
     const workspace = this.current.workspace

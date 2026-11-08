@@ -38,7 +38,7 @@ The provider pattern is inspired by [T3 Code](https://github.com/pingdotgg/t3cod
 6. Choose **Connect goals** (or select two nodes from different inspiration branches) to explore a shared direction in a chat. Add the result when ready, then explore it for a sourced first step.
 7. Open **Agent activity** to inspect branch, research and connection handoffs. Stop and retry controls appear in the chat while work runs or after an error.
 
-Use the board name menu to create, switch or rename mood boards. Each board keeps its own canvas, images and conversations on this device. Switching boards stops its running requests. **Style** controls the existing color and canvas preferences.
+Use the board name menu to create, switch or rename mood boards. Each board keeps its own canvas, images and conversations on this device. Switching boards stops its running requests. **Style** (the color dot in the header) picks the main color (lavender, rose or sage), the canvas pattern (dots, grid, lined, gingham or plain) and the canvas color; the choice is saved with the workspace and travels with exports.
 
 Older question and answer cards are folded into an **Earlier exploration** chat on their inspiration. Existing outcome cards and their connections are preserved. Editing a source goal marks dependent outcomes for review and prevents older replies from being added. Nothing books a class or takes the real-world step for you.
 
