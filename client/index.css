@@ -119,3 +119,28 @@ textarea { resize: none; }
 @media (max-width: 850px) { .workspace-name { display: flex; max-width: 180px; } .new-board-button span { display: none; } .app-header { gap: 8px; } }
 
 .goal-input { height: auto; border-radius: 0; box-shadow: none; }
+
+/* Keep decisions outside the scrolling content of fixed-size canvas cards. */
+.card-body { display: flex; flex-direction: column; overflow: hidden; }
+.card-content { flex: 1; min-height: 0; min-width: 0; overflow: auto; overflow-wrap: anywhere; scrollbar-width: thin; scrollbar-color: #dbe3d3 transparent; }
+.card-actions { flex-shrink: 0; padding-top: 8px; }
+.card-footer, .stale-banner, .root-controls { flex-shrink: 0; }
+.card-footer { padding-block: 4px; }
+.stale-banner { padding-block: 4px; }
+.question-purpose { margin-bottom: 10px; }
+.card-question h2 { margin-bottom: 4px; }
+.card-question .choices { margin-bottom: 6px; }
+.card-footer > span, .job-state > span { min-width: 0; overflow-wrap: anywhere; }
+.job-state > span { max-height: 24px; overflow: auto; }
+.card-header, .card-footer, .job-state, .stale-banner { overflow-wrap: anywhere; }
+.answer-form { display: flex; flex: 1; min-height: 0; flex-direction: column; }
+.card-body textarea { field-sizing: fixed; height: 56px; min-height: 56px; }
+.answer-form textarea { flex: 1; min-height: 0; }
+.answer-body > button, .answer-form > button { flex-shrink: 0; align-self: flex-start; }
+.action-description { max-height: none; overflow: visible; }
+.sources a span { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.benefits p, .completed-note { overflow-wrap: anywhere; }
+.completed-note { max-height: 90px; overflow: auto; }
+.completed-note > svg { flex-shrink: 0; }
+.inspiration-image { flex-shrink: 1; min-height: 80px; }
+.choices > button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
