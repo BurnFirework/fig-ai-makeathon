@@ -55,7 +55,7 @@ Preview mode is deliberately deterministic and text-based. It demonstrates the i
 
 The React UI uses local shadcn/ui **Base UI / Vega** components in `client/components/ui`, backed by `@base-ui/react`, Tailwind CSS 4 and shared theme tokens in `client/index.css`. This follows tutor-platform's local component, shared utility and token structure while keeping the React/Vite setup. tldraw continues to own the canvas and drawing interactions.
 
-`components.json` and the `@/*` alias configure the official shadcn registry. Add components with `pnpm dlx shadcn@latest add <component>`. Use the shared Button, Input, Textarea, Select, Dialog and DropdownMenu components for application controls. The button's `canvas` size lets compact canvas controls keep their existing dimensions.
+`components.json` and the `@/*` alias configure the official shadcn registry. Add components with `pnpm dlx shadcn@latest add <component>`. Use the shared Button, Input, Textarea, Select, Dialog and DropdownMenu components for application controls. Button variants own action styling, including selected states; compact, text and pill sizes serve canvas controls. Global resets live in the base layer, tldraw styles in a vendor layer, and app layout in the component layer so Tailwind utilities retain precedence. The header uses two rows below 850px to keep every control reachable.
 
 ## Checks and production build
 

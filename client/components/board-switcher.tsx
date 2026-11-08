@@ -18,8 +18,8 @@ export function BoardSwitcher() {
   const valid = BoardNameSchema.safeParse(name).success
   return <>
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="ghost" className="workspace-name" aria-label={`Mood boards: ${active?.name ?? ''}`} />}>
-        <LayoutGrid size={15}/><span className="truncate">{active?.name}</span><ChevronDown size={13}/>
+      <DropdownMenuTrigger render={<Button variant="ghost" className="workspace-name justify-between" aria-label={`Mood boards: ${active?.name ?? ''}`} />}>
+        <LayoutGrid size={15}/><span className="min-w-0 flex-1 truncate text-left">{active?.name}</span><ChevronDown size={13}/>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-72" onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
         <DropdownMenuGroup>
@@ -33,7 +33,7 @@ export function BoardSwitcher() {
         <DropdownMenuItem onClick={() => { setName(active?.name ?? ''); setEditing('rename') }}><Pencil/>Rename board</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-    <Button variant="outline" size="sm" className="new-board-button" onClick={() => { setName(''); setEditing('create') }}><Plus size={14}/><span>New board</span></Button>
+    <Button variant="outline" size="sm" className="new-board-button" aria-label="New board" onClick={() => { setName(''); setEditing('create') }}><Plus size={14}/><span>New board</span></Button>
     <Dialog open={editing !== null} onOpenChange={open => { if (!open) setEditing(null) }}>
       <DialogContent onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
         <DialogHeader><DialogTitle>{editing === 'rename' ? 'Rename mood board' : 'A new space for possibilities'}</DialogTitle><DialogDescription>{editing === 'rename' ? 'Choose a name that feels right.' : 'Keep a fresh set of inspirations together. Your other boards stay saved.'}</DialogDescription></DialogHeader>
