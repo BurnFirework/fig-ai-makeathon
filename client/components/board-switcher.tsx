@@ -18,7 +18,7 @@ export function BoardSwitcher() {
   const valid = BoardNameSchema.safeParse(name).success
   return <>
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="ghost" className="workspace-name justify-between" aria-label={`Mood boards: ${active?.name ?? ''}`} />}>
+      <DropdownMenuTrigger render={<Button variant="ghost" className="workspace-name justify-between text-[13px] font-normal" aria-label={`Mood boards: ${active?.name ?? ''}`} />}>
         <LayoutGrid size={15}/><span className="min-w-0 flex-1 truncate text-left">{active?.name}</span><ChevronDown size={13}/>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-72" onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
