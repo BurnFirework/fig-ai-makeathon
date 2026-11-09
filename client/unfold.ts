@@ -1,8 +1,9 @@
 import { isEmpty, isNotEmpty } from '../shared/arrays'
 import { createShapeId, Editor, type TLShapeId } from 'tldraw'
-import { type Chat, type ChatMessage, NodeSchema, type UnfoldNode, revisionsMatch } from '../shared/schema'
+import { type Chat, type ChatMemory, type ChatMessage, type Handoff, NodeSchema, type UnfoldNode, memoryKey, revisionsMatch } from '../shared/schema'
 import { invalidatedBy } from '../shared/context'
-import { canPublish, chatContext, foldLegacyMessages, lineage, nodeTitle } from '../shared/chats'
+import { canPublish, chatContext, contextThreads, currentRevisions, decisionOf, foldLegacyMessages, lineage, memoryDependencies, nodeTitle } from '../shared/chats'
+import { applyAgentMemory, applyDrafts, chatMemory, classifyMessage, confirmAssumption, interpretMessage, questionFor, withdrawEntry } from '../shared/memory'
 import { actions, uiState, type UnfoldActions } from './actions'
 import { requestAgent, getAgentConfig } from './agentClient'
 import { createOrUpdateConnectionBinding, getConnectionBindings } from './connection/ConnectionBindingUtil'
@@ -52,10 +53,16 @@ export function setupUnfold(editor: Editor) {
   const retries = new Map<string, () => void>()
   const records = () => nodes(editor).map(shape => ({ id: shape.id, node: shape.props.node }))
   const notice = (message: string) => uiState.update(editor, state => ({ ...state, notice: message }))
-  const activity = (role: string, message: string) => uiState.update(editor, state => ({ ...state, activity: [...state.activity.slice(-99), { id: crypto.randomUUID(), role, message, time: Date.now() }] }))
+  const activity = (role: string, message: string, handoff?: Handoff) => uiState.update(editor, state => ({ ...state, activity: [...state.activity.slice(-99), { id: crypto.randomUUID(), role, message, time: Date.now(), ...(handoff ? { handoff } : {}) }] }))
+  const revisions = () => currentRevisions(records())
   const launch = (promise: Promise<void>) => { promise.catch((error: unknown) => notice(error instanceof Error ? error.message : 'The operation could not finish. Please retry.')) }
   const clearJob = (id: string) => uiState.update(editor, state => { const jobs = { ...state.jobs }; delete jobs[id]; return { ...state, jobs } })
   const cancel = (id: string) => { running.get(id)?.controller.abort(); running.delete(id); clearJob(id) }
+  /** A request whose sources or conditions changed is stopped; its late answer can never be applied. */
+  const cancelOutdated = (id: string) => {
+    running.get(id)?.controller.abort(); running.delete(id)
+    uiState.update(editor, state => ({ ...state, jobs: { ...state.jobs, [id]: { status: 'error', message: 'Your conditions or sources changed while the agents worked, so their answer was set aside. Retry to use the latest.' } } }))
+  }
   const chatAt = (id: TLShapeId, chatId: string) => nodeAt(editor, id)?.props.node.chats?.find(chat => chat.id === chatId)
   const editChat = (id: TLShapeId, chatId: string, transform: (chat: Chat) => Chat) => update(editor, id, node => ({ ...node, chats: node.chats?.map(chat => chat.id === chatId ? transform(chat) : chat) }))
   const focus = (id: TLShapeId) => {
@@ -92,10 +99,18 @@ export function setupUnfold(editor: Editor) {
     activate(id, chat)
     return chat
   }
-  const invalidate = (id: TLShapeId) => {
+  const invalidate = (id: string) => {
     const affected = invalidatedBy(records(), id)
     for (const shape of nodes(editor)) if (affected.has(shape.id)) update(editor, shape.id, node => ({ ...node, stale: true, revision: node.revision + 1 }))
-    for (const [jobId, job] of running) if (job.dependencies.some(dependency => dependency.id === id || affected.has(dependency.id))) cancel(jobId)
+    for (const [jobId, job] of running) if (job.dependencies.some(dependency => dependency.id === id || affected.has(dependency.id))) cancelOutdated(jobId)
+  }
+  /** Saves a conversation's memory; a change to confirmed conditions marks dependent results for review. */
+  const saveMemory = (id: TLShapeId, chatId: string, memory: ChatMemory) => {
+    const before = chatAt(id, chatId)
+    if (!before) return
+    const changed = memory.revision !== chatMemory(before).revision
+    editChat(id, chatId, current => ({ ...current, memory }))
+    if (changed) invalidate(memoryKey(chatId))
   }
   const addNode = (node: UnfoldNode, parentIds: TLShapeId[]) => {
     const parents = parentIds.flatMap(id => { const shape = nodeAt(editor, id); return shape ? [shape] : [] })
@@ -119,7 +134,11 @@ export function setupUnfold(editor: Editor) {
     const controller = new AbortController(); const requestId = crypto.randomUUID()
     const all = records()
     const dependencyIds = new Set([...chat.branchIds, ...chat.sourceIds.flatMap(id => lineage(all, id).map(record => record.id))])
-    const dependencies = all.filter(record => dependencyIds.has(record.id)).map(record => ({ id: record.id, revision: record.node.revision }))
+    const dependencies = [...all.filter(record => dependencyIds.has(record.id)).map(record => ({ id: record.id, revision: record.node.revision })), ...memoryDependencies(all, sourceId, chat)]
+    if (source.props.node.type === 'opportunity' && source.props.node.status === 'rejected') {
+      uiState.update(editor, state => ({ ...state, jobs: { ...state.jobs, [chatId]: { status: 'error', message: 'You declined this shared direction, so agents will not develop it. Reconsider it in its connection chat to continue.' } } }))
+      return
+    }
     running.set(chatId, { requestId, controller, sourceId, lastMessageId: chat.messages.at(-1)?.id, dependencies })
     retries.set(chatId, () => launch(run(sourceId, chatId)))
     uiState.update(editor, state => ({ ...state, notice: '', jobs: { ...state.jobs, [chatId]: { status: 'running', message: chat.operation === 'connect' ? 'Finding a shared direction…' : chat.operation === 'research' ? 'Looking for a real first step…' : 'Following your inspiration…' } } }))
@@ -138,15 +157,32 @@ export function setupUnfold(editor: Editor) {
       }
       const selectedContext = source.props.node.type === 'inspiration' ? '' : `Build from this outcome: ${nodeTitle(source.props.node)}. ${source.props.node.type === 'action' || source.props.node.type === 'opportunity' ? source.props.node.description : ''}`
       const latest = chat.messages.filter(message => message.role === 'user').at(-1)
-      const result = await requestAgent({ requestId, operation: chat.operation, branches, image, note: [selectedContext, latest?.role === 'user' ? latest.text : ''].filter(Boolean).join('\n').slice(0, 2000) }, controller.signal, event => {
-        if (running.get(chatId)?.requestId === requestId) activity(event.role, event.message)
+      const revised = latest?.role === 'user' && latest.stance === 'refine' ? chat.messages.find(message => message.id === latest.replyTo) : undefined
+      const focus = revised?.role === 'assistant' && revised.proposal.kind === 'opportunity' && latest?.role === 'user' ? { kind: 'refine' as const, title: revised.proposal.title, description: revised.proposal.description.slice(0, 2000), note: latest.text } : undefined
+      const result = await requestAgent({ requestId, operation: chat.operation, branches, image, note: [selectedContext, latest?.role === 'user' ? latest.text : ''].filter(Boolean).join('\n').slice(0, 2000), ...(focus ? { focus } : {}) }, controller.signal, event => {
+        if (running.get(chatId)?.requestId !== requestId) return
+        if (event.type === 'activity') { activity(event.role, event.message); return }
+        activity(event.handoff.from, event.handoff.summary, event.handoff)
+        uiState.update(editor, state => { const job = state.jobs[chatId]; return job ? { ...state, jobs: { ...state.jobs, [chatId]: { ...job, handoffs: [...(job.handoffs ?? []), event.handoff].slice(-4) } } } : state })
       })
-      if (controller.signal.aborted || running.get(chatId)?.requestId !== requestId || !chatAt(sourceId, chatId) || !revisionsMatch(dependencies, new Map(records().map(record => [record.id, record.node.revision])))) return
+      if (controller.signal.aborted || running.get(chatId)?.requestId !== requestId || !chatAt(sourceId, chatId) || !revisionsMatch(dependencies, revisions())) return
       running.delete(chatId)
-      editChat(sourceId, chatId, current => ({ ...current, messages: [...current.messages, { id: crypto.randomUUID(), role: 'assistant', proposal: result.proposal, dependsOn: dependencies }] }))
+      const messageId = crypto.randomUUID()
+      const current = chatAt(sourceId, chatId)
+      if (!current) return
+      // Agent memory needs a user message as its basis; otherwise it stays an assumption.
+      const threads = chat.branchIds.flatMap(branchId => contextThreads(all, sourceId, chat, branchId))
+      const userMessageIds = new Set(threads.flatMap(thread => thread.chat.messages.flatMap(message => message.role === 'user' ? [message.id] : [])))
+      const knownEntryIds = new Set(branches.flatMap(branch => branch.memory.map(item => item.id)))
+      let index = 0
+      const memory = applyAgentMemory(chatMemory(current), result.memory, userMessageIds, knownEntryIds, messageId, Date.now(), () => `${messageId}:${index++}`)
+      const ownKey = memoryKey(chatId)
+      const finalDependencies = dependencies.map(dependency => dependency.id === ownKey ? { ...dependency, revision: memory.revision } : dependency)
+      editChat(sourceId, chatId, thread => ({ ...thread, messages: [...thread.messages, { id: messageId, role: 'assistant', proposal: result.proposal, dependsOn: finalDependencies, ...(isNotEmpty(result.handoffs) ? { trace: result.handoffs } : {}), ...(focus && revised ? { revises: revised.id } : {}) }] }))
+      if (memory !== chatMemory(current)) saveMemory(sourceId, chatId, memory)
       if (result.mode !== uiState.get(editor).mode) uiState.update(editor, state => ({ ...state, mode: result.mode }))
       clearJob(chatId)
-      activity('coordinator', 'Reply ready in your chat. Add an outcome to the canvas when it feels right.')
+      activity('coordinator', result.proposal.kind === 'question' ? 'Agents paused for your answer in the chat.' : result.proposal.kind === 'opportunity' ? 'A shared proposal is waiting for your decision: accept, decline or refine.' : 'Reply ready in your chat. Add an outcome to the canvas when it feels right.')
     } catch (error) {
       if (!controller.signal.aborted && running.get(chatId)?.requestId === requestId) uiState.update(editor, state => ({ ...state, jobs: { ...state.jobs, [chatId]: { status: 'error', message: error instanceof Error ? error.message : 'Something went wrong. Please retry.' } } }))
     } finally {
@@ -163,29 +199,115 @@ export function setupUnfold(editor: Editor) {
     },
     newChat(id) { const chat = createChat(id, [id], sourceBranches(id), nodeAt(editor, id)?.props.node.type === 'opportunity' ? 'research' : 'branch'); if (chat) launch(run(id, chat.id)) },
     closeChat() { uiState.update(editor, state => ({ ...state, activeChat: null })) },
-    send(id, chatId, text, replyTo) {
+    send(id, chatId, text, replyTo, stance) {
       const chat = chatAt(id, chatId)
       if (!text.trim() || !chat || uiState.get(editor).jobs[chatId]?.status === 'running') return
-      const message: ChatMessage = { id: crypto.randomUUID(), role: 'user', text: text.trim().slice(0, 2000), ...(replyTo ? { replyTo } : {}) }
+      const value = text.trim().slice(0, 2000)
+      const message: ChatMessage = { id: crypto.randomUUID(), role: 'user', text: value, ...(replyTo ? { replyTo } : {}), stance: stance ?? classifyMessage(value) }
+      const messages = [...chat.messages, message]
+      let index = 0
+      const memory = applyDrafts(chatMemory(chat), interpretMessage(value, message.stance ?? 'answer', questionFor(messages, message)), [message.id], 'you', Date.now(), () => `${message.id}:${index++}`)
       editor.markHistoryStoppingPoint('chat message')
       editChat(id, chatId, current => ({ ...current, messages: [...current.messages, message] }))
+      saveMemory(id, chatId, memory)
       launch(run(id, chatId))
+    },
+    decide(id, chatId, messageId, decision, note = '') {
+      const chat = chatAt(id, chatId)
+      const message = chat?.messages.find(item => item.id === messageId)
+      if (!chat || message?.role !== 'assistant' || message.proposal.kind !== 'opportunity' || uiState.get(editor).jobs[chatId]?.status === 'running') return
+      const proposal = message.proposal
+      const reason = note.trim().slice(0, 600)
+      const setDecision = (status: 'accepted' | 'declined' | 'refine', extra: { outcomeId?: string } = {}) => editChat(id, chatId, current => ({ ...current, messages: current.messages.map(item => {
+        if (item.role !== 'assistant') return item
+        if (item.id === messageId) return { ...item, ...extra, decision: { status, note: reason, at: Date.now() } }
+        // Accepting a revision supersedes the earlier accepted version; one card represents the direction.
+        if (status === 'accepted' && decisionOf(item) === 'accepted' && item.proposal.kind === 'opportunity') return { ...item, decision: { status: 'superseded', note: '', at: Date.now() } }
+        return item
+      }) }))
+      const linkedCard = (item: ChatMessage) => item.role === 'assistant' && item.outcomeId ? nodes(editor).find(shape => shape.id === item.outcomeId) : undefined
+      if (decision === 'reopen') {
+        editor.markHistoryStoppingPoint('reconsider proposal')
+        editChat(id, chatId, current => ({ ...current, messages: current.messages.map(item => { if (item.id !== messageId || item.role !== 'assistant') return item; const { decision: _removed, ...rest } = item; return rest }) }))
+        const card = linkedCard(message)
+        if (card) update(editor, card.id, node => node.type === 'opportunity' ? { ...node, status: 'proposed' } : node)
+        activity('you', `Reopened “${proposal.title}” for a decision.`)
+        return
+      }
+      if (decision === 'decline') {
+        editor.markHistoryStoppingPoint('decline proposal')
+        setDecision('declined')
+        const card = linkedCard(message)
+        if (card) {
+          update(editor, card.id, node => node.type === 'opportunity' ? { ...node, status: 'rejected' } : node)
+          for (const [jobId, job] of running) if (job.sourceId === card.id) cancel(jobId)
+        }
+        activity('you', `Declined “${proposal.title}”${reason ? `: ${reason}` : ''}. Agents will not develop it or suggest it again without saying what changed.`)
+        notice('Declined. Agents will remember your reason.')
+        return
+      }
+      if (decision === 'refine') {
+        if (!reason) return
+        editor.markHistoryStoppingPoint('refine proposal')
+        // An accepted direction stays accepted (and on the canvas) until a revision is accepted.
+        if (decisionOf(message) !== 'accepted') setDecision('refine')
+        activity('you', `Asked to refine “${proposal.title}”: ${reason}`)
+        api.send(id, chatId, reason, messageId, 'refine')
+        return
+      }
+      if (!revisionsMatch(message.dependsOn, revisions())) { notice('Your conditions or sources changed since this was proposed. Ask for an update before accepting it.'); return }
+      const parents = chat.sourceIds.flatMap(sourceId => nodes(editor).filter(shape => shape.id === sourceId).map(shape => shape.id))
+      if (parents.length !== chat.sourceIds.length) { notice('A source was removed. Start a new exploration from an existing node.'); return }
+      const content = { title: proposal.title, description: proposal.description, benefitA: proposal.benefitA, benefitB: proposal.benefitB }
+      editor.markHistoryStoppingPoint('accept proposal')
+      editor.run(() => {
+        // Reuse this conversation's existing shared card so acceptance never duplicates it.
+        const existing = chat.messages.map(linkedCard).find(card => card?.props.node.type === 'opportunity')
+        let outcomeId: TLShapeId
+        if (existing) {
+          outcomeId = existing.id
+          // A revised direction replaces the card's content, so work built on the earlier version needs review.
+          if (existing.props.node.origin?.messageId !== messageId) invalidate(existing.id)
+          update(editor, existing.id, node => node.type === 'opportunity' ? { ...node, ...content, status: 'accepted', stale: false, revision: node.revision + 1, dependsOn: message.dependsOn, origin: { nodeId: id, chatId, messageId } } : node)
+        } else {
+          const source = nodeAt(editor, id)
+          if (!source) return
+          outcomeId = addNode({ ...baseNode(`shared-${crypto.randomUUID()}`, 'connection'), dependsOn: message.dependsOn, origin: { nodeId: id, chatId, messageId }, type: 'opportunity', ...content, status: 'accepted', refinement: '', sourceBranchIds: chat.branchIds }, parents)
+        }
+        setDecision('accepted', { outcomeId })
+        editor.select(outcomeId)
+      })
+      activity('you', `Accepted “${proposal.title}”. It is on the canvas with both sources.`)
+      notice('Accepted and added to your canvas. Open the card to find a real first step.')
+    },
+    forgetMemory(id, chatId, entryId) {
+      const chat = chatAt(id, chatId)
+      if (!chat) return
+      editor.markHistoryStoppingPoint('forget memory')
+      saveMemory(id, chatId, withdrawEntry(chatMemory(chat), entryId))
+    },
+    confirmMemory(id, chatId, entryId) {
+      const chat = chatAt(id, chatId)
+      if (!chat) return
+      let index = 0
+      editor.markHistoryStoppingPoint('confirm memory')
+      saveMemory(id, chatId, confirmAssumption(chatMemory(chat), entryId, Date.now(), () => `${entryId}:confirmed:${index++}`))
     },
     publish(id, chatId, messageId) {
       const chat = chatAt(id, chatId)
       const message = chat?.messages.find(message => message.id === messageId)
       const source = nodeAt(editor, id)
       if (!chat || !source || !message || !canPublish(message) || message.role !== 'assistant') return
-      if (!revisionsMatch(message.dependsOn, new Map(records().map(record => [record.id, record.node.revision])))) { notice('Your sources changed. Continue the chat to update this outcome before adding it.'); return }
+      if (message.proposal.kind === 'opportunity') { api.decide(id, chatId, messageId, 'accept'); return }
+      if (!revisionsMatch(message.dependsOn, revisions())) { notice('Your sources or conditions changed. Continue the chat to update this outcome before adding it.'); return }
       const parents = chat.sourceIds.flatMap(id => nodes(editor).filter(shape => shape.id === id).map(shape => shape.id))
       if (parents.length !== chat.sourceIds.length) { notice('A source was removed. Start a new exploration from an existing node.'); return }
       const proposal = message.proposal
-      const common = { ...baseNode(source.props.node.branchId, proposal.kind === 'opportunity' ? 'connection' : 'research'), dependsOn: message.dependsOn, origin: { nodeId: id, chatId, messageId } }
+      const common = { ...baseNode(source.props.node.branchId, 'research'), dependsOn: message.dependsOn, origin: { nodeId: id, chatId, messageId } }
       editor.markHistoryStoppingPoint('add outcome to canvas')
       editor.run(() => {
         let outcomeId: TLShapeId
         if (proposal.kind === 'action') outcomeId = addNode({ ...common, type: 'action', title: proposal.title, description: proposal.description, sources: proposal.sources, completed: false, reflection: '' }, parents)
-        else if (proposal.kind === 'opportunity') outcomeId = addNode({ ...common, branchId: `shared-${crypto.randomUUID()}`, type: 'opportunity', title: proposal.title, description: proposal.description, benefitA: proposal.benefitA, benefitB: proposal.benefitB, status: 'accepted', refinement: '', sourceBranchIds: chat.branchIds }, parents)
         else return
         editChat(id, chatId, current => ({ ...current, messages: current.messages.map(item => item.id === messageId ? { ...item, outcomeId } : item) }))
         editor.select(outcomeId)
@@ -264,8 +386,11 @@ export function setupUnfold(editor: Editor) {
   actions.set(editor, api)
   getAgentConfig().then(config => uiState.update(editor, state => ({ ...state, ...config }))).catch(() => notice('Local agents are unavailable. Your board is still saved; try reopening the app.'))
   const unlisten = editor.store.listen(() => {
-    const current = new Map(records().map(record => [record.id, record.node.revision]))
-    for (const [id, job] of running) if (!revisionsMatch(job.dependencies, current) || !chatAt(job.sourceId, id) || chatAt(job.sourceId, id)?.messages.at(-1)?.id !== job.lastMessageId) cancel(id)
+    const current = revisions()
+    for (const [id, job] of running) {
+      if (!chatAt(job.sourceId, id) || chatAt(job.sourceId, id)?.messages.at(-1)?.id !== job.lastMessageId) cancel(id)
+      else if (!revisionsMatch(job.dependencies, current)) cancelOutdated(id)
+    }
     const active = uiState.get(editor).activeChat
     if (active && !chatAt(active.nodeId, active.chatId)) api.closeChat()
 

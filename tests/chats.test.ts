@@ -17,7 +17,7 @@ cases.push(test('chat context isolates sibling explorations and retains question
   const siblingOutcome = action('sibling-result', { nodeId: 'a', chatId: sibling.id, messageId: 'other-answer' })
   if (siblingOutcome.node.type === 'action') siblingOutcome.node.reflection = 'Private sibling reflection'
   const context = chatContext([root('a', [current, sibling]), root('b'), siblingOutcome], 'a', current, 'a')
-  assert.deepEqual(context.answers, [{ question: 'What is your budget?', answer: 'Under $50, in Oakland' }])
+  assert.deepEqual(context.answers, [{ question: 'What is your budget?', answer: 'Under $50, in Oakland', stance: 'answer', messageId: 'budget-answer' }])
   assert.ok(!JSON.stringify(context).includes('Tokyo'))
   assert.ok(!JSON.stringify(context).includes('Private sibling reflection'))
   assert.ok(!context.previousSuggestions.includes('Try a class'))
@@ -78,7 +78,7 @@ cases.push(test('legacy migration preserves messages and outcomes, rewrites depe
   assert.deepEqual(foldLegacyMessages(migrated), { updates: [], removed: [] })
   const thread = migratedRoot.node.chats[0]
   assert.ok(thread)
-  assert.deepEqual(chatContext(migrated, 'a', thread, 'a').answers, [{ question: 'What is your budget?', answer: 'Oakland, under $50' }])
+  assert.deepEqual(chatContext(migrated, 'a', thread, 'a').answers, [{ question: 'What is your budget?', answer: 'Oakland, under $50', stance: 'answer', messageId: 'answer' }])
   assert.ok(migrated.every(record => NodeSchema.safeParse(record.node).success))
 }))
 

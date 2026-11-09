@@ -1,6 +1,7 @@
 import { isEmpty } from './arrays'
 import { branchContext, type NodeRecord } from './context'
-import type { BranchContext, Chat, ChatMessage, UnfoldNode } from './schema'
+import { chatMemory, classifyMessage, mergeMemory } from './memory'
+import { type BranchContext, type Chat, type ChatMessage, type Decision, type UnfoldNode, memoryKey } from './schema'
 
 export function nodeTitle(node: UnfoldNode): string {
   switch (node.type) {
@@ -25,39 +26,85 @@ export function lineage(records: NodeRecord[], sourceId: string): NodeRecord[] {
   return path
 }
 
-export function chatContext(records: NodeRecord[], sourceId: string, chat: Chat, branchId: string): BranchContext {
-  const context = branchContext(records.filter(record => record.node.type !== 'action' && record.node.type !== 'opportunity'), branchId)
-  const threads: Chat[] = []
+export interface ContextThread { nodeId: string; chat: Chat; through?: string | undefined }
+
+/** Conversations whose content belongs to one branch's context, oldest ancestor first. */
+export function contextThreads(records: NodeRecord[], sourceId: string, chat: Chat, branchId: string): ContextThread[] {
+  const threads: ContextThread[] = []
   const visited = new Set<string>()
   function visitNode(id: string) {
     const node = records.find(record => record.id === id)?.node
     if (!node?.origin) return
     const owner = records.find(record => record.id === node.origin?.nodeId)
     const origin = owner?.node.chats?.find(thread => thread.id === node.origin?.chatId)
-    if (origin) visitChat(origin, node.origin.messageId)
+    if (owner && origin) visitChat(owner.id, origin, node.origin.messageId)
   }
-  function visitChat(thread: Chat, throughMessage?: string) {
+  function visitChat(nodeId: string, thread: Chat, throughMessage?: string) {
     if (visited.has(thread.id) || !thread.branchIds.includes(branchId)) return
     visited.add(thread.id)
     thread.sourceIds.forEach(visitNode)
     for (const reference of thread.contextChats ?? []) {
       const ancestor = records.find(record => record.id === reference.nodeId)?.node.chats?.find(chat => chat.id === reference.chatId)
-      if (ancestor) visitChat(ancestor, reference.messageId)
+      if (ancestor) visitChat(reference.nodeId, ancestor, reference.messageId)
     }
-    threads.push(throughMessage ? { ...thread, messages: thread.messages.slice(0, thread.messages.findIndex(message => message.id === throughMessage) + 1) } : thread)
+    threads.push({ nodeId, chat: thread, through: throughMessage })
   }
   visitNode(sourceId)
-  visitChat(chat)
-  const messages = threads.flatMap(thread => thread.messages)
+  visitChat(sourceId, chat)
+  return threads
+}
+
+const visibleMessages = (thread: ContextThread) => thread.through ? thread.chat.messages.slice(0, thread.chat.messages.findIndex(message => message.id === thread.through) + 1) : thread.chat.messages
+
+/** The user's decision on a proposal. Older saved boards recorded acceptance only by adding a card. */
+export function decisionOf(message: ChatMessage): Decision['status'] | undefined {
+  if (message.role !== 'assistant') return undefined
+  return message.decision?.status ?? (message.outcomeId && message.proposal.kind === 'opportunity' ? 'accepted' : undefined)
+}
+
+/** Ideas the user declined, from this lineage and from other conversations about the same pair of goals. */
+export function declinedIdeas(records: NodeRecord[], threads: ContextThread[], chat: Chat): { idea: string; reason: string }[] {
+  const pair = chat.branchIds.length === 2 ? [...chat.branchIds].sort().join('|') : undefined
+  const related = pair ? records.flatMap(record => record.node.chats ?? []).filter(other => [...other.branchIds].sort().join('|') === pair) : []
+  const messages = [...threads.flatMap(visibleMessages), ...related.flatMap(other => other.messages)]
+  const ideas = messages.flatMap(message => message.role === 'assistant' && message.decision?.status === 'declined' && (message.proposal.kind === 'opportunity' || message.proposal.kind === 'action') ? [{ idea: message.proposal.title, reason: message.decision.note }] : [])
+  return ideas.filter((idea, index) => ideas.findIndex(other => other.idea === idea.idea && other.reason === idea.reason) === index).slice(-40)
+}
+
+export function chatContext(records: NodeRecord[], sourceId: string, chat: Chat, branchId: string): BranchContext {
+  const context = branchContext(records.filter(record => record.node.type !== 'action' && record.node.type !== 'opportunity'), branchId)
+  const threads = contextThreads(records, sourceId, chat, branchId)
+  const messages = threads.flatMap(visibleMessages)
   const answers = messages.flatMap(message => {
     if (message.role !== 'user') return []
     const question = messages.find(previous => previous.id === message.replyTo)
-    return [{ question: question?.role === 'assistant' && question.proposal.kind === 'question' ? question.proposal.prompt : 'Your direction', answer: message.text }]
+    const asked = question?.role === 'assistant' ? question.proposal : undefined
+    return [{ question: asked?.kind === 'question' ? asked.prompt : asked?.kind === 'opportunity' ? `Feedback on “${asked.title}”` : 'Your direction', answer: message.text, stance: message.stance ?? classifyMessage(message.text), messageId: message.id }]
   })
+  const view = mergeMemory(threads)
+  const memory = view.active.slice(-120).map(item => ({ id: item.id, kind: item.kind, ...(item.key ? { key: item.key } : {}), text: item.text, ...(item.sources[0] ? { from: item.sources[0] } : {}) }))
+  const changes = view.history.map(change => ({ ...(change.key ? { key: change.key } : {}), before: change.before, after: change.after }))
+  const memoryDeclined = view.active.flatMap(item => item.kind === 'declined' ? [{ idea: item.text, reason: '' }] : [])
   return { ...context, answers: [...context.answers, ...answers],
-    confirmed: [...context.confirmed, ...answers.map(answer => answer.answer)],
-    previousSuggestions: [...context.previousSuggestions, ...messages.flatMap(message => message.role !== 'assistant' ? [] : message.proposal.kind === 'question' ? [message.proposal.prompt] : message.proposal.kind === 'action' || message.proposal.kind === 'opportunity' ? [message.proposal.title] : [])],
+    confirmed: view.active.flatMap(item => item.kind === 'intent' || item.kind === 'constraint' ? [item.text] : []),
+    assumptions: view.active.flatMap(item => item.kind === 'assumption' ? [item.text] : []),
+    memory, changes: changes.slice(-60), declined: [...declinedIdeas(records, threads, chat), ...memoryDeclined].slice(-40),
+    previousSuggestions: [...context.previousSuggestions, ...messages.flatMap(message => message.role !== 'assistant' ? [] : message.proposal.kind === 'question' ? [message.proposal.prompt] : message.proposal.kind === 'action' || message.proposal.kind === 'opportunity' ? [message.decision?.status === 'refine' ? `${message.proposal.title} (you asked to change it: ${message.decision.note})` : message.proposal.title] : [])],
   }
+}
+
+/** Memory revisions of every conversation a request reads, so changed conditions block late answers. */
+export function memoryDependencies(records: NodeRecord[], sourceId: string, chat: Chat): { id: string; revision: number }[] {
+  const threads = chat.branchIds.flatMap(branchId => contextThreads(records, sourceId, chat, branchId))
+  const ids = [...new Map(threads.map(thread => [thread.chat.id, thread.chat])).values()]
+  return ids.map(thread => ({ id: memoryKey(thread.id), revision: chatMemory(thread).revision }))
+}
+
+/** Node revisions plus each conversation's memory revision. */
+export function currentRevisions(records: NodeRecord[]): Map<string, number> {
+  const map = new Map(records.map(record => [record.id, record.node.revision]))
+  for (const record of records) for (const chat of record.node.chats ?? []) map.set(memoryKey(chat.id), chatMemory(chat).revision)
+  return map
 }
 
 export function canPublish(message: ChatMessage): boolean {

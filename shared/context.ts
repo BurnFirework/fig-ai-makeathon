@@ -12,7 +12,8 @@ export function branchContext(records: NodeRecord[], branchId: string): BranchCo
     return [{ question: question?.type === 'question' ? question.prompt : 'Your clarification', answer: answer.text }]
   })
   return { id: branchId, goal: root.node.goal, revision: root.node.revision, answers,
-    confirmed: [root.node.goal, ...answers.map(answer => answer.answer)], assumptions: [],
+    // Confirmed conditions come from conversation memory; legacy answer cards stay in the transcript only.
+    confirmed: [], assumptions: [], memory: [], changes: [], declined: [],
     previousSuggestions: nodes.flatMap(({ node }) => node.type === 'action' ? [node.title, ...(node.reflection ? [`User feedback: ${node.reflection}`] : [])] : node.type === 'question' ? [node.prompt] : []),
   }
 }

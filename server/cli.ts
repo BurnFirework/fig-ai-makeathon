@@ -1,11 +1,9 @@
-import { isEmpty } from '../shared/arrays'
 import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { z } from 'zod'
-import { type Source, SourceSchema } from '../shared/schema'
 
 const exec = promisify(execFile)
 export type CliProvider = 'claude' | 'codex' | 'demo'
@@ -84,7 +82,7 @@ export function readCliEvent(line: string, provider: 'claude' | 'codex') {
   return { text, searched, urls, error }
 }
 
-export async function callCli(config: CliConfig, prompt: string, signal: AbortSignal, options: { search?: boolean; image?: string } = {}): Promise<{ text: string; sources: Source[] }> {
+export async function callCli(config: CliConfig, prompt: string, signal: AbortSignal, options: { search?: boolean; image?: string } = {}): Promise<{ text: string; searched: boolean; urls: string[] }> {
   if (config.provider === 'demo') throw new Error('Preview mode has no live provider.')
   const provider = config.provider
   const directory = await mkdtemp(join(tmpdir(), 'unfold-agent-'))
@@ -147,11 +145,7 @@ export async function callCli(config: CliConfig, prompt: string, signal: AbortSi
       child.stdin.end(input)
     })
     signal.throwIfAborted()
-    if (!options.search) return { text: output.text, sources: [] }
-    if (!output.searched) throw new Error('The research agent did not execute web search. Please retry; no search result was assumed.')
-    const result = z.object({ text: z.string(), sources: z.array(SourceSchema).min(1) }).parse(JSON.parse(output.text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()))
-    const sources = result.sources.filter(source => output.urls.some(url => url === source.url || url.replace(/\/$/, '') === source.url.replace(/\/$/, '')))
-    if (isEmpty(sources)) throw new Error('Research did not return sources visible in its tool results. Ask the agent to open and verify the source pages, then retry.')
-    return { text: result.text, sources }
+    // Evidence URLs come only from tool events; callers decide what counts as a verified source.
+    return { text: output.text, searched: output.searched, urls: output.urls }
   } finally { await rm(directory, { recursive: true, force: true }) }
 }

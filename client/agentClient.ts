@@ -1,6 +1,7 @@
 import { type AgentEvent, type AgentRequest, type AgentResult, EventSchema } from '../shared/schema'
 import { AgentConfigSchema, AgentEventEnvelopeSchema, AgentFailureSchema, ProviderSchema, type AgentConfig } from '../shared/agent-contract'
-import { demoProposal } from '../shared/preview'
+import { demoRuntime } from '../shared/preview'
+import { runCoordinator } from '../shared/coordinator'
 import { z } from 'zod'
 
 const previewConfig: AgentConfig = { mode: 'demo', provider: 'Preview', providers: [{ id: 'demo', available: true, version: '', message: 'Local preview; no model or search.' }] }
@@ -31,7 +32,7 @@ export async function selectAgentProvider(value: string): Promise<AgentConfig> {
   if (!config.ok) throw new Error('Provider configuration is unavailable.')
   return AgentConfigSchema.parse(await config.json())
 }
-export async function requestAgent(request: AgentRequest, signal: AbortSignal, onActivity: (event: Extract<AgentEvent, { type: 'activity' }>) => void): Promise<AgentResult> {
+export async function requestAgent(request: AgentRequest, signal: AbortSignal, onEvent: (event: Extract<AgentEvent, { type: 'activity' | 'handoff' }>) => void): Promise<AgentResult> {
   signal.throwIfAborted()
   const bridge = typeof window === 'undefined' ? undefined : window.unfoldDesktop
   if (bridge) return new Promise<AgentResult>((resolve, reject) => {
@@ -41,7 +42,7 @@ export async function requestAgent(request: AgentRequest, signal: AbortSignal, o
       const parsed = AgentEventEnvelopeSchema.safeParse(value)
       if (!parsed.success || parsed.data.requestId !== request.requestId) return
       const event = parsed.data.event
-      if (event.type === 'activity') onActivity(event)
+      if (event.type === 'activity' || event.type === 'handoff') onEvent(event)
       else if (event.type === 'result') finish(undefined, event.result)
       else finish(new Error(event.message))
     })
@@ -49,15 +50,13 @@ export async function requestAgent(request: AgentRequest, signal: AbortSignal, o
       const parsed = AgentFailureSchema.safeParse(value)
       if (parsed.success && parsed.data.requestId === request.requestId) finish(new Error(parsed.data.message))
     })
-    const timer = setTimeout(() => { bridge.agents.cancel(request.requestId).catch(() => {}); finish(new Error('The request timed out. Please retry.')) }, 125_000)
+    const timer = setTimeout(() => { bridge.agents.cancel(request.requestId).catch(() => {}); finish(new Error('The request timed out. Please retry.')) }, 280_000)
     signal.addEventListener('abort', abort, { once: true })
     bridge.agents.run(request).catch((error: unknown) => finish(error instanceof Error ? error : new Error('Local agents unavailable.')))
   })
   if (localPreview) {
-    onActivity({ type: 'activity', role: 'coordinator', message: 'Preview only. No live model or web search is being used.' })
-    await new Promise<void>((resolve, reject) => { const abort = () => { clearTimeout(timer); reject(new Error('Stopped.')) }; const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve() }, 200); signal.addEventListener('abort', abort, { once: true }) })
-    signal.throwIfAborted()
-    return { requestId: request.requestId, proposal: demoProposal(request), activity: [], mode: 'demo' }
+    onEvent({ type: 'activity', role: 'coordinator', message: 'Preview agents only. No live model or web search is being used.' })
+    return runCoordinator(request, demoRuntime(200), signal, event => { if (event.type === 'activity' || event.type === 'handoff') onEvent(event) })
   }
   const response = await fetch('/api/agent', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) })
   if (!response.ok) throw new Error(`Agent request failed (${response.status}). Please retry.`)
@@ -68,7 +67,7 @@ export async function requestAgent(request: AgentRequest, signal: AbortSignal, o
     if (!line.trim()) return
     const event = EventSchema.parse(JSON.parse(line))
     if (event.type === 'error') throw new Error(event.message)
-    if (event.type === 'activity') onActivity(event)
+    if (event.type === 'activity' || event.type === 'handoff') onEvent(event)
     if (event.type === 'result') result = event.result
   }
   try {

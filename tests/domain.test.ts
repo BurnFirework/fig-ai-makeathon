@@ -45,7 +45,7 @@ cases.push(test('CLI parser separates real tool evidence from assistant-invented
 
 cases.push(test('fragmented NDJSON produces exactly one validated result', async () => {
   const original = globalThis.fetch
-  const result = { requestId: 'one', mode: 'demo', activity: [], proposal: { kind: 'question', prompt: 'Try it?', options: ['Yes', 'No'], purpose: '' } }
+  const result = { requestId: 'one', mode: 'demo', activity: [], handoffs: [], memory: [], proposal: { kind: 'question', prompt: 'Try it?', options: ['Yes', 'No'], purpose: '' } }
   const content = JSON.stringify({ type: 'activity', role: 'branch', message: 'Working' }) + '\n' + JSON.stringify({ type: 'result', result }) + '\n'
   const encoder = new TextEncoder()
   globalThis.fetch = () => Promise.resolve(new Response(new ReadableStream({ start(controller) { for (let i = 0; i < content.length; i += 7) controller.enqueue(encoder.encode(content.slice(i, i + 7))); controller.close() } })))
