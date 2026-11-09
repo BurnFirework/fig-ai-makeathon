@@ -1,6 +1,6 @@
 // pnpm desktop:package && node --import tsx tests/electron.smoke.mjs
 import { _electron, expect } from '@playwright/test'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { decodeWorkspace } from '../shared/workspace-format.ts'
@@ -12,6 +12,10 @@ try {
   app = await _electron.launch({ executablePath, cwd: directory, env: { ...process.env, UNFOLD_DESKTOP_USER_DATA: join(directory, 'profile'), UNFOLD_PROVIDER: 'demo' }, timeout: 30000 })
   const page = await app.firstWindow()
   page.on('pageerror', error => console.error('Renderer error:', error))
+  await expect(page.getByRole('button', { name: 'Explore a sample board' })).toBeVisible()
+  // tldraw can disable production rendering five seconds after the first successful paint.
+  await page.waitForTimeout(6000)
+  await expect(page.getByTestId('tl-license-expired')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Explore a sample board' })).toBeVisible()
   await app.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }); dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }) }, path)
   await page.getByRole('button', { name: 'Explore a sample board' }).click()
@@ -28,6 +32,8 @@ try {
   await expect(page.getByRole('status').filter({ hasText: 'Saved to file' })).toBeVisible()
   const workspace = decodeWorkspace(new Uint8Array(await readFile(path)))
   if (workspace.catalog.boards.length !== 2 || Object.keys(workspace.assets).length < 2) throw new Error('File did not contain both images')
+  // Photos ignore DOM pointer events so tldraw can hit-test the canvas underneath.
+  await page.getByRole('img', { name: 'Explore a creative practice', exact: true }).hover({ force: true })
   await page.getByRole('button', { name: 'Explore Explore a creative practice', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Yes, I want to try', exact: false })).toBeVisible({ timeout: 30000 })
   await page.getByRole('button', { name: 'Close chat', exact: true }).click()
@@ -61,7 +67,15 @@ try {
   await expect(images).toHaveCount(2)
   if (!(await images.evaluateAll(nodes => nodes.every(image => image.complete && image.naturalWidth > 0)))) throw new Error('Saved desktop images failed to decode')
   console.log('PASS packaged macOS: native save, real image archive, AI utility process, reopen with decoded images')
+} catch (error) {
+  const page = app?.windows()[0]
+  if (page && !page.isClosed()) {
+    await page.screenshot({ path: resolve('output/desktop/smoke-error.png') }).catch(() => {})
+    await writeFile(resolve('output/desktop/smoke-error.txt'), await page.locator('body').innerText()).catch(() => {})
+  }
+  throw error
 } finally {
-  await app?.close()
+  // The isolated test profile can be discarded even when a failed UI cannot answer close requests.
+  if (app) { await app.evaluate(({ app }) => app.exit(0)).catch(() => {}); await app.close().catch(() => {}) }
   await rm(directory, { recursive: true, force: true })
 }

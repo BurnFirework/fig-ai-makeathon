@@ -2,6 +2,7 @@ import { isEmpty, isNotEmpty } from '../shared/arrays'
 import { WorkspaceContext, type WorkspaceController } from './workspace'
 import { WorkspaceBootstrap } from './workspace-bootstrap'
 import { WorkspaceControls } from './workspace-controls'
+import { tldrawLicenseKey } from './tldraw-license'
 import { StylePicker } from './StylePicker'
 import { Bow } from './decor'
 import { BoardSwitcher, BoardsContext } from './components/board-switcher'
@@ -101,8 +102,7 @@ function WorkspaceApp({ workspace }: { workspace: WorkspaceController }) {
 }
 function WorkspaceCanvas({ workspace }: { workspace: WorkspaceController }) {
   const [store] = useState(() => workspace.createStore())
-  const licenseKey = import.meta.env.VITE_TLDRAW_LICENSE_KEY
-  return <Tldraw store={store} {...(licenseKey ? { licenseKey } : {})} shapeUtils={[NodeShapeUtil, ConnectionShapeUtil]} bindingUtils={[ConnectionBindingUtil]} components={components} options={{ maxPages: 1, zoomToFitPadding: 160 }} onMount={editor => {
+  return <Tldraw store={store} licenseKey={tldrawLicenseKey} shapeUtils={[NodeShapeUtil, ConnectionShapeUtil]} bindingUtils={[ConnectionBindingUtil]} components={components} options={{ maxPages: 1, zoomToFitPadding: 160 }} onMount={editor => {
     editor.user.updateUserPreferences({ colorScheme: 'light', isSnapMode: true })
     if (!editor.getStateDescendant('select.pointing_port')) editor.getStateDescendant('select')?.addChild(PointingPort)
     const detachWorkspace = workspace.attachEditor(editor)

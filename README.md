@@ -64,7 +64,9 @@ pnpm desktop:dev
 pnpm desktop:package
 ```
 
-The local packaged app is written to `output/desktop/mac-arm64/Unfold.app` on Apple Silicon. The initial packaging script creates an unsigned local app; signing/notarization for public distribution is not configured. Development settings/recovery use a separate profile from the packaged app. No Vite server or project-local Node installation is required to run the packaged app. Install/sign in to Claude Code or Codex separately for live AI.
+Web and desktop builds share the temporary public trial key in `client/tldraw-license.ts`, which expires on **2027-02-17**. Replace it before expiry, or set `VITE_TLDRAW_LICENSE_KEY=your-key` in `.env.local` before building to override it. The same key covers the legacy browser-board migration canvases. A replacement key must cover the desktop origin `unfold://app` and any hosted web domain. See [tldraw license setup](https://tldraw.dev/sdk-features/license-key). The desktop smoke check waits beyond tldraw's five-second license gate so an initial paint cannot hide a licensing failure.
+
+The first desktop run or packaging build downloads the Electron runtime and requires an internet connection. The local packaged app is written to `output/desktop/mac-arm64/Unfold.app` on Apple Silicon. The initial packaging script creates an unsigned local app; signing/notarization for public distribution is not configured. Development settings/recovery use a separate profile from the packaged app. No Vite server or project-local Node installation is required to run the packaged app. Install/sign in to Claude Code or Codex separately for live AI.
 
 ## Agents and source evidence
 
@@ -98,7 +100,7 @@ Platform regressions: `pnpm test:web` runs Chromium and WebKit migration/export/
 
 TypeScript checks are selected from `~/Code/tutor-platform/tsconfig.base.json` and its typed ESLint configuration. Unfold enforces strict indexed access, exact optional properties, type-only imports, checked external values, safe assertions, handled promises and exhaustive switches across `.ts` and `.tsx`, including starter-derived code. The adapted `local/array-emptiness` rule requires `isEmpty` / `isNotEmpty` from `shared/arrays.ts` for array emptiness checks, including JSX conditions; numeric counts and string lengths remain allowed. Only the helper implementation is exempt. Svelte, application-specific and formatting rules are not imported. The owning configurations are `tsconfig.json` and `eslint.config.js`.
 
-`pnpm start` serves the built frontend and agent routes at **http://127.0.0.1:3001**. A hosted browser-only deployment cannot launch your local CLI; subscription mode requires this local Node server (or an equivalent trusted server running an authenticated CLI). Before sharing a production build, set `VITE_TLDRAW_LICENSE_KEY` to an active trial or other suitable key and rebuild. [tldraw licensing](https://tldraw.dev/community/license).
+`pnpm start` serves the built frontend and agent routes at **http://127.0.0.1:3001**. A hosted browser-only deployment cannot launch your local CLI; subscription mode requires this local Node server (or an equivalent trusted server running an authenticated CLI). Before sharing a production build, confirm that the bundled trial key is still active and suitable for the deployment, or override it with `VITE_TLDRAW_LICENSE_KEY` and rebuild. [tldraw licensing](https://tldraw.dev/community/license).
 
 The focused tests cover chat isolation and inheritance, legacy-message migration, breadcrumbs, outcome publication rules, dependency invalidation, stale responses, CLI source-evidence parsing and fragmented response streams. Browser smoke testing covers the user journey separately.
 
