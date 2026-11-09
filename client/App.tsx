@@ -3,6 +3,7 @@ import { WorkspaceContext, type WorkspaceController } from './workspace'
 import { WorkspaceBootstrap } from './workspace-bootstrap'
 import { WorkspaceControls } from './workspace-controls'
 import { tldrawLicenseKey } from './tldraw-license'
+import { canvasAssetUrls } from './canvas-options'
 import { StylePicker } from './StylePicker'
 import { Bow } from './decor'
 import { BoardSwitcher, BoardsContext } from './components/board-switcher'
@@ -52,7 +53,7 @@ function Chrome() {
   const api = actions.get(editor)
   return <div className={`chrome ${state.activeChat ? `has-chat ${state.chatView === 'focus' ? 'has-focus-chat' : ''}` : ''}`} onPointerDown={event => { if (event.target !== event.currentTarget) editor.markEventAsHandled(event) }}>
     <header className="app-header">
-      <a className="wordmark" href="#" aria-label="Unfold home" onClick={event => { event.preventDefault(); api?.closeChat(); editor.selectNone(); editor.zoomToFit({ animation: { duration: 200 } }) }}>Unfold<Bow size={26}/></a>
+      <a className="wordmark" href="#" aria-label="Unfold home" onClick={event => { event.preventDefault(); api?.closeChat(); editor.selectNone(); fitBoard(editor) }}>Unfold<Bow size={26}/></a>
       <div className="header-navigation"><BoardSwitcher/><nav className="breadcrumbs" aria-label="Exploration breadcrumbs">{(path.length > 1 || state.activeChat) && path.map((record, index) => <span className="breadcrumb" key={record.id}><ChevronRight size={13}/><button aria-current={index === path.length - 1 && !state.activeChat ? 'location' : undefined} title={nodeTitle(record.node)} onClick={() => { const shape = nodes(editor).find(shape => shape.id === record.id); if (shape) { api?.closeChat(); editor.select(shape.id); editor.zoomToSelection() } }}>{nodeTitle(record.node)}</button></span>)}{state.activeChat && <span className="breadcrumb current"><ChevronRight size={13}/><MessageCircle size={13}/><span aria-current="location">Chat</span></span>}</nav></div>
       <div className="header-right"><WorkspaceControls/>
         {state.mode === 'demo' && <span className="mode-label">Preview</span>}
@@ -105,14 +106,14 @@ function WorkspaceApp({ workspace }: { workspace: WorkspaceController }) {
 }
 function WorkspaceCanvas({ workspace }: { workspace: WorkspaceController }) {
   const [store] = useState(() => workspace.createStore())
-  return <Tldraw store={store} licenseKey={tldrawLicenseKey} shapeUtils={[NodeShapeUtil, ConnectionShapeUtil]} bindingUtils={[ConnectionBindingUtil]} components={components} options={{ maxPages: 1, zoomToFitPadding: 160 }} onMount={editor => {
+  return <Tldraw store={store} assetUrls={canvasAssetUrls} licenseKey={tldrawLicenseKey} shapeUtils={[NodeShapeUtil, ConnectionShapeUtil]} bindingUtils={[ConnectionBindingUtil]} components={components} options={{ maxPages: 1, zoomToFitPadding: 160 }} onMount={editor => {
     editor.user.updateUserPreferences({ colorScheme: 'light', isSnapMode: true })
     if (!editor.getStateDescendant('select.pointing_port')) editor.getStateDescendant('select')?.addChild(PointingPort)
     const detachWorkspace = workspace.attachEditor(editor)
     const cleanupConnections = keepConnectionsAtBottom(editor)
     const cleanup = setupUnfold(editor)
     editor.registerExternalContentHandler('files', info => { actions.get(editor)?.importFiles(info.files).catch((error: unknown) => reportFailure(editor, error)) })
-    if (isNotEmpty(nodes(editor))) setTimeout(() => editor.zoomToFit({}), 100)
-    return () => { detachWorkspace(); cleanup(); cleanupConnections() }
+    const fit = isNotEmpty(nodes(editor)) ? setTimeout(() => fitBoard(editor), 100) : undefined
+    return () => { clearTimeout(fit); detachWorkspace(); cleanup(); cleanupConnections() }
   }}/>
 }

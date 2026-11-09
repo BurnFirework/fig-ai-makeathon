@@ -14,6 +14,29 @@ function Controls({ workspace, input }: { workspace: NonNullable<React.ContextTy
   const state = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot)
   const run = (operation: Promise<unknown>) => { operation.catch((error: unknown) => workspace.report(error)) }
   useEffect(() => {
+    if (workspace.desktop) return
+    const flush = () => { workspace.flush().catch((error: unknown) => workspace.report(error)) }
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!workspace.hasUnsavedChanges()) return
+      event.preventDefault(); event.returnValue = ''; flush()
+    }
+    const background = () => { if (document.hidden) flush() }
+    const updateGuard = () => {
+      window.removeEventListener('beforeunload', beforeUnload)
+      if (workspace.hasUnsavedChanges()) window.addEventListener('beforeunload', beforeUnload)
+    }
+    const unsubscribe = workspace.subscribe(updateGuard)
+    updateGuard()
+    window.addEventListener('blur', flush)
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', background)
+    return () => {
+      unsubscribe(); window.removeEventListener('beforeunload', beforeUnload)
+      window.removeEventListener('blur', flush); window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', background)
+    }
+  }, [workspace])
+  useEffect(() => {
     const desktop = workspace.desktop
     async function save() { if (workspace.getSnapshot().name) await workspace.flush(); else await workspace.saveAs() }
     const unsubscribe = desktop?.subscribeCommands(command => {

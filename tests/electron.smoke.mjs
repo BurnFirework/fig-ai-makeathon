@@ -11,8 +11,13 @@ let app
 try {
   app = await _electron.launch({ executablePath, cwd: directory, env: { ...process.env, UNFOLD_DESKTOP_USER_DATA: join(directory, 'profile'), UNFOLD_PROVIDER: 'demo' }, timeout: 30000 })
   const page = await app.firstWindow()
+  const blockedAssets = []
+  page.on('console', message => { if (/violates.*(?:img-src|font-src)/i.test(message.text())) blockedAssets.push(message.text()) })
   page.on('pageerror', error => console.error('Renderer error:', error))
   await expect(page.getByRole('button', { name: 'Explore a sample board' })).toBeVisible()
+  await page.evaluate(async () => { await document.fonts.ready })
+  if (blockedAssets.length) throw new Error(`Packaged canvas assets were blocked: ${blockedAssets.join('\n')}`)
+  if (!await page.evaluate(() => Array.from(document.fonts).some(font => font.status === 'loaded' && /tldraw/.test(font.family)))) throw new Error('Packaged tldraw fonts did not load')
   // tldraw can disable production rendering five seconds after the first successful paint.
   await page.waitForTimeout(6000)
   await expect(page.getByTestId('tl-license-expired')).toHaveCount(0)
@@ -62,11 +67,22 @@ try {
   await app.close(); app = undefined
   app = await _electron.launch({ executablePath, cwd: directory, env: { ...process.env, UNFOLD_DESKTOP_USER_DATA: join(directory, 'profile'), UNFOLD_PROVIDER: 'demo' } })
   const reopened = await app.firstWindow()
+  await expect(reopened.getByRole('status').filter({ hasText: 'Saved to file' })).toBeVisible()
   await expect(reopened.locator('.card-inspiration')).toHaveCount(2)
   const images = reopened.locator('.card-inspiration img')
   await expect(images).toHaveCount(2)
   if (!(await images.evaluateAll(nodes => nodes.every(image => image.complete && image.naturalWidth > 0)))) throw new Error('Saved desktop images failed to decode')
   console.log('PASS packaged macOS: native save, real image archive, AI utility process, reopen with decoded images')
+  await app.close(); app = undefined
+  const recoveryPath = join(directory, 'profile', 'workspace-recovery.json')
+  await writeFile(recoveryPath, '{truncated')
+  app = await _electron.launch({ executablePath, cwd: directory, env: { ...process.env, UNFOLD_DESKTOP_USER_DATA: join(directory, 'profile'), UNFOLD_PROVIDER: 'demo' } })
+  const recoveryPage = await app.firstWindow()
+  await expect(recoveryPage.getByRole('alert')).toContainText('recovery workspace could not be read')
+  await app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }) }, path)
+  await recoveryPage.getByRole('button', { name: 'Open another workspace', exact: true }).click()
+  await expect(recoveryPage.locator('.card-inspiration')).toHaveCount(2)
+  console.log('PASS packaged macOS: corrupt recovery can open an intact workspace without deleting recovery data')
 } catch (error) {
   const page = app?.windows()[0]
   if (page && !page.isClosed()) {

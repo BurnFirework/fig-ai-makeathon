@@ -21,6 +21,7 @@
     "@fontsource/caveat": "^5.3.0",
     "@fontsource/great-vibes": "^5.3.0",
     "@tailwindcss/vite": "^4.3.5",
+    "@tldraw/assets": "5.6.0",
     "@tldraw/tlschema": "5.6.0",
     "@tldraw/validate": "5.6.0",
     "class-variance-authority": "^0.7.1",

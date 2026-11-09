@@ -188,7 +188,9 @@ cases.push(test('7. stopping or changing conditions blocks late results', async 
   const slow = scripted({ lead: (_input, signal) => new Promise((_resolve, reject) => { signal.addEventListener('abort', () => reject(new Error('Stopped.')), { once: true }); setTimeout(() => controller.abort(), 5) }) })
   await assert.rejects(run(request('branch', [branch('Pottery')]), slow, controller.signal), /Stopped/)
   const late = scripted({ lead: (_input, signal) => new Promise((_resolve, reject) => { signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }) }) })
-  await assert.rejects(run(request('branch', [branch('Pottery')]), late, new AbortController().signal, { ...LIMITS, deadlineMs: 20 }), /limit/)
+  // AbortSignal.timeout is unref'ed; the fake runtime has no subprocess I/O keeping Node alive.
+  const keepAlive = setInterval(() => {}, 1000)
+  try { await assert.rejects(run(request('branch', [branch('Pottery')]), late, new AbortController().signal, { ...LIMITS, deadlineMs: 20 }), /limit/) } finally { clearInterval(keepAlive) }
   // A condition change moves the memory revision, so the request's dependencies no longer match.
   let chat = say(newChat('c', ['a']), 'm1', 'Budget $100')
   const before = [root('a', 'Pottery', [chat])]

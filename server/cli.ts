@@ -4,6 +4,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { z } from 'zod'
+import { StringDecoder } from 'node:string_decoder'
 
 const exec = promisify(execFile)
 export type CliProvider = 'claude' | 'codex' | 'demo'
@@ -123,20 +124,25 @@ export async function callCli(config: CliConfig, prompt: string, signal: AbortSi
       signal.addEventListener('abort', abort, { once: true })
       if (signal.aborted) kill()
       child.stdin.on('error', () => {})
+      const decoder = new StringDecoder('utf8')
+      const acceptLine = (line: string) => {
+        if (!line.trim()) return
+        try { const event = readCliEvent(line, provider); if (event.text) text = event.text; searched ||= event.searched; event.urls.forEach(url => urls.add(url)); if (event.error) eventError = event.error } catch { /* Non-protocol diagnostic, not an application result. */ }
+      }
       child.stdout.on('data', (chunk: Buffer) => {
         total += chunk.length
         if (total > 5_000_000) { eventError = 'The provider returned too much data.'; kill(); return }
-        buffer += chunk.toString()
+        buffer += decoder.write(chunk)
         let newline: number
         while ((newline = buffer.indexOf('\n')) >= 0) {
           const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1)
-          if (!line.trim()) continue
-          try { const event = readCliEvent(line, provider); if (event.text) text = event.text; searched ||= event.searched; event.urls.forEach(url => urls.add(url)); if (event.error) eventError = event.error } catch { /* Non-protocol diagnostic, not an application result. */ }
+          acceptLine(line)
         }
       })
       child.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-4000) })
       child.on('error', error => { clearTimeout(timer); signal.removeEventListener('abort', abort); reject(new Error(`Could not launch ${provider}: ${error.message}`)) })
       child.on('close', code => {
+        acceptLine(buffer + decoder.end())
         clearTimeout(timer); signal.removeEventListener('abort', abort)
         if (signal.aborted) { (terminateDone ?? Promise.resolve()).then(() => reject(new Error('Stopped.'))).catch((error: unknown) => reject(error instanceof Error ? error : new Error('Termination failed'))); return }
         if (code !== 0 || eventError || !text) { reject(new Error(eventError || `${provider === 'claude' ? 'Claude Code' : 'Codex CLI'} could not complete the request. Run its login command and check subscription availability.${/auth|login|sign in/i.test(stderr) ? ' Sign-in is required.' : ''}`)); return }

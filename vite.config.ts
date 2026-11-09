@@ -6,6 +6,8 @@ import { API_ORIGIN, devProxyOrigin } from './server/dev-origin'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Keep ?url translation imports out of the dependency prebundler's JSON loader.
+  optimizeDeps: { exclude: ['@tldraw/assets'] },
   resolve: { alias: { '@': fileURLToPath(new URL('./client', import.meta.url)) } },
   server: {
     proxy: {

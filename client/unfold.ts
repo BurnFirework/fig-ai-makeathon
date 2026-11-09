@@ -362,7 +362,7 @@ export function setupUnfold(editor: Editor) {
           })
           editor.select(id)
         }
-        editor.zoomToFit({ animation: { duration: 200 } })
+        fitBoard(editor)
       } catch (error) { notice(error instanceof Error ? error.message : 'Could not import this image.') }
     },
     async samples() {

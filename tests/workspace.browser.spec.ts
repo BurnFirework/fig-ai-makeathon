@@ -2,8 +2,46 @@ import { test, expect } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { decodeWorkspace } from '../shared/workspace-format'
 
+test('browser flushes on background and warns only while edits are unsaved', async ({ page }) => {
+  page.on('pageerror', error => console.error('BROWSER ERROR', error))
+  await page.goto('/')
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => !window.dispatchEvent(new Event('beforeunload', { cancelable: true })))).toBe(false)
+  await page.getByRole('button', { name: 'Mood boards: Your next chapter', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Rename board', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Board name', exact: true }).fill('Saved on background')
+  const guarded = await page.getByRole('button', { name: 'Save name', exact: true }).evaluate(button => {
+    if (!(button instanceof HTMLButtonElement)) throw new Error('Expected a save button')
+    button.click()
+    // Same-task dispatch exercises the 650ms unsaved window without timing a real tab close.
+    return !window.dispatchEvent(new Event('beforeunload', { cancelable: true }))
+  })
+  expect(guarded).toBe(true)
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => !window.dispatchEvent(new Event('beforeunload', { cancelable: true })))).toBe(false)
+  await page.getByRole('button', { name: 'Mood boards: Saved on background', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Rename board', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Board name', exact: true }).fill('Background flush verified')
+  await page.clock.install({ time: new Date('2026-11-08T00:00:00Z') })
+  await page.clock.pauseAt(new Date('2026-11-08T00:00:01Z'))
+  await page.getByRole('button', { name: 'Save name', exact: true }).evaluate(button => {
+    if (!(button instanceof HTMLButtonElement)) throw new Error('Expected a save button')
+    button.click()
+    window.dispatchEvent(new Event('blur'))
+  })
+  // With timers paused, only the blur handler can persist this edit; the debounce cannot fire.
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  await page.clock.resume()
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Mood boards: Background flush verified', exact: true })).toBeVisible()
+})
+
 test('legacy boards and images survive migration, reload, export and additive import', async ({ page }, testInfo) => {
   page.on('pageerror', error => console.error('BROWSER ERROR', error))
+  page.on('dialog', async dialog => {
+    expect(dialog.type()).toBe('beforeunload')
+    await dialog.accept()
+  })
   await page.goto(`/tests/fixtures/legacy.html${testInfo.project.name === 'webkit' ? '?inline=1' : ''}`)
   await expect(page.locator('body')).toHaveAttribute('data-seeded', 'true')
   await page.goto('/')
@@ -11,6 +49,7 @@ test('legacy boards and images survive migration, reload, export and additive im
   await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
   await page.reload()
   await expect(page.getByRole('img', { name: 'Legacy image 1', exact: true })).toBeVisible()
+  await page.getByRole('textbox', { name: 'Inspiration goal', exact: true }).focus()
   await page.getByRole('button', { name: 'Explore Legacy image 1', exact: true }).click()
   await expect(page.locator('.assistant-message')).toHaveCount(1)
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('I want a gentle creative activity near home')
@@ -37,6 +76,7 @@ test('legacy boards and images survive migration, reload, export and additive im
   await expect(page.getByRole('img', { name: 'Legacy image 1', exact: true })).toBeVisible()
   const image = page.getByRole('img', { name: 'Legacy image 1', exact: true })
   await expect(image).toHaveJSProperty('naturalWidth', 2)
+  await page.getByRole('textbox', { name: 'Inspiration goal', exact: true }).focus()
   await page.getByRole('button', { name: 'Explore Legacy image 1', exact: true }).click()
   await expect(page.getByRole('log', { name: 'Conversation messages' })).toContainText('I want a gentle creative activity near home')
   await expect(page.locator('.assistant-message')).toHaveCount(2)

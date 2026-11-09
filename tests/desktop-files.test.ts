@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, writeFile, rm, readdir, mkdir } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile, rm, readdir, mkdir, chmod } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { workspaceFixture } from './workspace-fixture'
-import { atomicWrite, WorkspaceFiles } from '../desktop/workspace-files'
+import { atomicWrite, RecoveryConflictError, WorkspaceFiles } from '../desktop/workspace-files'
 import { decodeWorkspace, type Workspace } from '../shared/workspace-format'
 
 function fixture(revision = 0): Workspace {
@@ -74,6 +74,49 @@ cases.push(test('a healthy working file still saves if the recovery directory be
     assert.equal(ack.revision, 1)
     assert.equal(decodeWorkspace(new Uint8Array(await readFile(target))).revision, 1)
   } finally { await rm(directory, { recursive: true, force: true }) }
+}))
+
+cases.push(test('corrupt recovery is preserved and does not block opening a healthy original', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'unfold-corrupt-recovery-'))
+  try {
+    const recovery = join(directory, 'recovery.json'), target = join(directory, 'working.unfold')
+    const files = new WorkspaceFiles(recovery)
+    const initial = await files.load()
+    await files.save({ session: initial.session, workspace: fixture(1) }, target)
+    await writeFile(recovery, '{truncated')
+    const reopened = new WorkspaceFiles(recovery)
+    await assert.rejects(reopened.load(), /recovery workspace could not be read/)
+    assert.equal((await reopened.openFile(target)).workspace?.revision, 1)
+    const backup = (await readdir(directory)).find(name => name.startsWith('recovery.json.unreadable-'))
+    assert.ok(backup)
+    assert.equal(await readFile(join(directory, backup), 'utf8'), '{truncated')
+  } finally { await rm(directory, { recursive: true, force: true }) }
+}))
+
+cases.push(test('stale recovery requires an explicit choice and preserves the newer saved file', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'unfold-stale-recovery-'))
+  const recoveryDirectory = join(directory, 'recovery')
+  try {
+    const recovery = join(recoveryDirectory, 'current.json'), target = join(directory, 'working.unfold')
+    const files = new WorkspaceFiles(recovery)
+    const initial = await files.load()
+    await files.save({ session: initial.session, workspace: fixture(1) }, target)
+    await chmod(recoveryDirectory, 0o500)
+    assert.equal((await files.save({ session: initial.session, workspace: fixture(2) })).revision, 2)
+    await chmod(recoveryDirectory, 0o700)
+    const reopened = new WorkspaceFiles(recovery)
+    await assert.rejects(reopened.load(), RecoveryConflictError)
+    const saved = await reopened.load('saved')
+    assert.equal(saved.workspace?.revision, 2)
+    assert.equal(saved.name, 'working.unfold')
+    const recovered = await reopened.load('recovery')
+    assert.equal(recovered.workspace?.revision, 1)
+    assert.equal(recovered.name, null)
+    assert.equal(decodeWorkspace(new Uint8Array(await readFile(target))).revision, 2)
+    const backup = (await readdir(recoveryDirectory)).find(name => name.includes('.conflict-'))
+    assert.ok(backup)
+    assert.equal(decodeWorkspace(new Uint8Array(await readFile(join(recoveryDirectory, backup)))).revision, 1)
+  } finally { await chmod(recoveryDirectory, 0o700).catch(() => {}); await rm(directory, { recursive: true, force: true }) }
 }))
 
 await Promise.all(cases)

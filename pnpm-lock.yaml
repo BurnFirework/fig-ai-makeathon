@@ -23,6 +23,9 @@ importers:
       '@tailwindcss/vite':
         specifier: ^4.3.5
         version: 4.3.5(vite@6.4.5(@types/node@22.20.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15))
+      '@tldraw/assets':
+        specifier: 5.6.0
+        version: 5.6.0
       '@tldraw/tlschema':
         specifier: 5.6.0
         version: 5.6.0(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
@@ -1885,6 +1888,10 @@ packages:
 
   '@tiptap/starter-kit@3.33.0':
     resolution: {integrity: sha512-mWtpkOFr1XSTrU8yaF/AdCB8RA/5Y9igV4C2CFHWEwn3C+ZdFqqhQIEgxFN540KBBDjyVU0S2dy5UGi4puIAMA==}
+
+  '@tldraw/assets@5.6.0':
+    resolution: {integrity: sha512-XXuU5KOJYSS90FSf1A6J5/9mwWuG0COsXc+U+AcMtdCAsxP+lBeMSUUmiifKi35VPJa5+0leupG57YgJFH9hLQ==}
+    engines: {node: '>=22.12.0'}
 
   '@tldraw/driver@5.6.0':
     resolution: {integrity: sha512-AiPImk4rWK4YgfQTFE8OP4LTx+b2LpN72Q2YpUIMJbVn6CHTZl1vyRPU6tltudhQfNoqgxLCP2JZdA/m5QReLg==}
@@ -5280,6 +5287,10 @@ snapshots:
       '@tiptap/extension-underline': 3.33.0(@tiptap/core@3.33.0(@tiptap/pm@3.33.0))
       '@tiptap/extensions': 3.33.0(@tiptap/core@3.33.0(@tiptap/pm@3.33.0))(@tiptap/pm@3.33.0)
       '@tiptap/pm': 3.33.0
+
+  '@tldraw/assets@5.6.0':
+    dependencies:
+      '@tldraw/utils': 5.6.0
 
   '@tldraw/driver@5.6.0(@floating-ui/dom@1.8.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)':
     dependencies:

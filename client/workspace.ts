@@ -54,9 +54,10 @@ export class WorkspaceController {
     this.desktop = options.desktop
     this.session = options.session ?? ''
     this.expected = options.persisted ? { id: workspace.id, revision: workspace.revision } : null
-    this.current = { workspace, status: options.persisted ? (this.desktop ? 'Saved to recovery' : 'Saved in browser') : 'Preparing storage…', error: '', name: options.name ?? null, generation: 0, busy: false }
+    this.current = { workspace, status: options.persisted ? (this.desktop ? (options.name ? 'Saved to file' : 'Saved to recovery') : 'Saved in browser') : 'Preparing storage…', error: '', name: options.name ?? null, generation: 0, busy: false }
   }
   getSnapshot = () => this.current
+  hasUnsavedChanges = () => Boolean(this.current.error) || this.expected?.id !== this.current.workspace.id || this.expected.revision !== this.current.workspace.revision
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   private publish(update: Partial<WorkspaceState>) {
     this.current = { ...this.current, ...update }

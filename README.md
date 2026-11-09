@@ -49,6 +49,10 @@ The web and Electron desktop app share the same React/tldraw interface and board
 
 - **Browser:** boards, images, attached conversations, decisions, source links, and reflections save in IndexedDB. Existing tldraw boards are migrated through the editor's public loading path; their original databases and catalog are retained. A stale tab cannot overwrite a newer committed workspace.
 - **Desktop:** use **Workspace files** or the native File menu to Open, Save, and Save As. Once you choose a `.unfold` file, edits autosave there. Unsaved work also has a local recovery checkpoint. Conflicting external file edits stop overwriting and can be recovered with Save As.
+
+Browser saves flush when the page is backgrounded; leaving with pending or failed saves triggers the browser's unsaved-changes warning. Browser/OS termination can still interrupt asynchronous IndexedDB writes.
+
+On desktop, differing saved/recovery versions require an explicit choice. The recovery version is retained as a `.conflict-*.unfold` backup beside the recovery checkpoint before opening the chosen version. If recovery is unreadable, the startup screen and File → Open can open a healthy workspace; the unreadable checkpoint is preserved as `.unreadable-*` before replacement. Opening an existing file remains possible if recovery storage is unavailable. Both web and desktop bundle the SDK's fonts, icons, and translations instead of requiring its asset CDN.
 - **Backup/restore:** **Export all boards** creates one `.unfold` ZIP containing every board and its actual stored image bytes. **Import boards** adds them without replacing your current boards. Safari uses ordinary download/file-input APIs, with no installation or native browser filesystem API required.
 - Running processes, the open chat/view mode, and undo history are temporary. Backups preserve stored resized images, not discarded full-resolution originals.
 

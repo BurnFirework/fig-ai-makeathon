@@ -79,4 +79,14 @@ cases.push(test('additive import remaps stock image references as well as custom
   assert.ok(imported.props.assetId && merged.assets[imported.props.assetId])
 }))
 
+cases.push(test('writer rejects archives above the reader entry limit before reporting success', () => {
+  const workspace = workspaceFixture()
+  const asset = Object.values(workspace.assets)[0]
+  assert.ok(asset)
+  for (let index = Object.keys(workspace.assets).length; index < 4093; index++) workspace.assets[`asset:extra-${index}`] = asset
+  assert.doesNotThrow(() => decodeWorkspace(encodeWorkspace(workspace)))
+  workspace.assets['asset:one-too-many'] = asset
+  assert.throws(() => encodeWorkspace(workspace), /too many/i)
+}))
+
 await Promise.all(cases)

@@ -3,7 +3,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { extname, join, resolve, sep } from 'node:path'
 import { existsSync } from 'node:fs'
 import { z } from 'zod'
-import { WorkspaceFiles, atomicWrite } from './workspace-files'
+import { RecoveryConflictError, WorkspaceFiles, atomicWrite } from './workspace-files'
 import { WorkspaceSchema, encodeWorkspace } from '../shared/workspace-format'
 import { createAgentHost } from './agent-host'
 
@@ -47,7 +47,14 @@ else {
   }
   const saveSchema = z.object({ session: z.string().uuid(), workspace: WorkspaceSchema })
   const filters = [{ name: 'Unfold workspace', extensions: ['unfold'] }]
-  handle('workspace:load', () => files.load())
+  handle('workspace:load', async () => {
+    try { return await files.load() } catch (error) {
+      if (!(error instanceof RecoveryConflictError)) throw error
+      const result = await dialog.showMessageBox(window, { type: 'warning', title: 'Choose a workspace version', message: `${error.sourceName} and its recovery contain different versions.`, detail: 'Both copies are preserved. Open the saved file, or recover edits as an untitled workspace and use Save As to keep them separately.', buttons: ['Open saved file', 'Use recovery', 'Cancel'], defaultId: 0, cancelId: 2 })
+      if (result.response === 2) throw error
+      return await files.load(result.response === 0 ? 'saved' : 'recovery')
+    }
+  })
   handle('workspace:save', async value => { const result = await files.save(saveSchema.parse(value)); dirty = false; return result })
   handle('workspace:saveAs', async value => {
     const data = saveSchema.parse(value)

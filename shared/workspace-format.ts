@@ -106,6 +106,7 @@ const ManifestSchema = z.object({
 
 export function encodeWorkspace(value: Workspace): Uint8Array {
   const workspace = parseWorkspace(value)
+  if (Object.keys(workspace.assets).length + Object.keys(workspace.boards).length + 1 > MAX_ENTRIES) throw new Error('Workspace has too many archive entries to save. Split it into smaller workspaces.')
   const files: Record<string, Uint8Array> = {}
   const assets: z.infer<typeof ManifestSchema>['assets'] = {}
   const boards: Record<string, string> = {}
@@ -126,7 +127,9 @@ export function encodeWorkspace(value: Workspace): Uint8Array {
   const entries = Object.fromEntries(Object.entries(files).map(([path, bytes]) => [path, { checksum: checksum(bytes), size: bytes.length }]))
   files['manifest.json'] = strToU8(JSON.stringify({ formatVersion: 1, id: workspace.id, revision: workspace.revision, catalog: workspace.catalog, appearance: workspace.appearance, entries, assets, boards }))
   if (Object.values(files).reduce((sum, bytes) => sum + bytes.length, 0) > MAX_WORKSPACE_BYTES) throw new Error('Workspace is too large to export.')
-  return zipSync(files, { level: 0 })
+  const archive = zipSync(files, { level: 0 })
+  if (archive.length > MAX_WORKSPACE_BYTES) throw new Error('Workspace is too large to export.')
+  return archive
 }
 
 export function decodeWorkspace(bytes: Uint8Array): Workspace {

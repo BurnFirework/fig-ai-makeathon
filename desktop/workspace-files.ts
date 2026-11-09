@@ -7,6 +7,9 @@ import type { DesktopAck, DesktopSave, DesktopSession } from '../shared/desktop-
 
 const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 const MAX_BYTES = 256 * 1024 * 1024
+export class RecoveryConflictError extends Error {
+  constructor(readonly sourceName: string) { super('The saved workspace and recovery contain different versions. Choose which version to open.') }
+}
 export async function atomicWrite(path: string, bytes: Uint8Array): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`)
@@ -27,6 +30,7 @@ export class WorkspaceFiles {
   private fingerprint: string | null = null
   private revision = -1
   private workspace: Workspace | null = null
+  private unreadableRecovery = false
   private queue: Promise<unknown> = Promise.resolve()
   constructor(private readonly recoveryPath: string) {}
   private serial<T>(operation: () => Promise<T> | T): Promise<T> {
@@ -35,20 +39,32 @@ export class WorkspaceFiles {
     return next
   }
   private state(): DesktopSession { return { session: this.session, name: this.path ? basename(this.path) : null, workspace: this.workspace } }
-  async load(): Promise<DesktopSession> {
+  async load(choice?: 'saved' | 'recovery'): Promise<DesktopSession> {
     return this.serial(async () => {
       try {
         const recovery = z.object({ bytes: z.array(z.number().int().min(0).max(255)).max(MAX_BYTES), source: z.string().nullable(), fingerprint: z.string().nullable(), revision: z.number() }).parse(JSON.parse(await readFile(this.recoveryPath, 'utf8')))
         const bytes = new Uint8Array(recovery.bytes)
-        this.workspace = decodeWorkspace(bytes)
-        this.revision = this.workspace.revision
-        if (recovery.source && recovery.fingerprint && digest(bytes) === recovery.fingerprint) {
+        let workspace = decodeWorkspace(bytes)
+        let path: string | null = null, fingerprint: string | null = null
+        if (recovery.source) {
           const original = await readBytes(recovery.source).catch(() => null)
-          if (original && digest(original) === recovery.fingerprint) { this.path = recovery.source; this.fingerprint = recovery.fingerprint }
+          let saved: Workspace | null = null
+          if (original) { try { saved = decodeWorkspace(original) } catch { /* An invalid original must not prevent recovering edits. */ } }
+          if (original && saved) {
+            const same = digest(original) === digest(bytes)
+            if (!same && !choice) throw new RecoveryConflictError(basename(recovery.source))
+            if (!same && choice) await atomicWrite(this.recoveryPath + `.conflict-${randomUUID()}.unfold`, bytes)
+            if (same || choice === 'saved') { workspace = saved; path = recovery.source; fingerprint = digest(original) }
+          } else if (choice === 'saved') throw new Error('The saved workspace is no longer available. Retry and choose recovery or open another file.')
         }
+        this.workspace = workspace; this.revision = workspace.revision; this.path = path; this.fingerprint = fingerprint
         // Conflicting or unsaved recovery is untitled; original files cannot be silently overwritten.
       } catch (error) {
-        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw new Error('The recovery workspace could not be read. Your original workspace files are unchanged.', { cause: error })
+        if (error instanceof RecoveryConflictError) throw error
+        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+          this.unreadableRecovery = true
+          throw new Error('The recovery workspace could not be read. Your original workspace files are unchanged.', { cause: error })
+        }
       }
       return this.state()
     })
@@ -59,12 +75,19 @@ export class WorkspaceFiles {
   async openFile(path: string): Promise<DesktopSession> {
     return this.serial(async () => {
       const bytes = await readBytes(path); const workspace = decodeWorkspace(bytes)
-      await atomicWrite(this.recoveryPath, new TextEncoder().encode(JSON.stringify({ bytes: Array.from(bytes), source: path, fingerprint: digest(bytes), revision: workspace.revision })))
+      await this.writeRecovery({ bytes: Array.from(bytes), source: path, fingerprint: digest(bytes), revision: workspace.revision }).catch(() => {})
       this.session = randomUUID(); this.path = path; this.fingerprint = digest(bytes); this.workspace = workspace; this.revision = workspace.revision
       return this.state()
     })
   }
-  private async recover(bytes: Uint8Array) { await atomicWrite(this.recoveryPath, new TextEncoder().encode(JSON.stringify({ bytes: Array.from(bytes), source: this.path, fingerprint: this.fingerprint, revision: this.revision }))) }
+  private async writeRecovery(value: unknown) {
+    if (this.unreadableRecovery) {
+      await rename(this.recoveryPath, this.recoveryPath + `.unreadable-${randomUUID()}`).catch((error: unknown) => { if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error })
+      this.unreadableRecovery = false
+    }
+    await atomicWrite(this.recoveryPath, new TextEncoder().encode(JSON.stringify(value)))
+  }
+  private async recover(bytes: Uint8Array) { await this.writeRecovery({ bytes: Array.from(bytes), source: this.path, fingerprint: this.fingerprint, revision: this.revision }) }
   async save(value: DesktopSave, destination?: string): Promise<DesktopAck> {
     return this.serial(async () => {
       if (value.session !== this.session) throw new Error('This workspace session has closed.')

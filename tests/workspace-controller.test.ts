@@ -20,6 +20,13 @@ const cases: Promise<void>[] = []
 cases.push(test('fresh workspaces contain a valid document and page before the first editor mounts', () => {
   assert.doesNotThrow(() => parseWorkspace(emptyWorkspace()))
 }))
+cases.push(test('a reopened working file reports file storage while untitled recovery reports recovery', () => {
+  const file = new WorkspaceController(workspaceFixture(), { desktop: desktopFiles(), session: 'session', name: 'working.unfold', persisted: true })
+  const recovery = new WorkspaceController(workspaceFixture(), { desktop: desktopFiles(), session: 'session', persisted: true })
+  assert.equal(file.getSnapshot().status, 'Saved to file')
+  assert.equal(recovery.getSnapshot().status, 'Saved to recovery')
+  file.dispose(); recovery.dispose()
+}))
 cases.push(test('board style is saved with the workspace', async () => {
   let saved: unknown
   const desktop = desktopFiles({ save: value => { saved = value.workspace.appearance; return Promise.resolve({ session: value.session, revision: value.workspace.revision, name: 'project.unfold', savedAt: Date.now() }) } })
