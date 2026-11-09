@@ -16,6 +16,8 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'unfold', privileges: { standard
 if (!app.requestSingleInstanceLock()) app.quit()
 else {
   app.whenReady().then(async () => {
+  const icon = join(directory, 'icon.png')
+  if (!app.isPackaged) app.dock?.setIcon(icon)
   const root = resolve(directory, '../dist')
   protocol.handle('unfold', request => {
     const url = new URL(request.url)
@@ -30,7 +32,7 @@ else {
     })
   })
   const files = new WorkspaceFiles(join(app.getPath('userData'), 'workspace-recovery.json'))
-  const window = new BrowserWindow({ width: 1440, height: 960, minWidth: 800, minHeight: 650, title: 'Unfold', webPreferences: { preload: join(directory, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
+  const window = new BrowserWindow({ width: 1440, height: 960, minWidth: 800, minHeight: 650, title: 'Unfold', icon, webPreferences: { preload: join(directory, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
   const agents = createAgentHost(window)
   let mayClose = false
   let dirty = false
