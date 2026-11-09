@@ -12,10 +12,25 @@ export const QuestionDraftSchema = z.object({
   options: z.array(z.string().min(1).max(120)).min(2, 'A question needs 2 to 4 short answer options.').transform(options => options.slice(0, 4)),
   purpose: z.string().max(400).default(''),
 })
+const short = (max: number) => z.string().transform(text => text.replace(/\s+/g, ' ').trim().slice(0, max))
 export const ActionDraftSchema = z.object({
-  title: z.string().min(1).max(160), description: z.string().max(1200),
+  title: z.string().min(1).max(160), description: z.string().max(1200).default(''),
+  summary: short(300).optional().catch(undefined),
+  steps: z.array(short(200)).transform(steps => steps.filter(Boolean).slice(0, 4)).optional().catch(undefined),
+  meta: z.object({ time: short(40).optional(), cost: short(40).optional(), place: short(60).optional() }).optional().catch(undefined),
   sources: z.array(z.object({ id: z.string().optional(), title: z.string().max(200), url: z.string().max(2000) })).max(6),
 })
+export type ActionDraft = z.infer<typeof ActionDraftSchema>
+/** The proposal for a drafted step: only the structured fields the agent actually filled in. */
+export function actionProposal(draft: ActionDraft, sources: Source[]): Extract<Proposal, { kind: 'action' }> {
+  const meta = Object.fromEntries(Object.entries(draft.meta ?? {}).filter(([, value]) => Boolean(value))) as NonNullable<ActionDraft['meta']>
+  return {
+    kind: 'action', title: draft.title, description: draft.description, sources,
+    ...(draft.summary ? { summary: draft.summary } : {}),
+    ...(draft.steps && isNotEmpty(draft.steps) ? { steps: draft.steps } : {}),
+    ...(isNotEmpty(Object.keys(meta)) ? { meta } : {}),
+  }
+}
 export const OpportunityDraftSchema = z.object({
   title: z.string().min(1).max(160), description: z.string().max(1200), benefitA: z.string().max(400), benefitB: z.string().max(400),
   /** Required when the idea resembles one the user declined. */
@@ -157,7 +172,7 @@ export async function runCoordinator(request: AgentRequest, runtime: AgentRuntim
           const done = [request.outcome?.title, ...branches.flatMap(branch => branch.previousSuggestions)].filter((title): title is string => Boolean(title)).find(title => normalize(title) === normalize(step.action.title))
           if (done) return pause(`“${step.action.title}” is already part of this exploration, so it was not proposed again.`, `“${clip(done, 80)}” is already on your board. What would help most now?`, ['I did it — what comes next?', 'Something easier to start', 'A different kind of step'], 'Agents build on what you already have instead of repeating it.')
           hand({ from: role, fromLabel: roleLabel, to: 'you', task: 'propose', outcome: 'proposed', summary: `Proposed “${step.action.title}” using ${plural(cited.length, 'cited source')} from the research.` })
-          return { kind: 'action', title: step.action.title, description: step.action.description, sources: cited }
+          return actionProposal(step.action, cited)
         }
       }
     }

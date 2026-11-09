@@ -40,7 +40,7 @@ export function demoRuntime(delay = 250): AgentRuntime {
       }
       if (input.evidence?.status === 'found' && input.allowed.includes('propose')) {
         const source = input.evidence.sources[0]
-        return { next: 'propose', action: { title: 'Find one beginner-friendly session', description: `Example next step: use the linked directory to find one session related to ${lower(first.goal)}${isNotEmpty(conditions) ? `, checking it against ${conditions.join(', ')}` : ''}. No live search was performed in preview mode.`, sources: source ? [source] : [] } }
+        return { next: 'propose', action: { title: 'Find one beginner-friendly session', summary: `Pick one small session to try ${lower(first.goal)} for real.`, steps: ['Open the linked directory', isNotEmpty(conditions) ? `Filter by ${conditions.slice(0, 2).join(' and ')}` : 'Filter by date and price', 'Save one session that fits'], meta: { time: '20 min', cost: 'Free to browse', place: 'Online' }, description: 'Example step: no live search was performed in preview mode.', sources: source ? [source] : [] } }
       }
       if (input.evidence) return { next: 'ask', question: { prompt: 'The preview search found nothing that fits. Which condition could be flexible?', options: [...conditions.slice(0, 2), 'Try a different idea'].length >= 2 ? [...conditions.slice(0, 2), 'Try a different idea'] : ['Budget', 'Try a different idea'], purpose: 'Preview agents never invent a result.' } }
       const latest = first.answers.at(-1)

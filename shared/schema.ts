@@ -3,12 +3,16 @@ import { z } from 'zod'
 const safeUrl = z.url().refine(value => ['https:', 'http:'].includes(new URL(value).protocol), 'Expected an HTTP URL')
 export const SourceSchema = z.object({ id: z.string(), title: z.string(), url: safeUrl })
 export type Source = z.infer<typeof SourceSchema>
+/** Quick facts shown as chips on a next step: how long, how much, where. */
+export const ActionMetaSchema = z.object({ time: z.string().max(40).optional(), cost: z.string().max(40).optional(), place: z.string().max(60).optional() })
+/** A next step reads as a one-line summary and a short checklist; `description` keeps any extra detail. All optional for older boards. */
+const ActionShape = { summary: z.string().max(300).optional(), steps: z.array(z.string().max(200)).max(4).optional(), meta: ActionMetaSchema.optional() }
 export const DependencySchema = z.object({ id: z.string(), revision: z.number().int().nonnegative() })
 export const ProposalSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('question'), prompt: z.string().min(1), options: z.array(z.string()).min(2).max(4), purpose: z.string() }),
   z.object({ kind: z.literal('research'), brief: z.string().min(1) }),
   z.object({ kind: z.literal('opportunity'), title: z.string().min(1), description: z.string(), benefitA: z.string(), benefitB: z.string() }),
-  z.object({ kind: z.literal('action'), title: z.string().min(1), description: z.string(), sources: z.array(SourceSchema) }),
+  z.object({ kind: z.literal('action'), title: z.string().min(1), description: z.string(), sources: z.array(SourceSchema), ...ActionShape }),
 ])
 export type Proposal = z.infer<typeof ProposalSchema>
 /** How a user message should be read: only answers can become confirmed facts. */
@@ -64,7 +68,9 @@ export const NodeSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('question'), prompt: z.string(), options: z.array(z.string()).min(2).max(4), purpose: z.string() }),
   z.object({ ...base, type: z.literal('answer'), text: z.string().max(2000), questionId: z.string() }),
   z.object({ ...base, type: z.literal('opportunity'), title: z.string(), description: z.string(), benefitA: z.string(), benefitB: z.string(), status: z.enum(['proposed', 'accepted', 'rejected']), refinement: z.string(), sourceBranchIds: z.array(z.string()).length(2) }),
-  z.object({ ...base, type: z.literal('action'), title: z.string(), description: z.string(), sources: z.array(SourceSchema), completed: z.boolean(), reflection: z.string() }),
+  z.object({ ...base, type: z.literal('action'), title: z.string(), description: z.string(), sources: z.array(SourceSchema), completed: z.boolean(), reflection: z.string(), ...ActionShape, doneSteps: z.array(z.number().int().nonnegative()).max(4).optional(),
+    /** Card view state: details unfolded, and the measured height when the estimate falls short. */
+    expanded: z.boolean().optional(), fit: z.number().nonnegative().max(4000).optional() }),
 ])
 export type UnfoldNode = z.infer<typeof NodeSchema>
 export function isUnfoldNode(value: unknown): value is UnfoldNode { return NodeSchema.safeParse(value).success }

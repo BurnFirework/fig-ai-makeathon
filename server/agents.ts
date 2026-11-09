@@ -14,6 +14,7 @@ How to read the context:
 - "declined" lists ideas the user rejected, with reasons. Do not propose them again unless you state what changed.`
 const memoryRule = `Optional "memory": up to 4 items only for facts the user clearly stated that are missing or outdated in memory: {"kind":"constraint","key":"budget|time|place|group|priority|other","text":"Budget: up to $30","from":"<messageId of that user message>","replaces":"<memory id it corrects, if any>"} or {"kind":"intent","text":"...","from":"<messageId>"}. Your own guesses must use {"kind":"assumption","text":"..."}.`
 const questionRule = `A question object has "prompt", "options" with 2 to 4 short answers (never fewer than 2) and "purpose" (one short sentence on why it matters).`
+const actionRule = `An action object has "title" (at most 8 words), "summary" (one sentence of at most 20 words: what and why), "steps" (2 to 4 concrete steps of at most 12 words each), "meta" (only what is known: "time" like "15 min", "cost" like "Free" or "Under $30", "place" like "At home") and an optional "description" with extra detail of at most 50 words.`
 const json = (value: unknown) => JSON.stringify(value)
 const strip = (text: string) => text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
 const branchJson = (branch: BranchContext) => json({ goal: branch.goal, memory: branch.memory, changes: branch.changes, declined: branch.declined, answers: branch.answers.slice(-16), previousSuggestions: branch.previousSuggestions.slice(-12) })
@@ -71,8 +72,9 @@ ${guidance}
 Return a single JSON object, no markdown, in one of these shapes:
 {"next":"ask","question":{"prompt":"...","options":["...","..."],"purpose":"..."}}
 {"next":"research","brief":"...","mustMatch":["..."],"reason":"..."}
-{"next":"propose","action":{"title":"...","description":"...","sources":[{"title":"...","url":"https://..."}]}}
+{"next":"propose","action":{"title":"...","summary":"...","steps":["...","..."],"meta":{"time":"...","cost":"...","place":"..."},"description":"","sources":[{"title":"...","url":"https://..."}]}}
 ${questionRule}
+${actionRule}
 ${memoryRule}
 Context: ${contextJson(input.branches)}
 Latest note: ${json(input.note)}`

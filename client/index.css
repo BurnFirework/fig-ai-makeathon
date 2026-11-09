@@ -149,7 +149,9 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .card-inspiration { padding: 10px 10px 0; border-color: color-mix(in srgb, var(--accent-200) 70%, var(--line)); border-radius: 8px; box-shadow: 0 2px 6px #2b2d300d, 0 10px 26px #2b2d300f; }
 .card-inspiration > .tape { top: -9px; left: 50%; transform: translateX(-50%) rotate(-3deg); }
 .card-header { min-height: 40px; padding: 0 20px; display: flex; align-items: center; cursor: grab; }
-.card-eyebrow { font-size: 11px; font-weight: 500; color: var(--cocoa-soft); }
+.card-eyebrow { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; background: var(--accent-100); color: var(--accent-600); font-size: 9.5px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; }
+.card-header { justify-content: space-between; gap: 8px; }
+.done-stamp { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border: 1.5px solid var(--accent-400); border-radius: 999px; color: var(--accent-600); font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; transform: rotate(-4deg); }
 .card-interactive { flex: 1; min-height: 0; display: flex; flex-direction: column; pointer-events: auto; }
 .inspiration-image { position: relative; flex: 1; min-height: 0; border-radius: 3px; background: var(--accent-50); cursor: grab; }
 .inspiration-image .card-sticker { position: absolute; right: -8px; bottom: -8px; transform: rotate(16deg); pointer-events: none; }
@@ -375,3 +377,37 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .undo-toast { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px 0 12px; border: 1px solid var(--menu-edge); border-radius: 999px; background: var(--menu-paper); box-shadow: var(--menu-shadow); color: var(--accent-600); font-size: 13px; font-weight: 600; cursor: pointer; transition: background-color .12s ease; }
 .undo-toast:hover { background: var(--accent-100); }
 .undo-toast:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
+
+/* Next-step cards: a one-line why, quick-fact chips, a short checklist and compact sources. */
+.action-body { flex: 0 0 auto; overflow: visible; }
+.action-body h2 { margin-bottom: 8px; }
+.action-summary { margin: 0 0 10px; font-size: 13.5px; line-height: 1.55; color: var(--ink); }
+.action-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.meta-chip { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border-radius: 999px; background: var(--accent-50); border: 1px solid var(--accent-100); color: var(--cocoa-soft); font-size: 11.5px; font-weight: 500; }
+.meta-chip svg { color: var(--accent-500); }
+.action-steps { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 10px; padding: 0; list-style: none; }
+.action-steps li { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; line-height: 1.5; color: var(--ink); }
+.action-steps button { flex: 0 0 auto; display: grid; place-items: center; width: 17px; height: 17px; margin-top: 1px; border: 1.5px solid var(--accent-300); border-radius: 50%; background: var(--paper); color: #fff; cursor: pointer; pointer-events: auto; transition: background-color .12s ease, border-color .12s ease; }
+.action-steps button:hover { border-color: var(--accent-500); }
+.action-steps li.is-done button { background: var(--accent-500); border-color: var(--accent-500); }
+.action-steps li.is-done span { color: var(--cocoa-soft); text-decoration: line-through; text-decoration-color: var(--accent-300); }
+.description.clamped { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.details-toggle { display: inline-flex; align-items: center; gap: 4px; margin: 0 0 8px; padding: 2px 0; color: var(--accent-600); font-size: 12px; font-weight: 600; cursor: pointer; pointer-events: auto; }
+.details-toggle svg { transition: transform .15s ease; }
+.details-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+.action-details { margin: 0 0 10px; font-size: 12.5px; line-height: 1.6; color: var(--cocoa-soft); white-space: pre-wrap; }
+.source-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; }
+.source-chips a { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--menu-edge); background: var(--paper); color: var(--second-ink-dark); font-size: 11.5px; font-weight: 500; text-decoration: none; pointer-events: auto; }
+.source-chips a:hover { background: var(--accent-50); }
+/* A quiet checkmark in the card corner, shown on hover, marks a step done; the DONE stamp takes it back. */
+.done-check { display: grid; place-items: center; width: 26px; height: 26px; border: 1.5px solid var(--accent-300); border-radius: 50%; background: var(--paper); color: var(--accent-500); cursor: pointer; pointer-events: auto; opacity: 0; transition: opacity .15s ease, background-color .12s ease, color .12s ease; }
+.done-check:hover { background: var(--accent-500); border-color: var(--accent-500); color: #fff; }
+.is-hovered .done-check, .done-check:hover, .done-check:focus-visible, .unfold-card:focus-within .done-check { opacity: 1; }
+@media (hover: none) { .done-check { opacity: 1; } }
+.done-stamp { cursor: pointer; pointer-events: auto; background: var(--paper); transition: background-color .12s ease; }
+.done-stamp:hover { background: var(--accent-50); }
+.card-action:has(.done-stamp) .card-content { opacity: .62; }
+/* Photo cards show how far their branch has come. */
+.inspiration-content { display: flex; align-items: center; gap: 8px; }
+.inspiration-content .inspiration-title { flex: 1; min-width: 0; }
+.branch-progress { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 999px; background: var(--accent-100); color: var(--accent-600); font-size: 11px; font-weight: 700; }

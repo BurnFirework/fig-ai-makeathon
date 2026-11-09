@@ -352,7 +352,10 @@ export function setupUnfold(editor: Editor) {
       editor.markHistoryStoppingPoint('add outcome to canvas')
       editor.run(() => {
         let outcomeId: TLShapeId
-        if (proposal.kind === 'action') outcomeId = addNode({ ...common, type: 'action', title: proposal.title, description: proposal.description, sources: proposal.sources, completed: false, reflection: '' }, parents)
+        if (proposal.kind === 'action') {
+          const { kind: _kind, ...action } = proposal
+          outcomeId = addNode({ ...common, ...action, type: 'action', completed: false, reflection: '' }, parents)
+        }
         else return
         editChat(id, chatId, current => ({ ...current, messages: current.messages.map(item => item.id === messageId ? { ...item, outcomeId } : item) }))
         editor.select(outcomeId)
@@ -382,7 +385,16 @@ export function setupUnfold(editor: Editor) {
     retry(id) { retries.get(id)?.() },
     stop(id) { cancel(id); activity('coordinator', 'Stopped. Your conversation is saved; continue whenever you like.') },
     updateGoal(id, goal) { if (!goal.trim()) return; editor.markHistoryStoppingPoint('edit goal'); invalidate(id); update(editor, id, node => node.type === 'inspiration' ? { ...node, goal: goal.trim(), revision: node.revision + 1 } : node); notice('Goal updated. Earlier outcomes may need a fresh look.') },
+    toggleStep(id, index) {
+      update(editor, id, node => {
+        if (node.type !== 'action') return node
+        const done = new Set(node.doneSteps ?? [])
+        if (done.has(index)) done.delete(index); else done.add(index)
+        return { ...node, doneSteps: [...done].sort((a, b) => a - b) }
+      })
+    },
     complete(id, reflection) { update(editor, id, node => node.type === 'action' ? { ...node, completed: true, reflection, revision: node.revision + 1 } : node); activity('you', 'Recorded your first step and reflection.') },
+    reopen(id) { update(editor, id, node => node.type === 'action' && node.completed ? { ...node, completed: false, revision: node.revision + 1 } : node); activity('you', 'Marked a step as not done yet.') },
     requestRemove(ids) {
       if (isEmpty(ids)) return
       if (ids.some(id => nodeAt(editor, id))) uiState.update(editor, state => ({ ...state, removing: ids }))

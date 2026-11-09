@@ -25,6 +25,10 @@ export interface UnfoldActions {
   retry(id: string): void; stop(id: string): void;
   updateGoal(id: TLShapeId, goal: string): void;
   complete(id: TLShapeId, reflection: string): void;
+  /** Takes back "done" on a next step. */
+  reopen(id: TLShapeId): void;
+  /** Ticks or unticks one step of a next step's checklist. */
+  toggleStep(id: TLShapeId, index: number): void;
   /** Asks for confirmation before removing these shapes; cards take their whole branch with them. */
   requestRemove(ids: TLShapeId[]): void; remove(ids: TLShapeId[]): void;
   importFiles(files: File[]): Promise<void>; samples(): Promise<void>;
