@@ -1,5 +1,7 @@
 import { isEmpty, isNotEmpty } from '../shared/arrays'
-import { createShapeId, Editor, type TLShapeId } from 'tldraw'
+import { createShapeId, Editor, type TLBinding, type TLShape, type TLShapeId } from 'tldraw'
+import { toast } from 'sonner'
+import { showUndo } from './components/undo-toast'
 import { type Chat, type ChatMemory, type ChatMessage, type Handoff, NodeSchema, type UnfoldNode, memoryKey, revisionsMatch } from '../shared/schema'
 import { invalidatedBy } from '../shared/context'
 import { branchFrom } from '../shared/branch'
@@ -73,10 +75,24 @@ export function setupUnfold(editor: Editor) {
   const running = new Map<string, { requestId: string; controller: AbortController; sourceId: TLShapeId; lastMessageId: string | undefined; dependencies: UnfoldNode['dependsOn'] }>()
   const retries = new Map<string, () => void>()
   const records = () => nodes(editor).map(shape => ({ id: shape.id, node: shape.props.node }))
-  const notice = (message: string) => uiState.update(editor, state => ({ ...state, notice: message }))
+  const notice = (message: string) => { toast(message) }
+  const fail = (message: string) => { toast.error(message) }
+  /** Puts removed cards, their lines and the lines' bindings back, skipping anything whose endpoint is gone since. */
+  const restore = (shapes: TLShape[], bindings: TLBinding[], lineIds: ReadonlySet<string>) => {
+    const missing = shapes.filter(shape => !editor.getShape(shape.id))
+    if (isEmpty(missing)) return
+    const back = new Set<string>(missing.map(shape => shape.id))
+    const usable = bindings.filter(binding => back.has(binding.fromId) && (back.has(binding.toId) || editor.getShape(binding.toId)))
+    const complete = new Set(usable.map(binding => binding.fromId).filter(id => usable.filter(binding => binding.fromId === id).length === 2))
+    editor.markHistoryStoppingPoint('restore branch')
+    editor.run(() => {
+      editor.createShapes(missing.filter(shape => !lineIds.has(shape.id) || complete.has(shape.id)))
+      editor.createBindings(usable.filter(binding => complete.has(binding.fromId)))
+    })
+  }
   const activity = (role: string, message: string, handoff?: Handoff) => uiState.update(editor, state => ({ ...state, activity: [...state.activity.slice(-99), { id: crypto.randomUUID(), role, message, time: Date.now(), ...(handoff ? { handoff } : {}) }] }))
   const revisions = () => currentRevisions(records())
-  const launch = (promise: Promise<void>) => { promise.catch((error: unknown) => notice(error instanceof Error ? error.message : 'The operation could not finish. Please retry.')) }
+  const launch = (promise: Promise<void>) => { promise.catch((error: unknown) => fail(error instanceof Error ? error.message : 'The operation could not finish. Please retry.')) }
   const clearJob = (id: string) => uiState.update(editor, state => { const jobs = { ...state.jobs }; delete jobs[id]; return { ...state, jobs } })
   const cancel = (id: string) => { running.get(id)?.controller.abort(); running.delete(id); clearJob(id) }
   /** A request whose sources or conditions changed is stopped; its late answer can never be applied. */
@@ -162,7 +178,7 @@ export function setupUnfold(editor: Editor) {
     }
     running.set(chatId, { requestId, controller, sourceId, lastMessageId: chat.messages.at(-1)?.id, dependencies })
     retries.set(chatId, () => launch(run(sourceId, chatId)))
-    uiState.update(editor, state => ({ ...state, notice: '', jobs: { ...state.jobs, [chatId]: { status: 'running', message: chat.operation === 'connect' ? 'Finding a shared direction…' : chat.operation === 'research' ? 'Looking for a real first step…' : 'Following your inspiration…' } } }))
+    uiState.update(editor, state => ({ ...state, jobs: { ...state.jobs, [chatId]: { status: 'running', message: chat.operation === 'connect' ? 'Finding a shared direction…' : chat.operation === 'research' ? 'Looking for a real first step…' : 'Following your inspiration…' } } }))
     try {
       const branches = chat.branchIds.map(branchId => chatContext(all, sourceId, chat, branchId))
       let image: string | undefined
@@ -385,18 +401,28 @@ export function setupUnfold(editor: Editor) {
         const { start, end } = getConnectionBindings(editor, shape)
         return (start && gone.has(start.toId)) || (end && gone.has(end.toId))
       })
+      const lineIds = new Set<string>(lines.map(shape => shape.id))
+      // Kept so the toast's Undo restores exactly this removal, even after other edits.
+      const shapes = [...removed.flatMap(removedId => { const shape = editor.getShape(removedId); return shape ? [shape] : [] }), ...lines.filter(shape => !gone.has(shape.id))]
+      const bindings = lines.flatMap(shape => editor.getBindingsFromShape(shape.id, 'connection'))
       const cards = removed.filter(removedId => nodeAt(editor, removedId))
+      const photos = cards.filter(cardId => nodeAt(editor, cardId)?.props.node.type === 'inspiration')
       editor.markHistoryStoppingPoint('remove branch')
       editor.run(() => {
         for (const removedId of cards) invalidate(removedId)
         editor.deleteShapes([...removed, ...lines.map(shape => shape.id)])
       })
-      notice('Removed. Use Undo to restore it.')
+      const asked = ids.filter(askedId => cards.includes(askedId))
+      const askedPhotos = photos.filter(photoId => asked.includes(photoId))
+      const extra = cards.length - asked.length
+      const what = asked.length > 1 ? `${asked.length} ${askedPhotos.length === asked.length ? 'photos' : 'cards'}` : isNotEmpty(askedPhotos) ? 'Photo' : 'Card'
+      const label = extra > 0 ? `${what} and ${extra} ${extra === 1 ? 'card' : 'cards'} removed` : `${what} removed`
+      showUndo(label, () => restore(shapes, bindings, lineIds))
     },
     async importFiles(files) {
       try {
         for (const file of files) {
-          if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { notice('Choose a PNG, JPEG or WebP image.'); continue }
+          if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { fail('Choose a PNG, JPEG or WebP image.'); continue }
           const processed = await rasterize(file)
           const asset = await editor.getAssetForExternalContent({ type: 'file', file: processed })
           if (!asset || asset.type !== 'image') throw new Error('Could not import the image.')
@@ -409,7 +435,7 @@ export function setupUnfold(editor: Editor) {
           editor.select(id)
         }
         fitBoard(editor)
-      } catch (error) { notice(error instanceof Error ? error.message : 'Could not import this image.') }
+      } catch (error) { fail(error instanceof Error ? error.message : 'Could not import this image.') }
     },
     async samples() {
       try {
@@ -418,7 +444,7 @@ export function setupUnfold(editor: Editor) {
           const blob = await (await fetch(path)).blob(); const file = await rasterize(new File([blob], name + '.svg', { type: 'image/svg+xml' })); files.push(new File([file], name + '.jpg', { type: 'image/jpeg' }))
         }
         await api.importFiles(files)
-      } catch { notice('Could not load the sample inspirations. Try uploading your own images.') }
+      } catch { fail('Could not load the sample inspirations. Try uploading your own images.') }
     },
   }
   const legacy = foldLegacyMessages(records())
@@ -438,7 +464,7 @@ export function setupUnfold(editor: Editor) {
     editor.deleteShapes(nodes(editor).filter(shape => legacy.removed.includes(shape.id)).map(shape => shape.id))
   })
   actions.set(editor, api)
-  getAgentConfig().then(config => uiState.update(editor, state => ({ ...state, ...config }))).catch(() => notice('Local agents are unavailable. Your board is still saved; try reopening the app.'))
+  getAgentConfig().then(config => uiState.update(editor, state => ({ ...state, ...config }))).catch(() => fail('Local agents are unavailable. Your board is still saved; try reopening the app.'))
   const unlisten = editor.store.listen(() => {
     const current = revisions()
     for (const [id, job] of running) {

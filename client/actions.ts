@@ -5,13 +5,13 @@ export interface Activity { id: string; role: string; message: string; time: num
 export interface UiState {
   mode: 'live' | 'demo'; provider: string; activity: Activity[]; panel: boolean;
   jobs: Record<string, { status: 'running' | 'error'; message: string; handoffs?: Handoff[] }>;
-  notice: string; saved: boolean;
+  saved: boolean;
   chatView: 'focus' | 'board';
   activeChat: { nodeId: TLShapeId; chatId: string } | null;
   /** Shapes the user asked to remove; the confirmation dialog is open while this is set. */
   removing: TLShapeId[] | null;
 }
-export const uiState = new EditorAtom<UiState>('unfold-ui', () => ({ mode: 'demo', provider: 'Preview', activity: [], panel: false, jobs: {}, notice: '', saved: true, activeChat: null, chatView: 'focus', removing: null }))
+export const uiState = new EditorAtom<UiState>('unfold-ui', () => ({ mode: 'demo', provider: 'Preview', activity: [], panel: false, jobs: {}, saved: true, activeChat: null, chatView: 'focus', removing: null }))
 export interface UnfoldActions {
   openChat(id: TLShapeId, chatId?: string): void; newChat(id: TLShapeId): void; closeChat(): void;
   send(id: TLShapeId, chatId: string, text: string, replyTo?: string, stance?: 'refine'): void;

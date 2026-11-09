@@ -83,7 +83,7 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .tl-background { background-color: var(--canvas); background-image: var(--pat-image); background-size: var(--pat-size); }
 .tl-grid { display: none; }
 .chrome { position: absolute; inset: 0; pointer-events: none; font-size: 13px; color: var(--ink); }
-.chrome button, .chrome a, .chrome input, .chrome textarea, .chrome select, .chat-panel, .activity-panel, .notice, .empty-state { pointer-events: auto; }
+.chrome button, .chrome a, .chrome input, .chrome textarea, .chrome select, .chat-panel, .activity-panel, .empty-state, .unfold-toaster { pointer-events: auto; }
 .app-header { position: absolute; z-index: 5; inset: 0 0 auto; height: 64px; padding: 0 24px; display: flex; align-items: center; gap: 20px; background: var(--canvas); }
 .header-navigation { display: flex; align-items: center; flex: 1; min-width: 0; gap: 4px; }
 .workspace-name { max-width: 230px; min-width: 80px; font-size: 13px; font-weight: 400; }
@@ -129,7 +129,6 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .add-image-tool { padding-inline: 10px; gap: 6px; font-size: 12px; }
 .bottom-toolbar button:active { transform: scale(.97); }
 .has-chat .bottom-toolbar { left: calc((100% - 440px) / 2); }
-.notice { position: absolute; z-index: 8; left: 50%; top: 72px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; width: max-content; max-width: min(540px, 90vw); border: 1px solid var(--line); background: var(--paper); border-radius: 8px; padding: 8px 12px; font-size: 12px; box-shadow: 0 2px 8px #22282008; }
 .board-storage-error { position: fixed; z-index: 1000; top: 70px; left: 50%; transform: translateX(-50%); max-width: 90vw; padding: 12px 16px; border-radius: 8px; background: var(--paper); color: #a43d3d; font-size: 13px; }
 
 /* Stickers, tape and ribbon (see decor.tsx); used sparingly so the photos stay the focus. */
@@ -364,3 +363,15 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .handoff.outcome-waiting .handoff-route, .handoff.outcome-proposed .handoff-route { color: #4d6b48; }
 .chat-waiting { font-size: 11px; color: var(--cocoa-soft); margin: -10px 0 14px; padding-left: 10px; border-left: 2px solid var(--accent-300); }
 .declined-banner { background: #f6e6e6; color: #8e4242; }
+
+/* Toasts (sonner): bottom-right notes on the same stationery; actions such as Undo are accent pills. */
+.unfold-toaster { --normal-bg: var(--menu-paper); --normal-border: var(--menu-edge); --normal-text: var(--ink); --error-bg: #fdf3f1; --error-border: #efc9c2; --error-text: #8f3530; --border-radius: 14px; --width: 340px; font-family: var(--sans); }
+.unfold-toaster [data-sonner-toast][data-styled="true"] { gap: 10px; padding: 12px 14px; font-size: 13px; box-shadow: var(--menu-shadow); }
+.unfold-toaster [data-sonner-toast][data-styled="true"] [data-button] { height: 28px; padding: 0 12px; border-radius: 999px; background: var(--accent-100); color: var(--accent-600); font-size: 12px; font-weight: 600; }
+.unfold-toaster [data-sonner-toast][data-styled="true"] [data-button]:hover { background: var(--accent-200); }
+.unfold-toaster [data-sonner-toast][data-styled="true"] [data-close-button] { background: var(--menu-paper); border-color: var(--menu-edge); color: var(--cocoa-soft); }
+/* The Undo note after a removal is a quiet pill, not a full toast. */
+.unfold-toaster [data-sonner-toast]:has(> .undo-toast) { display: flex; justify-content: flex-end; }
+.undo-toast { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px 0 12px; border: 1px solid var(--menu-edge); border-radius: 999px; background: var(--menu-paper); box-shadow: var(--menu-shadow); color: var(--accent-600); font-size: 13px; font-weight: 600; cursor: pointer; transition: background-color .12s ease; }
+.undo-toast:hover { background: var(--accent-100); }
+.undo-toast:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }

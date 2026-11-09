@@ -45,7 +45,6 @@ async (page) => {
   assert(await button('Add to canvas').count() === 0, 'A published outcome must not be publishable twice')
   await button('View on canvas').click()
   assert(await button('Board and chat view').getAttribute('aria-pressed') === 'true', 'View on canvas must reveal the board')
-  await button('Dismiss notification').click()
   await button('More canvas actions').click()
   await page.getByRole('menuitem', { name: 'Undo', exact: true }).click()
   await page.locator('.card-action').waitFor({ state: 'hidden' })
