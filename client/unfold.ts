@@ -2,6 +2,7 @@ import { isEmpty, isNotEmpty } from '../shared/arrays'
 import { createShapeId, Editor, type TLShapeId } from 'tldraw'
 import { type Chat, type ChatMemory, type ChatMessage, type Handoff, NodeSchema, type UnfoldNode, memoryKey, revisionsMatch } from '../shared/schema'
 import { invalidatedBy } from '../shared/context'
+import { branchFrom } from '../shared/branch'
 import { canPublish, chatContext, contextThreads, currentRevisions, decisionOf, foldLegacyMessages, lineage, memoryDependencies, nodeTitle } from '../shared/chats'
 import { applyAgentMemory, applyDrafts, chatMemory, classifyMessage, confirmAssumption, interpretMessage, questionFor, withdrawEntry } from '../shared/memory'
 import { actions, uiState, type UnfoldActions } from './actions'
@@ -21,6 +22,26 @@ export function fitBoard(editor: Editor) {
   const width = screen.w > 850 && state.activeChat && state.chatView === 'board' ? screen.w - 440 : screen.w
   const zoom = Math.min(1, (width - 120) / bounds.w, (screen.h - 200) / bounds.h)
   editor.setCamera({ x: -bounds.center.x + width / (2 * zoom), y: -bounds.center.y + screen.h / (2 * zoom), z: zoom })
+}
+/** The card and every card that grew from it (for a photo: its whole branch), as removed together. */
+export function removalSet(editor: Editor, id: TLShapeId): TLShapeId[] {
+  const cards = nodes(editor).map(shape => { const node = shape.props.node; return { id: shape.id, branchId: node.branchId, inspiration: node.type === 'inspiration', sourceBranchIds: node.type === 'opportunity' ? node.sourceBranchIds : undefined } })
+  const edges = editor.getCurrentPageShapes().flatMap(shape => {
+    if (!editor.isShapeOfType(shape, 'connection')) return []
+    const { start, end } = getConnectionBindings(editor, shape)
+    return start && end ? [{ from: start.toId, to: end.toId }] : []
+  })
+  const ids = new Set(branchFrom(id, cards, edges))
+  return nodes(editor).filter(shape => ids.has(shape.id)).map(shape => shape.id)
+}
+/** Everything removed for a selection: each card's branch, plus any other selected shapes such as lines. */
+export function removalSetOf(editor: Editor, ids: readonly TLShapeId[]): TLShapeId[] {
+  const all = new Set<TLShapeId>()
+  for (const id of ids) {
+    if (nodeAt(editor, id)) for (const removed of removalSet(editor, id)) all.add(removed)
+    else if (editor.getShape(id)) all.add(id)
+  }
+  return [...all]
 }
 export function baseNode(branchId: string, agent: UnfoldNode['agent'] = 'you') { return { branchId, sequence: Date.now(), revision: 0, stale: false, dependsOn: [], agent, createdAt: Date.now() } }
 export function defaultInspiration(): Extract<UnfoldNode, { type: 'inspiration' }> { return { ...baseNode(''), type: 'inspiration', assetId: '', goal: 'Something I want to explore', started: false } }
@@ -346,7 +367,32 @@ export function setupUnfold(editor: Editor) {
     stop(id) { cancel(id); activity('coordinator', 'Stopped. Your conversation is saved; continue whenever you like.') },
     updateGoal(id, goal) { if (!goal.trim()) return; editor.markHistoryStoppingPoint('edit goal'); invalidate(id); update(editor, id, node => node.type === 'inspiration' ? { ...node, goal: goal.trim(), revision: node.revision + 1 } : node); notice('Goal updated. Earlier outcomes may need a fresh look.') },
     complete(id, reflection) { update(editor, id, node => node.type === 'action' ? { ...node, completed: true, reflection, revision: node.revision + 1 } : node); activity('you', 'Recorded your first step and reflection.') },
-    remove(id) { editor.markHistoryStoppingPoint('remove option'); invalidate(id); editor.deleteShapes([id]); notice('Removed. Use Undo to restore it.') },
+    requestRemove(ids) {
+      if (isEmpty(ids)) return
+      if (ids.some(id => nodeAt(editor, id))) uiState.update(editor, state => ({ ...state, removing: ids }))
+      else { editor.markHistoryStoppingPoint('remove line'); editor.deleteShapes(ids) }
+    },
+    remove(ids) {
+      uiState.update(editor, state => ({ ...state, removing: null }))
+      const removed = removalSetOf(editor, ids)
+      if (isEmpty(removed)) return
+      const gone = new Set<string>(removed)
+      for (const [jobId, job] of running) if (gone.has(job.sourceId)) cancel(jobId)
+      const open = uiState.get(editor).activeChat
+      if (open && gone.has(open.nodeId)) api.closeChat()
+      const lines = editor.getCurrentPageShapes().filter(shape => {
+        if (!editor.isShapeOfType(shape, 'connection')) return false
+        const { start, end } = getConnectionBindings(editor, shape)
+        return (start && gone.has(start.toId)) || (end && gone.has(end.toId))
+      })
+      const cards = removed.filter(removedId => nodeAt(editor, removedId))
+      editor.markHistoryStoppingPoint('remove branch')
+      editor.run(() => {
+        for (const removedId of cards) invalidate(removedId)
+        editor.deleteShapes([...removed, ...lines.map(shape => shape.id)])
+      })
+      notice('Removed. Use Undo to restore it.')
+    },
     async importFiles(files) {
       try {
         for (const file of files) {

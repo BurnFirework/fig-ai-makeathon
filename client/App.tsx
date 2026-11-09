@@ -5,6 +5,7 @@ import { WorkspaceControls } from './workspace-controls'
 import { tldrawLicenseKey } from './tldraw-license'
 import { canvasAssetUrls } from './canvas-options'
 import { StylePicker } from './StylePicker'
+import { RemoveDialog } from './components/remove-dialog'
 import { BoardSwitcher, BoardsContext } from './components/board-switcher'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select'
 import { Button } from './components/ui/button'
@@ -13,7 +14,7 @@ import { lineage, nodeTitle } from '../shared/chats'
 import { Input } from './components/ui/input'
 import { selectAgentProvider } from './agentClient'
 import { useRef, useState, useSyncExternalStore } from 'react'
-import { Editor, type TLComponents, Tldraw, useEditor, useValue } from 'tldraw'
+import { Editor, type TLComponents, type TLUiOverrides, Tldraw, useEditor, useValue } from 'tldraw'
 import { Activity, ArrowDownToLine, ArrowRight, ChevronRight, Expand, Hand, ImagePlus, Link2, MessageCircle, MoreHorizontal, MousePointer2, Plus, Settings2, Undo2, Redo2, X } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './components/ui/dropdown-menu'
@@ -23,7 +24,7 @@ import { ConnectionShapeUtil } from './connection/ConnectionShapeUtil'
 import { ConnectionBindingUtil } from './connection/ConnectionBindingUtil'
 import { keepConnectionsAtBottom } from './connection/keepConnectionsAtBottom'
 import { PointingPort } from './ports/PointingPort'
-import { fitBoard, nodes, setupUnfold } from './unfold'
+import { fitBoard, nodeAt, nodes, setupUnfold } from './unfold'
 
 const HANDOFF_NAMES = { branch: 'Branch', research: 'Research', connection: 'Connection', coordinator: 'Coordinator', you: 'You' } as const
 const handoffName = (role: keyof typeof HANDOFF_NAMES, label?: string) => role === 'branch' && label ? `Branch · ${label}` : HANDOFF_NAMES[role]
@@ -65,6 +66,7 @@ function Chrome() {
     {isEmpty(roots) && <div className="board-heading" aria-hidden="true"><div className="chapter-label"><span className="dot"/> A SPACE FOR WHAT’S NEXT</div><h1>Let your possibilities <em>unfold</em>.</h1><p><span className="ribbon">Start with something that moves you. Find a small way forward.</span></p></div>}
     {isEmpty(roots) && <div className="empty-state"><div className="empty-mark" aria-hidden="true"><ImagePlus size={30} strokeWidth={1.25}/></div><h1>A little space for your ideas.</h1><p>Add an image that means something to you.<br/>See where it takes you.</p><Button size="lg" onClick={() => input.current?.click()}><ImagePlus size={17}/> Add inspiration</Button><Button variant="link" size="sm" onClick={() => { api?.samples().catch((error: unknown) => reportFailure(editor, error)) }}>Explore a sample board <ArrowRight size={14}/></Button></div>}
     <ChatPanel/>
+    <RemoveDialog/>
     {isNotEmpty(roots) && <div className="bottom-toolbar" role="toolbar" aria-label="Canvas tools">
       <div className="tool-group"><Button variant="ghost" size="icon" aria-pressed={tool === 'select'} title="Select (V)" aria-label="Select tool" onClick={() => editor.setCurrentTool('select')}><MousePointer2 size={18}/></Button><Button variant="ghost" size="icon" aria-pressed={tool === 'hand'} title="Pan (H) · hold Space to pan" aria-label="Pan tool" onClick={() => editor.setCurrentTool('hand')}><Hand size={18}/></Button></div>
       <span className="toolbar-divider"/>
@@ -90,6 +92,19 @@ function Chrome() {
     <Input ref={input} type="file" accept="image/png,image/jpeg,image/webp" multiple hidden onChange={event => { api?.importFiles(Array.from(event.target.files || [])).catch((error: unknown) => reportFailure(editor, error)); event.target.value = '' }}/>
   </div>
 }
+// Delete/Backspace and the context menu ask before removing cards, like the card's bin button.
+const overrides: TLUiOverrides = {
+  actions(editor, schema) {
+    const remove = schema['delete']
+    if (remove) schema['delete'] = { ...remove, onSelect(source) {
+      const api = actions.get(editor)
+      const ids = editor.getSelectedShapeIds()
+      if (!api || !ids.some(id => nodeAt(editor, id)) || editor.getCurrentToolId() !== 'select') return remove.onSelect(source)
+      api.requestRemove(ids)
+    } }
+    return schema
+  },
+}
 const components: TLComponents = { Toolbar: null, MenuPanel: null, StylePanel: null, PageMenu: null, NavigationPanel: null, HelpMenu: null, ActionsMenu: null, QuickActions: null, InFrontOfTheCanvas: Chrome }
 export default function App() {
   return <WorkspaceBootstrap>{workspace => <WorkspaceApp workspace={workspace}/>}</WorkspaceBootstrap>
@@ -104,7 +119,7 @@ function WorkspaceApp({ workspace }: { workspace: WorkspaceController }) {
 }
 function WorkspaceCanvas({ workspace }: { workspace: WorkspaceController }) {
   const [store] = useState(() => workspace.createStore())
-  return <Tldraw store={store} assetUrls={canvasAssetUrls} licenseKey={tldrawLicenseKey} shapeUtils={[NodeShapeUtil, ConnectionShapeUtil]} bindingUtils={[ConnectionBindingUtil]} components={components} options={{ maxPages: 1, zoomToFitPadding: 160 }} onMount={editor => {
+  return <Tldraw store={store} assetUrls={canvasAssetUrls} licenseKey={tldrawLicenseKey} shapeUtils={[NodeShapeUtil, ConnectionShapeUtil]} bindingUtils={[ConnectionBindingUtil]} components={components} overrides={overrides} options={{ maxPages: 1, zoomToFitPadding: 160 }} onMount={editor => {
     editor.user.updateUserPreferences({ colorScheme: 'light', isSnapMode: true })
     if (!editor.getStateDescendant('select.pointing_port')) editor.getStateDescendant('select')?.addChild(PointingPort)
     const detachWorkspace = workspace.attachEditor(editor)
