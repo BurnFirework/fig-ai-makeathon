@@ -91,6 +91,8 @@ export const RequestSchema = z.object({
   image: z.string().max(6_000_000).optional(), note: z.string().max(2000),
   /** The user asked to revise this proposal. */
   focus: FocusSchema.optional(),
+  /** The conversation continues from this outcome already on the board. */
+  outcome: z.object({ title: z.string().max(200), description: z.string().max(2000) }).optional(),
 })
 export type AgentRequest = z.infer<typeof RequestSchema>
 export const ActivitySchema = z.object({ role: z.enum(['branch', 'research', 'connection', 'coordinator']), message: z.string() })

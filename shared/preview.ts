@@ -28,6 +28,16 @@ export function demoRuntime(delay = 250): AgentRuntime {
       const first = input.branches[0]
       if (!first) throw new Error('Choose an inspiration first.')
       const conditions = conditionsOf(input.branches)
+      const followUp = input.outcome ? `How did “${input.outcome.title}” go — what would you like next?` : undefined
+      if (input.outcome && input.evidence?.status === 'found' && input.allowed.includes('propose')) {
+        const source = input.evidence.sources[0]
+        const answer = first.answers.at(-1)?.answer ?? ''
+        return { next: 'propose', action: { title: `Next after “${input.outcome.title}”`, description: `Example follow-up that builds on what you have: ${answer ? `you said “${answer}”, so ` : ''}use the linked directory to pick one session that goes a step further${isNotEmpty(conditions) ? `, checking it against ${conditions.join(', ')}` : ''}. No live search was performed in preview mode.`, sources: source ? [source] : [] } }
+      }
+      if (input.outcome && followUp && !input.evidence) {
+        if (first.answers.at(-1)?.question !== followUp) return { next: 'ask', question: { prompt: followUp, options: ['I tried it — what next?', 'Not yet, something is in the way', 'Show me a different idea'], purpose: 'Agents build on this step instead of repeating it.' } }
+        return { next: 'research', brief: `A next step after “${input.outcome.title}”`, mustMatch: conditions.slice(0, 6) }
+      }
       if (input.evidence?.status === 'found' && input.allowed.includes('propose')) {
         const source = input.evidence.sources[0]
         return { next: 'propose', action: { title: 'Find one beginner-friendly session', description: `Example next step: use the linked directory to find one session related to ${lower(first.goal)}${isNotEmpty(conditions) ? `, checking it against ${conditions.join(', ')}` : ''}. No live search was performed in preview mode.`, sources: source ? [source] : [] } }

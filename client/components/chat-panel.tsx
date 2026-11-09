@@ -149,6 +149,7 @@ function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice }: {
     setComposing(null); setNote('')
   }
   return <div id={`message-${message.id}`} className="chat-message assistant-message"><span className="message-label">Unfold</span>
+    {message.trace && isNotEmpty(message.trace) && <details className="agent-trace" open={isLatest}><summary>Agents worked on this · {message.trace.length} handoff{message.trace.length === 1 ? '' : 's'}</summary><ol>{message.trace.map((handoff, index) => <HandoffLine key={index} handoff={handoff}/>)}</ol></details>}
     {proposal.kind === 'question' && <><p>{proposal.prompt}</p><small className="message-purpose">{proposal.purpose}</small>{isLatest && <div className="chat-choices">{proposal.options.map(option => <Button key={option} variant="outline" size="sm" className="h-auto whitespace-normal text-[11px]" disabled={busy} onClick={() => onChoice(option)}>{option}<ArrowRight size={12}/></Button>)}</div>}</>}
     {proposal.kind === 'research' && <p>{proposal.brief}</p>}
     {(proposal.kind === 'opportunity' || proposal.kind === 'action') && <div className={`chat-outcome ${decision ? `decision-${decision}` : ''}`}><div className="outcome-label">{proposal.kind === 'opportunity' ? (revisedFrom ? 'Shared direction · revised' : 'Shared direction') : 'Next step'}</div><h3>{proposal.title}</h3><p>{proposal.description}</p>
@@ -173,7 +174,6 @@ function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice }: {
           <div className="decision-actions"><Button size="sm" disabled={busy || (composing === 'refine' && !note.trim())} onClick={submit}>{composing === 'refine' ? 'Ask for a revision' : 'Decline'}</Button><Button variant="ghost" size="sm" onClick={() => { setComposing(null); setNote('') }}>Cancel</Button></div></div>}
       </div>}
     </div>}
-    {message.trace && isNotEmpty(message.trace) && <details className="agent-trace"><summary>How the agents got here · {message.trace.length} step{message.trace.length === 1 ? '' : 's'}</summary><ol>{message.trace.map((handoff, index) => <HandoffLine key={index} handoff={handoff}/>)}</ol></details>}
   </div>
 }
 

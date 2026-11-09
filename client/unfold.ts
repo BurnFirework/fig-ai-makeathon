@@ -159,7 +159,8 @@ export function setupUnfold(editor: Editor) {
       const latest = chat.messages.filter(message => message.role === 'user').at(-1)
       const revised = latest?.role === 'user' && latest.stance === 'refine' ? chat.messages.find(message => message.id === latest.replyTo) : undefined
       const focus = revised?.role === 'assistant' && revised.proposal.kind === 'opportunity' && latest?.role === 'user' ? { kind: 'refine' as const, title: revised.proposal.title, description: revised.proposal.description.slice(0, 2000), note: latest.text } : undefined
-      const result = await requestAgent({ requestId, operation: chat.operation, branches, image, note: [selectedContext, latest?.role === 'user' ? latest.text : ''].filter(Boolean).join('\n').slice(0, 2000), ...(focus ? { focus } : {}) }, controller.signal, event => {
+      const outcome = source.props.node.type === 'action' || source.props.node.type === 'opportunity' ? { title: source.props.node.title.slice(0, 200), description: source.props.node.description.slice(0, 2000) } : undefined
+      const result = await requestAgent({ requestId, operation: chat.operation, branches, image, note: [selectedContext, latest?.role === 'user' ? latest.text : ''].filter(Boolean).join('\n').slice(0, 2000), ...(focus ? { focus } : {}), ...(outcome ? { outcome } : {}) }, controller.signal, event => {
         if (running.get(chatId)?.requestId !== requestId) return
         if (event.type === 'activity') { activity(event.role, event.message); return }
         activity(event.handoff.from, event.handoff.summary, event.handoff)
@@ -180,7 +181,10 @@ export function setupUnfold(editor: Editor) {
       const finalDependencies = dependencies.map(dependency => dependency.id === ownKey ? { ...dependency, revision: memory.revision } : dependency)
       editChat(sourceId, chatId, thread => ({ ...thread, messages: [...thread.messages, { id: messageId, role: 'assistant', proposal: result.proposal, dependsOn: finalDependencies, ...(isNotEmpty(result.handoffs) ? { trace: result.handoffs } : {}), ...(focus && revised ? { revises: revised.id } : {}) }] }))
       if (memory !== chatMemory(current)) saveMemory(sourceId, chatId, memory)
-      if (result.mode !== uiState.get(editor).mode) uiState.update(editor, state => ({ ...state, mode: result.mode }))
+      if (result.mode !== uiState.get(editor).mode) {
+        uiState.update(editor, state => ({ ...state, mode: result.mode }))
+        getAgentConfig().then(config => uiState.update(editor, state => ({ ...state, ...config }))).catch(() => {})
+      }
       clearJob(chatId)
       activity('coordinator', result.proposal.kind === 'question' ? 'Agents paused for your answer in the chat.' : result.proposal.kind === 'opportunity' ? 'A shared proposal is waiting for your decision: accept, decline or refine.' : 'Reply ready in your chat. Add an outcome to the canvas when it feels right.')
     } catch (error) {
@@ -203,7 +207,11 @@ export function setupUnfold(editor: Editor) {
       const chat = chatAt(id, chatId)
       if (!text.trim() || !chat || uiState.get(editor).jobs[chatId]?.status === 'running') return
       const value = text.trim().slice(0, 2000)
-      const message: ChatMessage = { id: crypto.randomUUID(), role: 'user', text: value, ...(replyTo ? { replyTo } : {}), stance: stance ?? classifyMessage(value) }
+      // Choosing one of the agent's offered options is an answer, even when the option ends with a question mark.
+      const asked = chat.messages.find(item => item.id === replyTo)
+      const chosen = asked?.role === 'assistant' && asked.proposal.kind === 'question' && asked.proposal.options.includes(value)
+      const read = stance ?? classifyMessage(value)
+      const message: ChatMessage = { id: crypto.randomUUID(), role: 'user', text: value, ...(replyTo ? { replyTo } : {}), stance: chosen && read === 'question' ? 'answer' : read }
       const messages = [...chat.messages, message]
       let index = 0
       const memory = applyDrafts(chatMemory(chat), interpretMessage(value, message.stance ?? 'answer', questionFor(messages, message)), [message.id], 'you', Date.now(), () => `${message.id}:${index++}`)

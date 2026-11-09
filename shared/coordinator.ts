@@ -49,6 +49,8 @@ export interface Finding { status: 'found' | 'none'; summary: string; sources: S
 export interface LeadInput {
   role: 'branch' | 'connection'; operation: AgentRequest['operation']; branches: BranchContext[]; note: string
   image?: string | undefined; evidence?: Finding | undefined; previousBriefs: string[]; allowed: LeadStep['next'][]
+  /** The conversation continues from this outcome; agents build beyond it instead of repeating it. */
+  outcome?: { title: string; description: string } | undefined
 }
 export interface ConnectionInput {
   phase: 'draft' | 'decide'; branches: BranchContext[]; note: string; focus?: AgentRequest['focus']
@@ -123,7 +125,7 @@ export async function runCoordinator(request: AgentRequest, runtime: AgentRuntim
       const allowed: LeadStep['next'][] = evidence ? (searches < limits.research ? ['propose', 'ask', 'research'] : ['propose', 'ask']) : ['ask', 'research']
       let step: LeadStep
       try {
-        step = await call(task => runtime.lead({ role, operation: request.operation, branches, note: request.note, image: evidence ? undefined : request.image, evidence, previousBriefs: briefs, allowed }, task))
+        step = await call(task => runtime.lead({ role, operation: request.operation, branches, note: request.note, image: evidence ? undefined : request.image, evidence, previousBriefs: briefs, allowed, outcome: request.outcome }, task))
       } catch (error) { if (error instanceof OutOfBudget) return flexibleQuestion(evidence, searches); throw error }
       remember(step)
       if (!allowed.includes(step.next)) return flexibleQuestion(evidence, searches)
@@ -151,6 +153,9 @@ export async function runCoordinator(request: AgentRequest, runtime: AgentRuntim
           const known = evidence?.status === 'found' ? evidence.sources : []
           const cited = step.action.sources.flatMap(source => known.filter(item => sameUrl(item.url, source.url))).filter((source, index, all) => all.indexOf(source) === index)
           if (isEmpty(cited)) return flexibleQuestion(evidence, searches)
+          // A step that is already on the board is not progress: pause and ask what would help next.
+          const done = [request.outcome?.title, ...branches.flatMap(branch => branch.previousSuggestions)].filter((title): title is string => Boolean(title)).find(title => normalize(title) === normalize(step.action.title))
+          if (done) return pause(`“${step.action.title}” is already part of this exploration, so it was not proposed again.`, `“${clip(done, 80)}” is already on your board. What would help most now?`, ['I did it — what comes next?', 'Something easier to start', 'A different kind of step'], 'Agents build on what you already have instead of repeating it.')
           hand({ from: role, fromLabel: roleLabel, to: 'you', task: 'propose', outcome: 'proposed', summary: `Proposed “${step.action.title}” using ${plural(cited.length, 'cited source')} from the research.` })
           return { kind: 'action', title: step.action.title, description: step.action.description, sources: cited }
         }

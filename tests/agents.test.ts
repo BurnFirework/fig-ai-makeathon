@@ -241,4 +241,20 @@ cases.push(test('an invalid agent reply is retried once with the problem, then f
   await assert.rejects(parseWithRetry(() => Promise.resolve('{"next":"ask","question":{"prompt":"x","options":[]}}'), 'base', LeadStepSchema, new AbortController().signal), (error: Error) => !error.message.includes('too_small') && /retry/.test(error.message))
 }))
 
+cases.push(test('a chat on an outcome builds beyond it instead of repeating it', async () => {
+  const outcome = { title: 'Find one beginner-friendly session', description: 'Use the directory' }
+  const repeat = scripted({ lead: input => Promise.resolve(input.evidence ? { next: 'propose', action: { title: 'Find one beginner-friendly session', description: '', sources: found.sources } } : { next: 'research', brief: 'x', mustMatch: [] }), research: () => Promise.resolve(found) })
+  const repeated = await run(request('branch', [branch('Cozy working space')], { outcome }), repeat)
+  assert.equal(repeated.result.proposal.kind, 'question')
+  assert.ok(JSON.stringify(repeat.log[0]?.input).includes('Find one beginner-friendly session'))
+  // Preview agents ask how it went, then suggest a different, follow-up step.
+  const first = await run(request('branch', [branch('Cozy working space')], { outcome }), demoRuntime(0))
+  assert.equal(first.result.proposal.kind, 'question')
+  const asked = first.result.proposal.prompt
+  const answered = { ...branch('Cozy working space'), answers: [{ question: asked, answer: 'I tried it — what next?', stance: 'answer' as const }] }
+  const next = await run(request('branch', [answered], { outcome }), demoRuntime(0))
+  assert.equal(next.result.proposal.kind, 'action')
+  assert.notEqual(next.result.proposal.title, outcome.title)
+}))
+
 await Promise.all(cases)

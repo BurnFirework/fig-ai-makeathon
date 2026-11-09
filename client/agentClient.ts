@@ -54,6 +54,8 @@ export async function requestAgent(request: AgentRequest, signal: AbortSignal, o
     signal.addEventListener('abort', abort, { once: true })
     bridge.agents.run(request).catch((error: unknown) => finish(error instanceof Error ? error : new Error('Local agents unavailable.')))
   })
+  // A helper that was restarting when the page loaded may be back: reconnect instead of staying in preview.
+  if (localPreview) await getAgentConfig()
   if (localPreview) {
     onEvent({ type: 'activity', role: 'coordinator', message: 'Preview agents only. No live model or web search is being used.' })
     return runCoordinator(request, demoRuntime(200), signal, event => { if (event.type === 'activity' || event.type === 'handoff') onEvent(event) })

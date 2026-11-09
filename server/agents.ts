@@ -59,13 +59,14 @@ export function liveRuntime(config: CliConfig): AgentRuntime {
       const evidenceUrls = input.evidence?.sources.map(source => source.url) ?? []
       const guidance = input.evidence
         ? `Evaluate this research result before choosing: ${json(input.evidence)}. Propose an action only if it satisfies the active conditions and is supported by these sources. If it does not fit, do not force an action: ask the user what could change, or request a narrower search${input.allowed.includes('research') ? '' : ' (no searches are left, so ask instead)'}.`
+        : input.outcome ? `The user is continuing from this outcome already on their board: ${json(input.outcome)}. Help with what comes after it — ask what happened or what is in the way, or research a follow-up that builds on it. Never propose the same step again.`
         : input.operation === 'research' ? 'The user wants a real first step: request research now unless an essential condition is missing.'
           : 'At first clarify the user’s intended goal from the image. Thereafter ask only missing essential conditions, and request research once enough is known (normally after 2–3 answers). Do not repeat earlier questions.'
       const prompt = `${principles}
 Role: ${input.role === 'branch' ? 'branch agent for one goal' : 'shared agent for two connected goals'}. Choose your next task. Allowed "next" values now: ${input.allowed.join(', ')}.
 - "ask": one necessary question for the user.
 - "research": ask the research agent to search the web, with a specific "brief" and "mustMatch" listing the active conditions a result must satisfy.${isEmpty(input.previousBriefs) ? '' : ` Earlier briefs: ${json(input.previousBriefs)}. A new brief must be meaningfully more specific; say why in "reason" (one short user-facing sentence).`}
-- "propose": one small, practical first step. Do not imply registration has occurred. Cite only these source URLs: ${json(evidenceUrls)}.
+- "propose": one small, practical step that is new (not in previousSuggestions). Do not imply registration has occurred. Cite only these source URLs: ${json(evidenceUrls)}.
 ${guidance}
 Return a single JSON object, no markdown, in one of these shapes:
 {"next":"ask","question":{"prompt":"...","options":["...","..."],"purpose":"..."}}

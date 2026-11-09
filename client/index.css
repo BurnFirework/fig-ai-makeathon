@@ -357,7 +357,7 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .decision-actions button { font-size: 12px; }
 .decision-compose textarea { min-height: 56px; font-size: 13px; margin-bottom: 6px; }
 .chat-outcome.decision-declined, .chat-outcome.decision-superseded { opacity: .72; }
-.agent-trace { margin-top: 10px; font-size: 11px; color: var(--cocoa-soft); }
+.agent-trace { margin: 0 0 12px; font-size: 11px; color: var(--cocoa-soft); }
 .agent-trace > summary { cursor: pointer; width: fit-content; }
 .agent-trace ol, .live-handoffs { margin: 8px 0 0; padding: 0 0 0 2px; list-style: none; display: grid; gap: 7px; border-left: 2px solid var(--line); }
 .live-handoffs { margin: -6px 0 16px; }
