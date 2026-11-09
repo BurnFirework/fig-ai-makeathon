@@ -1,3 +1,4 @@
+import { isNotEmpty } from '../../shared/arrays'
 /**
  * This file contains functions for working with ports and connections on nodes.
  */
@@ -78,7 +79,7 @@ export function getAllConnectedNodes(
 	const toVisit = [typeof startingNode === 'string' ? startingNode : startingNode.id]
 	const found = new Set<TLShapeId>()
 
-	while (toVisit.length > 0) {
+	while (isNotEmpty(toVisit)) {
 		const nodeId = toVisit.shift()
     if (nodeId === undefined) break
 		const node = editor.getShape(nodeId)

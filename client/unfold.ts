@@ -1,3 +1,4 @@
+import { isEmpty, isNotEmpty } from '../shared/arrays'
 import { createShapeId, Editor, type TLShapeId } from 'tldraw'
 import { type Chat, type ChatMessage, NodeSchema, type UnfoldNode, revisionsMatch } from '../shared/schema'
 import { invalidatedBy } from '../shared/context'
@@ -79,7 +80,7 @@ export function setupUnfold(editor: Editor) {
   }
   const createChat = (id: TLShapeId, sourceIds: TLShapeId[] = [id], branchIds = sourceBranches(id), operation: Chat['operation'] = 'branch') => {
     const node = nodeAt(editor, id)?.props.node
-    if (!node || !branchIds.length) return
+    if (!node || isEmpty(branchIds)) return
     const contextChats = operation === 'connect' ? sourceIds.flatMap(sourceId => {
       const previous = nodeAt(editor, sourceId)?.props.node.chats?.filter(chat => chat.operation !== 'connect').at(-1)
       const lastMessage = previous?.messages.at(-1)
@@ -245,7 +246,7 @@ export function setupUnfold(editor: Editor) {
     },
   }
   const legacy = foldLegacyMessages(records())
-  if (legacy.removed.length) editor.run(() => {
+  if (isNotEmpty(legacy.removed)) editor.run(() => {
     for (const record of legacy.updates) {
       const shape = nodes(editor).find(shape => shape.id === record.id)
       if (shape) update(editor, shape.id, () => record.node)

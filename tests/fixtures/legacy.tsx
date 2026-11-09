@@ -1,3 +1,4 @@
+import { isNotEmpty } from '../../shared/arrays'
 import { createRoot } from 'react-dom/client'
 import { Tldraw, AssetRecordType, createShapeId, type Editor } from 'tldraw'
 import { canvasOptions } from '../../client/canvas-options'
@@ -15,7 +16,7 @@ function finished() {
   if (complete === ids.length) setTimeout(() => { document.body.dataset.seeded = 'true' }, 2000)
 }
 async function seed(editor: Editor, index: number) {
-  if (editor.getCurrentPageShapes().length) { finished(); return }
+  if (isNotEmpty(editor.getCurrentPageShapes())) { finished(); return }
   const canvas = document.createElement('canvas'); canvas.width = 2; canvas.height = 2
   const context = canvas.getContext('2d')
   if (!context) throw new Error('Canvas unavailable')

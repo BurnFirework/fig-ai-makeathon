@@ -1,3 +1,4 @@
+import { isEmpty } from '../shared/arrays'
 import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
@@ -150,7 +151,7 @@ export async function callCli(config: CliConfig, prompt: string, signal: AbortSi
     if (!output.searched) throw new Error('The research agent did not execute web search. Please retry; no search result was assumed.')
     const result = z.object({ text: z.string(), sources: z.array(SourceSchema).min(1) }).parse(JSON.parse(output.text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()))
     const sources = result.sources.filter(source => output.urls.some(url => url === source.url || url.replace(/\/$/, '') === source.url.replace(/\/$/, '')))
-    if (!sources.length) throw new Error('Research did not return sources visible in its tool results. Ask the agent to open and verify the source pages, then retry.')
+    if (isEmpty(sources)) throw new Error('Research did not return sources visible in its tool results. Ask the agent to open and verify the source pages, then retry.')
     return { text: result.text, sources }
   } finally { await rm(directory, { recursive: true, force: true }) }
 }

@@ -1,5 +1,6 @@
 import js from '@eslint/js'
 import ts from 'typescript-eslint'
+import { arrayEmptiness } from './scripts/lint/array-emptiness.mjs'
 
 // Selected from tutor-platform/eslint.config.js; framework and style rules stay local to that app.
 export default ts.config(
@@ -7,10 +8,12 @@ export default ts.config(
   {
     files: ['**/*.{ts,tsx}'],
     extends: [js.configs.recommended, ...ts.configs.recommendedTypeChecked],
+    plugins: { local: { rules: { 'array-emptiness': arrayEmptiness } } },
     languageOptions: {
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
     },
     rules: {
+      'local/array-emptiness': 'error',
       eqeqeq: ['error', 'always'],
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
@@ -36,4 +39,5 @@ export default ts.config(
       }],
     },
   },
+  { files: ['shared/arrays.ts'], rules: { 'local/array-emptiness': 'off' } },
 )

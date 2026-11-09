@@ -1,3 +1,4 @@
+import { isEmpty, isNotEmpty } from '../shared/arrays'
 import { WorkspaceContext, type WorkspaceController } from './workspace'
 import { WorkspaceBootstrap } from './workspace-bootstrap'
 import { WorkspaceControls } from './workspace-controls'
@@ -58,10 +59,10 @@ function Chrome() {
         </Button>
       </div>
     </header>
-    {roots.length > 0 && <div className="board-heading" aria-hidden="true"><div className="chapter-label"><span className="dot"/> A SPACE FOR WHAT’S NEXT</div><h1>Let your possibilities <em>unfold</em>.</h1><p><span className="ribbon">Start with something that moves you. Find a small way forward.</span></p></div>}
-    {roots.length === 0 && <div className="empty-state"><div className="empty-mark" aria-hidden="true"><ImagePlus size={30} strokeWidth={1.25}/></div><h1>A little space for your ideas.</h1><p>Add an image that means something to you.<br/>See where it takes you.</p><Button size="lg" onClick={() => input.current?.click()}><ImagePlus size={17}/> Add inspiration</Button><Button variant="link" size="sm" onClick={() => { api?.samples().catch((error: unknown) => reportFailure(editor, error)) }}>Explore a sample board <ArrowRight size={14}/></Button></div>}
+    {isEmpty(roots) && <div className="board-heading" aria-hidden="true"><div className="chapter-label"><span className="dot"/> A SPACE FOR WHAT’S NEXT</div><h1>Let your possibilities <em>unfold</em>.</h1><p><span className="ribbon">Start with something that moves you. Find a small way forward.</span></p></div>}
+    {isEmpty(roots) && <div className="empty-state"><div className="empty-mark" aria-hidden="true"><ImagePlus size={30} strokeWidth={1.25}/></div><h1>A little space for your ideas.</h1><p>Add an image that means something to you.<br/>See where it takes you.</p><Button size="lg" onClick={() => input.current?.click()}><ImagePlus size={17}/> Add inspiration</Button><Button variant="link" size="sm" onClick={() => { api?.samples().catch((error: unknown) => reportFailure(editor, error)) }}>Explore a sample board <ArrowRight size={14}/></Button></div>}
     <ChatPanel/>
-    {roots.length > 0 && <div className="bottom-toolbar" role="toolbar" aria-label="Canvas tools">
+    {isNotEmpty(roots) && <div className="bottom-toolbar" role="toolbar" aria-label="Canvas tools">
       <div className="tool-group"><Button variant="ghost" size="icon" aria-pressed={tool === 'select'} title="Select (V)" aria-label="Select tool" onClick={() => editor.setCurrentTool('select')}><MousePointer2 size={18}/></Button><Button variant="ghost" size="icon" aria-pressed={tool === 'hand'} title="Pan (H) · hold Space to pan" aria-label="Pan tool" onClick={() => editor.setCurrentTool('hand')}><Hand size={18}/></Button></div>
       <span className="toolbar-divider"/>
       <Button variant="ghost" size="sm" className="add-image-tool" aria-label="Add inspiration" onClick={() => input.current?.click()}><Plus size={18}/><span>Add image</span></Button>
@@ -82,7 +83,7 @@ function Chrome() {
       <p className="settings-note">{state.mode === 'demo' ? 'Preview uses sample responses and does not search the web.' : 'Uses your signed-in CLI subscription for conversations and research.'}</p>
     </DialogContent></Dialog>
     {state.notice && <div className="notice" role="status"><span>{state.notice}</span><Button variant="ghost" size="icon-sm" aria-label="Dismiss notification" onClick={() => uiState.update(editor, state => ({ ...state, notice: '' }))}><X size={15}/></Button></div>}
-    {state.panel && <aside className="activity-panel"><header><div><h2>Agent activity</h2></div><Button variant="ghost" size="icon-sm" aria-label="Close activity" onClick={() => uiState.update(editor, state => ({ ...state, panel: false }))}><X size={17}/></Button></header><p>Conversations, research and decisions for this board.</p><div className="agent-roster"><span><i className="branch-dot"/> Branch</span><span><i className="research-dot"/> Research</span><span><i className="connection-dot"/> Connection</span></div><div className="activity-list">{state.activity.length === 0 ? <div className="activity-empty"><MessageCircle size={28}/><p>Start a conversation.<br/>The story of your exploration will appear here.</p></div> : state.activity.map(item => <div className={`activity-item role-${item.role}`} key={item.id}><span className="activity-dot"/><div><strong>{item.role === 'you' ? 'You' : item.role.charAt(0).toUpperCase() + item.role.slice(1)}</strong><p>{item.message}</p></div><time>{new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>)}</div><footer><ArrowDownToLine size={13}/> Decisions are saved with your board.</footer></aside>}
+    {state.panel && <aside className="activity-panel"><header><div><h2>Agent activity</h2></div><Button variant="ghost" size="icon-sm" aria-label="Close activity" onClick={() => uiState.update(editor, state => ({ ...state, panel: false }))}><X size={17}/></Button></header><p>Conversations, research and decisions for this board.</p><div className="agent-roster"><span><i className="branch-dot"/> Branch</span><span><i className="research-dot"/> Research</span><span><i className="connection-dot"/> Connection</span></div><div className="activity-list">{isEmpty(state.activity) ? <div className="activity-empty"><MessageCircle size={28}/><p>Start a conversation.<br/>The story of your exploration will appear here.</p></div> : state.activity.map(item => <div className={`activity-item role-${item.role}`} key={item.id}><span className="activity-dot"/><div><strong>{item.role === 'you' ? 'You' : item.role.charAt(0).toUpperCase() + item.role.slice(1)}</strong><p>{item.message}</p></div><time>{new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>)}</div><footer><ArrowDownToLine size={13}/> Decisions are saved with your board.</footer></aside>}
     <Input ref={input} type="file" accept="image/png,image/jpeg,image/webp" multiple hidden onChange={event => { api?.importFiles(Array.from(event.target.files || [])).catch((error: unknown) => reportFailure(editor, error)); event.target.value = '' }}/>
   </div>
 }
@@ -108,7 +109,7 @@ function WorkspaceCanvas({ workspace }: { workspace: WorkspaceController }) {
     const cleanupConnections = keepConnectionsAtBottom(editor)
     const cleanup = setupUnfold(editor)
     editor.registerExternalContentHandler('files', info => { actions.get(editor)?.importFiles(info.files).catch((error: unknown) => reportFailure(editor, error)) })
-    if (nodes(editor).length) setTimeout(() => editor.zoomToFit({}), 100)
+    if (isNotEmpty(nodes(editor))) setTimeout(() => editor.zoomToFit({}), 100)
     return () => { detachWorkspace(); cleanup(); cleanupConnections() }
   }}/>
 }

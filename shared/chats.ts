@@ -1,3 +1,4 @@
+import { isEmpty } from './arrays'
 import { branchContext, type NodeRecord } from './context'
 import type { BranchContext, Chat, ChatMessage, UnfoldNode } from './schema'
 
@@ -70,7 +71,7 @@ export function foldLegacyMessages(records: NodeRecord[]): { updates: NodeRecord
   for (const root of records.filter(record => record.node.type === 'inspiration')) {
     const branch = records.filter(record => record.node.branchId === root.id).sort((a, b) => a.node.sequence - b.node.sequence)
     const legacy = branch.filter(record => record.node.type === 'question' || record.node.type === 'answer')
-    if (!legacy.length) continue
+    if (isEmpty(legacy)) continue
     const chatId = `legacy-${root.id}`
     const messages: ChatMessage[] = branch.flatMap(({ id, node }): ChatMessage[] => {
       if (node.type === 'question') return [{ id, role: 'assistant', proposal: { kind: 'question', prompt: node.prompt, options: node.options, purpose: node.purpose }, dependsOn: [{ id: root.id, revision: root.node.revision }] }]

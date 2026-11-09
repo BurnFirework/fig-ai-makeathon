@@ -1,3 +1,4 @@
+import { isEmpty } from '../../shared/arrays'
 import { useEffect, useRef, useState } from 'react'
 import { type TLShapeId, useEditor, useValue } from 'tldraw'
 import { ArrowRight, Check, ChevronDown, ExternalLink, LayoutPanelLeft, Link2, LoaderCircle, Maximize2, MessageCircle, Plus, RotateCcw, Square, X } from 'lucide-react'
@@ -49,7 +50,7 @@ function Conversation({ sourceId, title, chat, chats }: { sourceId: TLShapeId; t
     </div>
     {sources.length > 1 && <div className="chat-source-row"><Link2 size={13}/><span>Bringing together</span>{sources.map(source => <button key={source.id} title={nodeTitle(source.props.node)} onClick={() => { uiState.update(editor, state => ({ ...state, chatView: 'board' })); editor.select(source.id); fitBoard(editor) }}>{nodeTitle(source.props.node)}</button>)}</div>}
     <div className="chat-messages" role="log" aria-label="Conversation messages" tabIndex={0}>
-      {chat.messages.length === 0 && !busy && <div className="chat-welcome"><MessageCircle size={26}/><h3>Where could this take you?</h3><p>Try an idea, ask a question, or tell us what caught your eye.</p></div>}
+      {isEmpty(chat.messages) && !busy && <div className="chat-welcome"><MessageCircle size={26}/><h3>Where could this take you?</h3><p>Try an idea, ask a question, or tell us what caught your eye.</p></div>}
       {chat.messages.map(message => <Message key={message.id} message={message} sourceId={sourceId} chatId={chat.id} isLatest={message.id === lastAssistant?.id} busy={busy} onChoice={text => send(text)}/>)}
       {job && <div className={`chat-job ${job.status}`} role="status">{busy ? <LoaderCircle size={15} className="spin"/> : <RotateCcw size={15}/>}<span>{job.message}</span><Button variant="ghost" size="icon-sm" aria-label={busy ? 'Stop request' : 'Retry request'} onClick={() => busy ? api?.stop(chat.id) : api?.retry(chat.id)}>{busy ? <Square size={13}/> : <RotateCcw size={14}/>}</Button></div>}
       <div ref={bottom}/>
