@@ -85,8 +85,6 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .chrome { position: absolute; inset: 0; pointer-events: none; font-size: 13px; color: var(--ink); }
 .chrome button, .chrome a, .chrome input, .chrome textarea, .chrome select, .chat-panel, .activity-panel, .notice, .empty-state { pointer-events: auto; }
 .app-header { position: absolute; z-index: 5; inset: 0 0 auto; height: 64px; padding: 0 24px; display: flex; align-items: center; gap: 20px; background: var(--canvas); }
-.wordmark { display: flex; align-items: center; gap: 2px; padding-top: 4px; font-family: var(--script); font-size: 34px; font-weight: 400; line-height: 1; letter-spacing: 0; text-decoration: none; color: var(--ink); flex-shrink: 0; }
-.wordmark .sticker { margin: -16px 0 0 2px; transform: rotate(14deg); }
 .header-navigation { display: flex; align-items: center; flex: 1; min-width: 0; gap: 4px; }
 .workspace-name { max-width: 230px; min-width: 80px; font-size: 13px; font-weight: 400; }
 .workspace-name > svg:first-child { display: none; }
@@ -276,7 +274,6 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .focus-mode .chat-compose { margin-bottom: 24px; }
 @media (max-width: 1100px) { .breadcrumb button { max-width: 105px; } .app-header { gap: 12px; padding-inline: 18px; } }
 @media (max-width: 850px) {
-  .wordmark { font-size: 30px; }
   .board-heading { left: 16px; top: 78px; }
   .board-heading h1 { font-size: 24px; }
   .board-heading h1 em { font-size: 32px; }
@@ -303,8 +300,8 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
   .focus-mode .user-message { margin-left: 25px; }
   .compose-footer > span { font-size: 9px; }
 }
-/* Phones: the script wordmark needs the room; the save status stays in the Workspace files menu title. */
-@media (max-width: 520px) { .header-right > [role=status] { display: none; } .wordmark .sticker { display: none; } .workspace-name { min-width: 0; } }
+/* Phones: the save status stays in the Workspace files menu title. */
+@media (max-width: 520px) { .header-right > [role=status] { display: none; } .workspace-name { min-width: 0; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 }
 

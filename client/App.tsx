@@ -5,7 +5,6 @@ import { WorkspaceControls } from './workspace-controls'
 import { tldrawLicenseKey } from './tldraw-license'
 import { canvasAssetUrls } from './canvas-options'
 import { StylePicker } from './StylePicker'
-import { Bow } from './decor'
 import { BoardSwitcher, BoardsContext } from './components/board-switcher'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select'
 import { Button } from './components/ui/button'
@@ -53,7 +52,6 @@ function Chrome() {
   const api = actions.get(editor)
   return <div className={`chrome ${state.activeChat ? `has-chat ${state.chatView === 'focus' ? 'has-focus-chat' : ''}` : ''}`} onPointerDown={event => { if (event.target !== event.currentTarget) editor.markEventAsHandled(event) }}>
     <header className="app-header">
-      <a className="wordmark" href="#" aria-label="Unfold home" onClick={event => { event.preventDefault(); api?.closeChat(); editor.selectNone(); fitBoard(editor) }}>Unfold<Bow size={26}/></a>
       <div className="header-navigation"><BoardSwitcher/><nav className="breadcrumbs" aria-label="Exploration breadcrumbs">{(path.length > 1 || state.activeChat) && path.map((record, index) => <span className="breadcrumb" key={record.id}><ChevronRight size={13}/><button aria-current={index === path.length - 1 && !state.activeChat ? 'location' : undefined} title={nodeTitle(record.node)} onClick={() => { const shape = nodes(editor).find(shape => shape.id === record.id); if (shape) { api?.closeChat(); editor.select(shape.id); editor.zoomToSelection() } }}>{nodeTitle(record.node)}</button></span>)}{state.activeChat && <span className="breadcrumb current"><ChevronRight size={13}/><MessageCircle size={13}/><span aria-current="location">Chat</span></span>}</nav></div>
       <div className="header-right"><WorkspaceControls/>
         {state.mode === 'demo' && <span className="mode-label">Preview</span>}
