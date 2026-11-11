@@ -31,7 +31,11 @@ async function send(page: Page, text: string) {
 async function openPhoto(page: Page, title: string, start = false) {
   await button(page, 'Fit board').click()
   await photo(page, title).getByRole('textbox', { name: 'Inspiration goal' }).focus()
-  await button(page, start ? `Ask Unfold about ${title}` : `Explore ${title}`).click()
+  await button(page, `Explore ${title}`).click()
+  if (!start) return
+  // Start with your own request: a new conversation stays empty until you write.
+  await button(page, 'New conversation').click()
+  await expect(page.getByRole('button', { name: 'Suggest directions', exact: true })).toBeVisible()
 }
 
 test('two cards share a conversation that asks, creates, reuses images, and undoes a whole edit', async ({ page }) => {

@@ -660,7 +660,6 @@ export function setupUnfold(editor: Editor) {
     applyBoardEdits(edits) {
       try { return applyBoardEdits(edits) } catch (error) { fail(error instanceof Error ? error.message : 'The board edit failed.'); return [] }
     },
-    startChat(id) { createChat(id) },
     openChat(id, chatId) {
       const node = nodeAt(editor, id)?.props.node
       if (!node) return
@@ -670,7 +669,8 @@ export function setupUnfold(editor: Editor) {
       if (chat) activate(id, chat)
       else { const next = createChat(id, [id], sourceBranches(id), node.type === 'opportunity' ? 'research' : 'branch'); if (next) launch(run(id, next.id)) }
     },
-    newChat(id) { const chat = createChat(id, [id], sourceBranches(id), nodeAt(editor, id)?.props.node.type === 'opportunity' ? 'research' : 'branch'); if (chat) launch(run(id, chat.id)) },
+    newChat(id) { createChat(id, [id], sourceBranches(id), nodeAt(editor, id)?.props.node.type === 'opportunity' ? 'research' : 'branch') },
+    suggest(id, chatId) { if (!running.has(chatId) && isEmpty(chatAt(id, chatId)?.messages ?? [])) launch(run(id, chatId)) },
     closeChat() { uiState.update(editor, state => ({ ...state, activeChat: null })) },
     send(id, chatId, text, replyTo, stance) {
       const chat = chatAt(id, chatId)

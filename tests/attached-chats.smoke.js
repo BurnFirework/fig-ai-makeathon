@@ -83,6 +83,9 @@ async (page) => {
   await panel.waitFor({ state: 'hidden' })
   await explore('Explore a creative practice')
   await button('New conversation').click()
+  // A new conversation starts empty and waits; the person can ask, or let the agents begin.
+  assert(await turns() === 0, 'A new conversation must start empty')
+  await button('Suggest directions').click()
   await page.getByRole('button', { name: 'Yes, I want to try', exact: false }).waitFor()
   assert(await turns() === 1, 'New conversation must not contain sibling messages')
   await button('Switch conversation').click()

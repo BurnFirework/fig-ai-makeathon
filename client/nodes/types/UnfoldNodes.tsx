@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { T, useEditor, useValue } from 'tldraw'
-import { ArrowRight, Check, ChevronDown, Clock, ExternalLink, LoaderCircle, MapPin, MessageCircle, MessageSquarePlus, Sparkles, Trash2, Wallet } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, Clock, ExternalLink, LoaderCircle, MapPin, MessageCircle, Sparkles, Trash2, Wallet } from 'lucide-react'
 import { isUnfoldNode, type UnfoldNode } from '../../../shared/schema'
 import { isEmpty, isNotEmpty } from '../../../shared/arrays'
 import { lineage, nodeTitle } from '../../../shared/chats'
@@ -168,7 +168,7 @@ function UnfoldCard({ shape, node }: NodeComponentProps<UnfoldNode>) {
       {node.stale && <div className="stale-banner">Sources or conditions changed · revisit this direction</div>}
       {node.type === 'opportunity' && node.status === 'rejected' && <div className="stale-banner declined-banner">Declined · agents won’t develop this direction</div>}
       {node.type === 'action' && node.completed && node.reflection && <div className="node-completion"><span><small>{node.reflection}</small></span></div>}
-      <footer className="card-footer"><Button variant="secondary" size="sm" className="explore-button" aria-label={`Explore ${nodeTitle(node)}`} aria-expanded={active} onClick={() => api?.openChat(shape.id)}>{busy ? <LoaderCircle size={15} className="spin"/> : <MessageCircle size={15}/>}<span>{active || count ? 'Continue' : 'Explore'}</span><ArrowRight size={13}/></Button>{node.type === 'inspiration' && <LinkPill shapeId={shape.id}/>}<Button variant="secondary" size="icon-sm" aria-label={`Ask Unfold about ${nodeTitle(node)}`} title="Ask Unfold" onClick={() => api?.startChat(shape.id)}><MessageSquarePlus size={15}/></Button><Button variant="secondary" size="icon-sm" className="remove-button" aria-label={`Remove ${nodeTitle(node)}`} onClick={() => api?.requestRemove([shape.id])}><Trash2 size={13}/></Button></footer>
+      <footer className="card-footer"><Button variant="secondary" size="sm" className="explore-button" aria-label={`Explore ${nodeTitle(node)}`} aria-expanded={active} onClick={() => api?.openChat(shape.id)}>{busy ? <LoaderCircle size={15} className="spin"/> : <MessageCircle size={15}/>}<span>{active || count ? 'Continue' : 'Explore'}</span><ArrowRight size={13}/></Button>{node.type === 'inspiration' && <LinkPill shapeId={shape.id}/>}<Button variant="secondary" size="icon-sm" className="remove-button" aria-label={`Remove ${nodeTitle(node)}`} onClick={() => api?.requestRemove([shape.id])}><Trash2 size={13}/></Button></footer>
     </div>
   </article>
 }

@@ -1,7 +1,7 @@
 import { isEmpty, isNotEmpty } from '../../shared/arrays'
 import { useEffect, useRef, useState } from 'react'
 import { type TLShapeId, useEditor, useValue } from 'tldraw'
-import { ArrowRight, Check, ChevronDown, ExternalLink, HelpCircle, LayoutPanelLeft, Link2, LoaderCircle, Maximize2, MessageCircle, Pencil, Plus, RotateCcw, Square, Undo2, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, ExternalLink, HelpCircle, LayoutPanelLeft, Link2, LoaderCircle, Maximize2, MessageCircle, Pencil, Plus, RotateCcw, Sparkles, Square, Undo2, X } from 'lucide-react'
 import { canPublish, currentRevisions, decisionOf, nodeTitle } from '../../shared/chats'
 import { chatMemory } from '../../shared/memory'
 import type { NodeShape } from '../nodes/NodeShapeUtil'
@@ -41,6 +41,9 @@ function Conversation({ sourceId, title, chat }: { sourceId: TLShapeId; title: s
   const revisions = useValue('dependency revisions', () => currentRevisions(nodes(editor).map(shape => ({ id: shape.id, node: shape.props.node })), conversations(editor)), [editor])
   const pending = !job && lastAssistant?.role === 'assistant' && lastAssistant.proposal.kind === 'question' && chat.messages.at(-1)?.id === lastAssistant.id ? lastAssistant.proposal : undefined
   useEffect(() => { bottom.current?.scrollIntoView({ block: 'nearest' }) }, [chat.messages.length, busy])
+  // A new, empty conversation waits for the person: put the cursor where they can ask.
+  const empty = isEmpty(chat.messages) && !busy
+  useEffect(() => { if (empty) composer.current?.focus() }, [chat.id, empty])
   function send(text = draft) {
     if (!text.trim() || busy) return
     api?.send(sourceId, chat.id, text, lastAssistant?.id)
@@ -63,13 +66,13 @@ function Conversation({ sourceId, title, chat }: { sourceId: TLShapeId; title: s
     <div className="conversation-body">
     <div className="chat-navigation">
       <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="chat-switcher" aria-label="Switch conversation"/>}><span className="truncate">{chat.title}</span><ChevronDown size={13}/></DropdownMenuTrigger><DropdownMenuContent className="w-72" onKeyDown={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>{chats.map(item => <DropdownMenuItem key={item.id} onClick={() => api?.openChat(sourceId, item.id)}><MessageCircle size={14}/><span className="truncate">{item.title}</span>{item.id === chat.id && <Check size={13}/>}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
-      <Button variant="ghost" size="icon-sm" title="Start a separate exploration" aria-label="New conversation" onClick={() => api?.newChat(sourceId)}><Plus size={16}/></Button>
+      <Button variant="ghost" size="icon-sm" title="Start a separate, empty conversation" aria-label="New conversation" onClick={() => api?.newChat(sourceId)}><Plus size={16}/></Button>
       {isNotEmpty(unattached) && <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="sm" aria-label="Attach a card" disabled={busy}/>}><Link2 size={13}/> Add card</DropdownMenuTrigger><DropdownMenuContent className="w-72" onKeyDown={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>{unattached.map(card => <DropdownMenuItem key={card.id} onClick={() => api?.applyBoardEdits([{ kind: 'attachNodeToConversation', conversationId: chat.id, nodeId: card.id }])}>{nodeTitle(card.props.node)}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>}
     </div>
     {sources.length > 1 && <div className="chat-source-row"><Link2 size={13}/><span>Bringing together</span>{sources.map(source => <button key={source.id} title={nodeTitle(source.props.node)} onClick={() => { uiState.update(editor, state => ({ ...state, chatView: 'board' })); editor.select(source.id); fitBoard(editor) }}>{nodeTitle(source.props.node)}</button>)}</div>}
     {chat.operation === 'connect' && <CollaborationStatus live={busy} handoffs={busy ? job.handoffs ?? [] : lastAssistant?.role === 'assistant' ? lastAssistant.trace ?? [] : []}/>}
     <div className="chat-messages" role="log" aria-label="Conversation messages" tabIndex={0}>
-      {isEmpty(chat.messages) && !busy && <div className="chat-welcome"><MessageCircle size={26}/><h3>Where could this take you?</h3><p>Try an idea, ask a question, or tell us what caught your eye.</p></div>}
+      {empty && <div className="chat-welcome"><MessageCircle size={26}/><h3>Where could this take you?</h3><p>Ask your own question below, or let the agents suggest a few directions.</p><Button variant="secondary" size="sm" className="suggest-button" onClick={() => api?.suggest(sourceId, chat.id)}><Sparkles size={14}/>Suggest directions</Button></div>}
       {foldTurns(chat.messages).map(item => item.kind === 'turn'
         ? <FoldedTurn key={item.question.id} question={item.question} answer={item.answer} chat={chat}/>
         : <Message key={item.message.id} message={item.message} chat={chat} sourceId={sourceId} isLatest={item.message.id === lastAssistant?.id} busy={busy} stale={item.message.role === 'assistant' && !revisionsMatch(item.message.dependsOn, revisions)} onChoice={text => send(text)} onOwnAnswer={() => composer.current?.focus()}/>)}

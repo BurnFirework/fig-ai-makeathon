@@ -48,8 +48,12 @@ export interface UnfoldActions {
   addSharedStep(): TLShapeId | undefined
   dismissFinding(id: TLShapeId, findingId: string): void
   applyBoardEdits(edits: readonly BoardEdit[]): TLShapeId[]
-  startChat(id: TLShapeId): void
-  openChat(id: TLShapeId, chatId?: string): void; newChat(id: TLShapeId): void; closeChat(): void;
+  openChat(id: TLShapeId, chatId?: string): void;
+  /** A separate, empty conversation: the person asks first, or lets the agents suggest. */
+  newChat(id: TLShapeId): void;
+  /** Lets the agents open an empty conversation with directions of their own. */
+  suggest(id: TLShapeId, chatId: string): void;
+  closeChat(): void;
   send(id: TLShapeId, chatId: string, text: string, replyTo?: string, stance?: 'refine'): void;
   publish(id: TLShapeId, chatId: string, messageId: string): void;
   /** The user's decision on a shared proposal, separate from whether its card is on the canvas. */

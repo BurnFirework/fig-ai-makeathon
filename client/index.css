@@ -267,9 +267,10 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .compose-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-left: 4px; }
 .compose-footer > span { font-size: 10px; color: var(--cocoa-soft); }
 .chat-welcome { text-align: center; padding: 35px 10px; color: var(--cocoa-soft); }
-.chat-welcome svg { margin: 0 auto; }
+.chat-welcome > svg { margin: 0 auto; }
 .chat-welcome h3 { font-weight: 500; font-size: 22px; }
 .chat-welcome p { font-size: 14px; line-height: 1.7; }
+.chat-welcome .suggest-button { margin-top: 4px; border-radius: 999px; padding-inline: 12px; gap: 6px; font-weight: 600; }
 .activity-panel { position: absolute; z-index: 6; top: var(--header-height); bottom: 0; right: 0; width: 360px; padding: 24px; background: var(--paper); border-left: 1px solid var(--line); display: flex; flex-direction: column; }
 .activity-panel header { display: flex; justify-content: space-between; align-items: center; }
 .activity-panel h2 { font-size: 18px; font-weight: 500; margin: 0; letter-spacing: -.3px; }
