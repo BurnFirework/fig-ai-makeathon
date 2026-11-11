@@ -8,11 +8,25 @@ export const ActionMetaSchema = z.object({ time: z.string().max(40).optional(), 
 /** A next step reads as a one-line summary and a short checklist; `description` keeps any extra detail. All optional for older boards. */
 const ActionShape = { summary: z.string().max(300).optional(), steps: z.array(z.string().max(200)).max(4).optional(), meta: ActionMetaSchema.optional() }
 export const DependencySchema = z.object({ id: z.string(), revision: z.number().int().nonnegative() })
+/** A decision only the user can make: which condition blocks the shared idea, what the agents based that on, and what each answer changes. */
+export const ConflictSchema = z.object({
+  condition: z.string().max(240), basis: z.string().max(600),
+  sources: z.array(SourceSchema).max(4).default([]),
+  /** One effect per option, in the same order. */
+  effects: z.array(z.string().max(240)).max(4).default([]),
+})
+export type Conflict = z.infer<typeof ConflictSchema>
 export const ProposalSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('question'), prompt: z.string().min(1), options: z.array(z.string()).min(2).max(4), purpose: z.string() }),
+  z.object({ kind: z.literal('question'), prompt: z.string().min(1), options: z.array(z.string()).min(2).max(4), purpose: z.string(), conflict: ConflictSchema.optional() }),
   z.object({ kind: z.literal('research'), brief: z.string().min(1) }),
-  z.object({ kind: z.literal('opportunity'), title: z.string().min(1), description: z.string(), benefitA: z.string(), benefitB: z.string() }),
+  z.object({ kind: z.literal('opportunity'), title: z.string().min(1), description: z.string(), benefitA: z.string(), benefitB: z.string(),
+    /** Real options the research agent found, when the direction relies on them. */
+    sources: z.array(SourceSchema).max(6).optional(),
+    /** Points a branch agent accepted only partly; the user sees them before deciding. */
+    openPoints: z.array(z.string().max(240)).max(3).optional() }),
   z.object({ kind: z.literal('action'), title: z.string().min(1), description: z.string(), sources: z.array(SourceSchema), ...ActionShape }),
+  /** The connection agent found no useful overlap between two goals. Never shown as a proposal. */
+  z.object({ kind: z.literal('none'), reason: z.string().max(400) }),
 ])
 export type Proposal = z.infer<typeof ProposalSchema>
 /** How a user message should be read: only answers can become confirmed facts. */
@@ -38,9 +52,10 @@ export const AgentRoleSchema = z.enum(['branch', 'research', 'connection', 'coor
 /** A summary of one real task request or result between agents, written for the user. */
 export const HandoffSchema = z.object({
   from: AgentRoleSchema, to: AgentRoleSchema, fromLabel: z.string().max(80).optional(), toLabel: z.string().max(80).optional(),
-  task: z.enum(['research', 'check-fit', 'propose', 'ask', 'refine-search', 'revise', 'limit']),
+  task: z.enum(['overlap', 'research', 'check-fit', 'propose', 'ask', 'refine-search', 'revise', 'limit']),
   summary: z.string().max(500),
-  outcome: z.enum(['requested', 'found', 'none', 'fits', 'partial', 'conflict', 'proposed', 'waiting', 'stopped']),
+  // "failed": a step could not produce a usable reply (a technical failure, never a finding).
+  outcome: z.enum(['requested', 'found', 'none', 'failed', 'fits', 'partial', 'conflict', 'proposed', 'waiting', 'stopped']),
 })
 export type Handoff = z.infer<typeof HandoffSchema>
 export const ChatMessageSchema = z.discriminatedUnion('role', [
@@ -48,6 +63,8 @@ export const ChatMessageSchema = z.discriminatedUnion('role', [
   z.object({
     id: z.string(), role: z.literal('assistant'), proposal: ProposalSchema, dependsOn: z.array(DependencySchema), outcomeId: z.string().optional(),
     decision: DecisionSchema.optional(), revises: z.string().optional(), trace: z.array(HandoffSchema).max(24).optional(),
+    /** Research briefs this reply ran, so later searches in the conversation differ. */
+    searches: z.array(z.string().max(800)).max(6).optional(),
   }),
 ])
 export const ChatSchema = z.object({
@@ -57,6 +74,12 @@ export const ChatSchema = z.object({
 })
 export type Chat = z.infer<typeof ChatSchema>
 export type ChatMessage = z.infer<typeof ChatMessageSchema>
+/** The last automatic check of a pair of goals, kept on the inspiration whose id sorts first so a reload never repeats it. */
+export const LinkScanSchema = z.object({
+  // "error": the check could not finish (a technical failure, not a finding); it waits for Retry.
+  otherId: z.string(), signature: z.string().max(4000), status: z.enum(['none', 'found', 'error']),
+  reason: z.string().max(400), chatId: z.string().optional(), at: z.number(),
+})
 const base = {
   chats: z.array(ChatSchema).optional(),
   origin: z.object({ nodeId: z.string(), chatId: z.string(), messageId: z.string() }).optional(),
@@ -64,15 +87,16 @@ const base = {
   dependsOn: z.array(DependencySchema), agent: z.enum(['you', 'branch', 'research', 'connection']), createdAt: z.number(),
 }
 export const NodeSchema = z.discriminatedUnion('type', [
-  z.object({ ...base, type: z.literal('inspiration'), assetId: z.string(), goal: z.string().max(600), started: z.boolean() }),
+  z.object({ ...base, type: z.literal('inspiration'), assetId: z.string(), goal: z.string().max(600), started: z.boolean(), links: z.array(LinkScanSchema).max(40).optional() }),
   z.object({ ...base, type: z.literal('question'), prompt: z.string(), options: z.array(z.string()).min(2).max(4), purpose: z.string() }),
   z.object({ ...base, type: z.literal('answer'), text: z.string().max(2000), questionId: z.string() }),
-  z.object({ ...base, type: z.literal('opportunity'), title: z.string(), description: z.string(), benefitA: z.string(), benefitB: z.string(), status: z.enum(['proposed', 'accepted', 'rejected']), refinement: z.string(), sourceBranchIds: z.array(z.string()).length(2) }),
+  z.object({ ...base, type: z.literal('opportunity'), title: z.string(), description: z.string(), benefitA: z.string(), benefitB: z.string(), status: z.enum(['proposed', 'accepted', 'rejected']), refinement: z.string(), sourceBranchIds: z.array(z.string()).length(2), sources: z.array(SourceSchema).max(6).optional() }),
   z.object({ ...base, type: z.literal('action'), title: z.string(), description: z.string(), sources: z.array(SourceSchema), completed: z.boolean(), reflection: z.string(), ...ActionShape, doneSteps: z.array(z.number().int().nonnegative()).max(4).optional(),
     /** Card view state: details unfolded, and the measured height when the estimate falls short. */
     expanded: z.boolean().optional(), fit: z.number().nonnegative().max(4000).optional() }),
 ])
 export type UnfoldNode = z.infer<typeof NodeSchema>
+export type LinkScan = z.infer<typeof LinkScanSchema>
 export function isUnfoldNode(value: unknown): value is UnfoldNode { return NodeSchema.safeParse(value).success }
 export const BranchContextSchema = z.object({
   id: z.string(), goal: z.string(), revision: z.number(),
@@ -98,13 +122,20 @@ export const RequestSchema = z.object({
   /** The user asked to revise this proposal. */
   focus: FocusSchema.optional(),
   /** The conversation continues from this outcome already on the board. */
-  outcome: z.object({ title: z.string().max(200), description: z.string().max(2000) }).optional(),
+  outcome: z.object({ title: z.string().max(200), description: z.string().max(2000), sources: z.array(SourceSchema).max(6).optional() }).optional(),
+  /** Who started a connection: the board noticed it, or the user asked. */
+  trigger: z.enum(['auto', 'manual']).optional(),
+  /** Searches this conversation already ran, so a new one must differ. */
+  priorBriefs: z.array(z.string().max(800)).max(6).optional(),
+  /** Sources the research agent found earlier in this conversation (each seen in its own search tool events), so a later turn can build on them. */
+  priorSources: z.array(SourceSchema).max(6).optional(),
 })
 export type AgentRequest = z.infer<typeof RequestSchema>
 export const ActivitySchema = z.object({ role: z.enum(['branch', 'research', 'connection', 'coordinator']), message: z.string() })
 export const ResultSchema = z.object({
   requestId: z.string(), proposal: ProposalSchema, activity: z.array(ActivitySchema), mode: z.enum(['live', 'demo']),
   handoffs: z.array(HandoffSchema).max(24).default([]), memory: z.array(MemoryUpdateSchema).max(8).default([]),
+  searches: z.array(z.string().max(800)).max(6).default([]),
 })
 export type AgentResult = z.infer<typeof ResultSchema>
 export const EventSchema = z.discriminatedUnion('type', [

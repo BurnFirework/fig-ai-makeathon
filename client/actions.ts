@@ -22,6 +22,8 @@ export interface UnfoldActions {
   confirmMemory(id: TLShapeId, chatId: string, entryId: string): void;
 
   connect(ids?: TLShapeId[]): void; manualConnect(a: TLShapeId, b: TLShapeId): void;
+  /** Stops or retries the board's own check of whether two goals connect. */
+  stopLink(key: string): void; retryLink(a: string, b: string): void;
   retry(id: string): void; stop(id: string): void;
   updateGoal(id: TLShapeId, goal: string): void;
   complete(id: TLShapeId, reflection: string): void;

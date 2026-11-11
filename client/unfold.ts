@@ -2,7 +2,8 @@ import { isEmpty, isNotEmpty } from '../shared/arrays'
 import { createShapeId, Editor, type TLBinding, type TLShape, type TLShapeId } from 'tldraw'
 import { toast } from 'sonner'
 import { showUndo } from './components/undo-toast'
-import { type Chat, type ChatMemory, type ChatMessage, type Handoff, NodeSchema, type UnfoldNode, memoryKey, revisionsMatch } from '../shared/schema'
+import { type AgentResult, type Chat, type ChatMemory, type ChatMessage, type Handoff, type LinkScan, NodeSchema, type UnfoldNode, memoryKey, revisionsMatch } from '../shared/schema'
+import { LINK_DELAY_MS, lastScan, pairChat, pairIsSettled, pairKey, pairOwner, pairSignature, pairsToScan } from '../shared/links'
 import { invalidatedBy } from '../shared/context'
 import { branchFrom } from '../shared/branch'
 import { canPublish, chatContext, contextThreads, currentRevisions, decisionOf, foldLegacyMessages, lineage, memoryDependencies, nodeTitle } from '../shared/chats'
@@ -71,6 +72,16 @@ async function rasterize(file: File): Promise<File> {
   } finally { URL.revokeObjectURL(url) }
 }
 
+/** One line for the activity log about what a finished request left for the user. */
+function resultNote(result: AgentResult) {
+  switch (result.proposal.kind) {
+    case 'question': return result.proposal.conflict ? 'A condition blocks the shared idea; your decision is waiting in the chat.' : 'Agents paused for your answer in the chat.'
+    case 'opportunity': return 'A shared proposal is waiting for your decision: accept, decline or refine.'
+    case 'none': return `No useful overlap: ${result.proposal.reason}`
+    case 'action': case 'research': return 'Reply ready in your chat. Add an outcome to the canvas when it feels right.'
+  }
+}
+
 export function setupUnfold(editor: Editor) {
   const running = new Map<string, { requestId: string; controller: AbortController; sourceId: TLShapeId; lastMessageId: string | undefined; dependencies: UnfoldNode['dependsOn'] }>()
   const retries = new Map<string, () => void>()
@@ -122,19 +133,32 @@ export function setupUnfold(editor: Editor) {
     const shared = nodes(editor).find(shape => shape.props.node.type === 'opportunity' && shape.props.node.branchId === node.branchId)?.props.node
     return shared?.type === 'opportunity' ? shared.sourceBranchIds : [node.branchId]
   }
+  /** A shared conversation reads each source's latest exploration, up to its latest message. */
+  /** The card with this id, when it is still on the board. */
+  const cardId = (id: string) => nodes(editor).find(shape => shape.id === id)?.id
+  const connectContext = (sourceIds: string[]) => sourceIds.flatMap(sourceId => {
+    const card = cardId(sourceId)
+    const previous = (card ? nodeAt(editor, card) : undefined)?.props.node.chats?.filter(chat => chat.operation !== 'connect').at(-1)
+    const lastMessage = previous?.messages.at(-1)
+    return previous ? [{ nodeId: sourceId, chatId: previous.id, ...(lastMessage ? { messageId: lastMessage.id } : {}) }] : []
+  })
   const createChat = (id: TLShapeId, sourceIds: TLShapeId[] = [id], branchIds = sourceBranches(id), operation: Chat['operation'] = 'branch') => {
     const node = nodeAt(editor, id)?.props.node
     if (!node || isEmpty(branchIds)) return
-    const contextChats = operation === 'connect' ? sourceIds.flatMap(sourceId => {
-      const previous = nodeAt(editor, sourceId)?.props.node.chats?.filter(chat => chat.operation !== 'connect').at(-1)
-      const lastMessage = previous?.messages.at(-1)
-      return previous ? [{ nodeId: sourceId, chatId: previous.id, ...(lastMessage ? { messageId: lastMessage.id } : {}) }] : []
-    }) : []
+    const contextChats = operation === 'connect' ? connectContext(sourceIds) : []
     const chat: Chat = { id: crypto.randomUUID(), title: operation === 'connect' ? 'Find a shared direction' : `Exploration ${(node.chats?.length ?? 0) + 1}`, contextChats, sourceIds, branchIds, operation, messages: [], createdAt: Date.now() }
     editor.markHistoryStoppingPoint('start exploration')
     update(editor, id, node => ({ ...node, ...(node.type === 'inspiration' ? { started: true } : {}), chats: [...(node.chats ?? []), chat] }))
     activate(id, chat)
     return chat
+  }
+  /** Research briefs a conversation already ran, so the agents search differently next time. */
+  const briefsOf = (chat: Chat) => chat.messages.flatMap(message => message.role === 'assistant' ? message.searches ?? [] : []).slice(-6)
+  /** Sources the research agent verified earlier in a conversation: the basis of decisions and of proposed ideas, newest last. */
+  const sourcesOf = (chat: Chat) => {
+    const all = chat.messages.flatMap(message => message.role !== 'assistant' ? [] : message.proposal.kind === 'question' ? message.proposal.conflict?.sources ?? [] : message.proposal.kind === 'opportunity' ? message.proposal.sources ?? [] : [])
+    const latest = new Map(all.map(source => [source.url, source]))
+    return [...latest.values()].slice(-6)
   }
   const invalidate = (id: string) => {
     const affected = invalidatedBy(records(), id)
@@ -193,15 +217,21 @@ export function setupUnfold(editor: Editor) {
         }
       }
       const selectedContext = source.props.node.type === 'inspiration' ? '' : `Build from this outcome: ${nodeTitle(source.props.node)}. ${source.props.node.type === 'action' || source.props.node.type === 'opportunity' ? source.props.node.description : ''}`
-      const latest = chat.messages.filter(message => message.role === 'user').at(-1)
+      // Only a message the agents have not answered yet guides this request.
+      const tail = chat.messages.at(-1)
+      const latest = tail?.role === 'user' ? tail : undefined
       const revised = latest?.role === 'user' && latest.stance === 'refine' ? chat.messages.find(message => message.id === latest.replyTo) : undefined
       const focus = revised?.role === 'assistant' && revised.proposal.kind === 'opportunity' && latest?.role === 'user' ? { kind: 'refine' as const, title: revised.proposal.title, description: revised.proposal.description.slice(0, 2000), note: latest.text } : undefined
-      const outcome = source.props.node.type === 'action' || source.props.node.type === 'opportunity' ? { title: source.props.node.title.slice(0, 200), description: source.props.node.description.slice(0, 2000) } : undefined
-      const result = await requestAgent({ requestId, operation: chat.operation, branches, image, note: [selectedContext, latest?.role === 'user' ? latest.text : ''].filter(Boolean).join('\n').slice(0, 2000), ...(focus ? { focus } : {}), ...(outcome ? { outcome } : {}) }, controller.signal, event => {
+      const sourceNode = source.props.node
+      const outcome = sourceNode.type === 'action' || sourceNode.type === 'opportunity' ? { title: sourceNode.title.slice(0, 200), description: sourceNode.description.slice(0, 2000), ...(sourceNode.type === 'opportunity' && sourceNode.sources && isNotEmpty(sourceNode.sources) ? { sources: sourceNode.sources } : {}) } : undefined
+      const priorBriefs = briefsOf(chat)
+      const priorSources = chat.operation === 'connect' ? sourcesOf(chat) : []
+      if (chat.operation === 'connect') { const [a, b] = chat.branchIds; if (a && b) stopLinkJob(pairKey(a, b)) }
+      const result = await requestAgent({ requestId, operation: chat.operation, branches, image, note: [selectedContext, latest?.role === 'user' ? latest.text : ''].filter(Boolean).join('\n').slice(0, 2000), ...(focus ? { focus } : {}), ...(outcome ? { outcome } : {}), ...(chat.operation === 'connect' ? { trigger: 'manual' as const } : {}), ...(isNotEmpty(priorBriefs) ? { priorBriefs } : {}), ...(isNotEmpty(priorSources) ? { priorSources } : {}) }, controller.signal, event => {
         if (running.get(chatId)?.requestId !== requestId) return
         if (event.type === 'activity') { activity(event.role, event.message); return }
         activity(event.handoff.from, event.handoff.summary, event.handoff)
-        uiState.update(editor, state => { const job = state.jobs[chatId]; return job ? { ...state, jobs: { ...state.jobs, [chatId]: { ...job, handoffs: [...(job.handoffs ?? []), event.handoff].slice(-4) } } } : state })
+        uiState.update(editor, state => { const job = state.jobs[chatId]; return job ? { ...state, jobs: { ...state.jobs, [chatId]: { ...job, handoffs: [...(job.handoffs ?? []), event.handoff].slice(-24) } } } : state })
       })
       if (controller.signal.aborted || running.get(chatId)?.requestId !== requestId || !chatAt(sourceId, chatId) || !revisionsMatch(dependencies, revisions())) return
       running.delete(chatId)
@@ -216,18 +246,123 @@ export function setupUnfold(editor: Editor) {
       const memory = applyAgentMemory(chatMemory(current), result.memory, userMessageIds, knownEntryIds, messageId, Date.now(), () => `${messageId}:${index++}`)
       const ownKey = memoryKey(chatId)
       const finalDependencies = dependencies.map(dependency => dependency.id === ownKey ? { ...dependency, revision: memory.revision } : dependency)
-      editChat(sourceId, chatId, thread => ({ ...thread, messages: [...thread.messages, { id: messageId, role: 'assistant', proposal: result.proposal, dependsOn: finalDependencies, ...(isNotEmpty(result.handoffs) ? { trace: result.handoffs } : {}), ...(focus && revised ? { revises: revised.id } : {}) }] }))
+      editChat(sourceId, chatId, thread => ({ ...thread, messages: [...thread.messages, { id: messageId, role: 'assistant', proposal: result.proposal, dependsOn: finalDependencies, ...(isNotEmpty(result.handoffs) ? { trace: result.handoffs } : {}), ...(isNotEmpty(result.searches) ? { searches: result.searches } : {}), ...(focus && revised ? { revises: revised.id } : {}) }] }))
       if (memory !== chatMemory(current)) saveMemory(sourceId, chatId, memory)
       if (result.mode !== uiState.get(editor).mode) {
         uiState.update(editor, state => ({ ...state, mode: result.mode }))
         getAgentConfig().then(config => uiState.update(editor, state => ({ ...state, ...config }))).catch(() => {})
       }
       clearJob(chatId)
-      activity('coordinator', result.proposal.kind === 'question' ? 'Agents paused for your answer in the chat.' : result.proposal.kind === 'opportunity' ? 'A shared proposal is waiting for your decision: accept, decline or refine.' : 'Reply ready in your chat. Add an outcome to the canvas when it feels right.')
+      activity('coordinator', resultNote(result))
     } catch (error) {
       if (!controller.signal.aborted && running.get(chatId)?.requestId === requestId) uiState.update(editor, state => ({ ...state, jobs: { ...state.jobs, [chatId]: { status: 'error', message: error instanceof Error ? error.message : 'Something went wrong. Please retry.' } } }))
     } finally {
       if (running.get(chatId)?.requestId === requestId) { if (uiState.get(editor).jobs[chatId]?.status === 'running') clearJob(chatId); running.delete(chatId) }
+    }
+  }
+  // —— Noticing links between goals ——
+  // Only the user's own actions in a branch schedule a check: messages, goal edits and memory changes.
+  // Card moves, typing and the app's own writes never do. Checks wait for a quiet moment, compare a
+  // signature of what each branch confirmed, skip pairs already checked or waiting on the user, and run
+  // one pair at a time. A late result whose sources or conditions changed is set aside.
+  const linkJobs = new Map<string, { requestId: string; controller: AbortController; dependencies: UnfoldNode['dependsOn']; a: string; b: string }>()
+  const pendingBranches = new Set<string>()
+  const linkQueue: { a: string; b: string }[] = []
+  let linkTimer: ReturnType<typeof setTimeout> | undefined
+  let scanning = false
+  let disposed = false
+  const linkJobKey = (key: string) => `link:${key}`
+  const stopLinkJob = (key: string) => { linkJobs.get(key)?.controller.abort(); linkJobs.delete(key); clearJob(linkJobKey(key)) }
+  const noteActivity = (branchIds: string[]) => {
+    if (disposed) return
+    for (const id of branchIds) pendingBranches.add(id)
+    clearTimeout(linkTimer)
+    linkTimer = setTimeout(flushLinks, LINK_DELAY_MS)
+  }
+  const flushLinks = () => {
+    if (disposed) return
+    // A branch whose own agents are still replying may still change what it knows: wait for them.
+    const replying = [...running.entries()].some(([chatId, job]) => chatAt(job.sourceId, chatId)?.branchIds.some(id => pendingBranches.has(id)))
+    if (replying) { linkTimer = setTimeout(flushLinks, LINK_DELAY_MS); return }
+    const changed = [...pendingBranches]; pendingBranches.clear()
+    const queued = new Set([...linkJobs.keys(), ...linkQueue.map(pair => pairKey(pair.a, pair.b))])
+    for (const pair of pairsToScan(records(), changed)) if (!queued.has(pairKey(pair.a, pair.b))) linkQueue.push({ a: pair.a, b: pair.b })
+    linkQueue.splice(0, Math.max(0, linkQueue.length - 4))
+    launch(pumpLinks())
+  }
+  const pumpLinks = async () => {
+    if (scanning) return
+    scanning = true
+    try { for (let next = linkQueue.shift(); next && !disposed; next = linkQueue.shift()) await scanPair(next.a, next.b) } finally { scanning = false }
+  }
+  /** Keeps the outcome of the latest check of a pair, so it is not repeated after a reload. */
+  const recordScan = (a: string, b: string, scan: Omit<LinkScan, 'otherId' | 'at'>) => {
+    const owner = cardId(pairOwner(a, b))
+    if (!owner) return
+    const otherId = owner === a ? b : a
+    update(editor, owner, node => node.type === 'inspiration' ? { ...node, links: [...(node.links ?? []).filter(item => item.otherId !== otherId), { ...scan, otherId, at: Date.now() }].slice(-40) } : node)
+  }
+  const goalOf = (id: string) => { const card = cardId(id); const node = card ? nodeAt(editor, card)?.props.node : undefined; return node ? nodeTitle(node) : 'a goal' }
+  const scanPair = async (a: string, b: string, force = false) => {
+    const all = records()
+    const signature = pairSignature(all, a, b)
+    if (!signature || (!force && lastScan(all, a, b)?.signature === signature)) return
+    const existing = pairChat(all, a, b)
+    if (pairIsSettled(existing?.chat) || (existing && running.has(existing.chat.id))) return
+    const key = pairKey(a, b)
+    const ownerId = cardId(existing?.nodeId ?? pairOwner(a, b))
+    if (!ownerId) return
+    const branchIds = existing?.chat.branchIds ?? [ownerId, ownerId === a ? b : a]
+    const chat: Chat = existing ? { ...existing.chat, contextChats: connectContext(existing.chat.sourceIds) } : { id: crypto.randomUUID(), title: 'Shared direction', contextChats: connectContext(branchIds), sourceIds: branchIds, branchIds, operation: 'connect', messages: [], createdAt: Date.now() }
+    const ownKey = memoryKey(chat.id)
+    const dependencies = [...branchIds.flatMap(id => { const record = all.find(item => item.id === id); return record ? [{ id, revision: record.node.revision }] : [] }), ...memoryDependencies(all, ownerId, chat).filter(dependency => existing || dependency.id !== ownKey)]
+    const controller = new AbortController(); const requestId = crypto.randomUUID()
+    stopLinkJob(key)
+    linkJobs.set(key, { requestId, controller, dependencies, a, b })
+    uiState.update(editor, state => ({ ...state, jobs: { ...state.jobs, [linkJobKey(key)]: { status: 'running', message: 'Checking whether these goals connect…', handoffs: [] } } }))
+    const current = () => !disposed && !controller.signal.aborted && linkJobs.get(key)?.requestId === requestId
+    try {
+      const branches = branchIds.map(branchId => chatContext(all, ownerId, chat, branchId))
+      const priorBriefs = existing ? briefsOf(existing.chat) : []
+      const priorSources = existing ? sourcesOf(existing.chat) : []
+      const result = await requestAgent({ requestId, operation: 'connect', branches, note: '', trigger: 'auto', ...(isNotEmpty(priorBriefs) ? { priorBriefs } : {}), ...(isNotEmpty(priorSources) ? { priorSources } : {}) }, controller.signal, event => {
+        if (!current()) return
+        if (event.type === 'activity') { activity(event.role, event.message); return }
+        activity(event.handoff.from, event.handoff.summary, event.handoff)
+        uiState.update(editor, state => { const job = state.jobs[linkJobKey(key)]; return job ? { ...state, jobs: { ...state.jobs, [linkJobKey(key)]: { ...job, handoffs: [...(job.handoffs ?? []), event.handoff].slice(-24) } } } : state })
+      })
+      if (!current()) return
+      const now = records()
+      // Late results never apply to changed conditions, a removed goal or a conversation the user has since started.
+      if (pairSignature(now, a, b) !== signature || !revisionsMatch(dependencies, currentRevisions(now))) return
+      const latest = pairChat(now, a, b)
+      if (pairIsSettled(latest?.chat) || (latest && running.has(latest.chat.id)) || (latest && latest.chat.id !== chat.id)) return
+      if (result.proposal.kind === 'none') {
+        const reason = result.proposal.reason
+        editor.run(() => recordScan(a, b, { signature, status: 'none', reason }), { history: 'ignore' })
+        activity('coordinator', `Checked “${goalOf(a)}” and “${goalOf(b)}”: no useful overlap yet, so nothing was suggested.`)
+        return
+      }
+      const messageId = crypto.randomUUID()
+      const message: ChatMessage = { id: messageId, role: 'assistant', proposal: result.proposal, dependsOn: [...dependencies.filter(dependency => dependency.id !== ownKey), { id: ownKey, revision: chatMemory(latest?.chat ?? chat).revision }], ...(isNotEmpty(result.handoffs) ? { trace: result.handoffs } : {}), ...(isNotEmpty(result.searches) ? { searches: result.searches } : {}) }
+      editor.run(() => {
+        if (latest) editChat(ownerId, chat.id, thread => ({ ...thread, contextChats: chat.contextChats ?? [], messages: [...thread.messages, message] }))
+        else update(editor, ownerId, node => ({ ...node, chats: [...(node.chats ?? []), { ...chat, messages: [message] }] }))
+        recordScan(a, b, { signature, status: 'found', reason: result.proposal.kind === 'opportunity' ? result.proposal.title : result.proposal.kind === 'question' ? result.proposal.prompt : '', chatId: chat.id })
+      }, { history: 'ignore' })
+      activity('coordinator', `Noticed a link between “${goalOf(a)}” and “${goalOf(b)}”. ${resultNote(result)}`)
+      // A short notice only while nothing else is open; the cards' link entry stays either way.
+      if (!uiState.get(editor).activeChat) toast(result.proposal.kind === 'question' ? 'Your two goals may connect — the agents need your decision' : 'Your two goals may connect', { description: `${goalOf(a)} + ${goalOf(b)}`, action: { label: 'Open', onClick: () => api.openChat(ownerId, chat.id) } })
+    } catch (error) {
+      if (!current()) return
+      // A technical failure is not a finding: it is kept (so Retry survives a reload) and never reads as “no overlap”.
+      const message = error instanceof Error ? error.message : 'The link check could not finish. Please retry.'
+      uiState.update(editor, state => ({ ...state, jobs: { ...state.jobs, [linkJobKey(key)]: { status: 'error', message } } }))
+      if (pairSignature(records(), a, b) === signature) editor.run(() => recordScan(a, b, { signature, status: 'error', reason: message.slice(0, 400) }), { history: 'ignore' })
+      activity('coordinator', `Paused checking “${goalOf(a)}” and “${goalOf(b)}”: ${message}`)
+      toast.error('The agents could not finish checking a link', { description: message, action: { label: 'Retry', onClick: () => api.retryLink(a, b) } })
+    } finally {
+      if (linkJobs.get(key)?.requestId === requestId) { linkJobs.delete(key); if (uiState.get(editor).jobs[linkJobKey(key)]?.status === 'running') clearJob(linkJobKey(key)) }
     }
   }
   const api: UnfoldActions = {
@@ -256,6 +391,7 @@ export function setupUnfold(editor: Editor) {
       editChat(id, chatId, current => ({ ...current, messages: [...current.messages, message] }))
       saveMemory(id, chatId, memory)
       launch(run(id, chatId))
+      if (chat.operation !== 'connect') noteActivity(chat.branchIds)
     },
     decide(id, chatId, messageId, decision, note = '') {
       const chat = chatAt(id, chatId)
@@ -303,7 +439,7 @@ export function setupUnfold(editor: Editor) {
       if (!revisionsMatch(message.dependsOn, revisions())) { notice('Your conditions or sources changed since this was proposed. Ask for an update before accepting it.'); return }
       const parents = chat.sourceIds.flatMap(sourceId => nodes(editor).filter(shape => shape.id === sourceId).map(shape => shape.id))
       if (parents.length !== chat.sourceIds.length) { notice('A source was removed. Start a new exploration from an existing node.'); return }
-      const content = { title: proposal.title, description: proposal.description, benefitA: proposal.benefitA, benefitB: proposal.benefitB }
+      const content = { title: proposal.title, description: proposal.description, benefitA: proposal.benefitA, benefitB: proposal.benefitB, ...(proposal.sources && isNotEmpty(proposal.sources) ? { sources: proposal.sources } : {}) }
       editor.markHistoryStoppingPoint('accept proposal')
       editor.run(() => {
         // Reuse this conversation's existing shared card so acceptance never duplicates it.
@@ -330,6 +466,7 @@ export function setupUnfold(editor: Editor) {
       if (!chat) return
       editor.markHistoryStoppingPoint('forget memory')
       saveMemory(id, chatId, withdrawEntry(chatMemory(chat), entryId))
+      if (chat.operation !== 'connect') noteActivity(chat.branchIds)
     },
     confirmMemory(id, chatId, entryId) {
       const chat = chatAt(id, chatId)
@@ -337,6 +474,7 @@ export function setupUnfold(editor: Editor) {
       let index = 0
       editor.markHistoryStoppingPoint('confirm memory')
       saveMemory(id, chatId, confirmAssumption(chatMemory(chat), entryId, Date.now(), () => `${entryId}:confirmed:${index++}`))
+      if (chat.operation !== 'connect') noteActivity(chat.branchIds)
     },
     publish(id, chatId, messageId) {
       const chat = chatAt(id, chatId)
@@ -376,15 +514,34 @@ export function setupUnfold(editor: Editor) {
       if (!first || !second || first.props.node.branchId === second.props.node.branchId) { notice('Select a node from each of two inspirations to find a shared direction.'); return }
       const branchIds = [first.props.node.branchId, second.props.node.branchId]
       if (branchIds.some(id => !records().some(record => record.id === id && record.node.type === 'inspiration'))) { notice('Choose two original inspiration branches.'); return }
-      const existing = first.props.node.chats?.find(chat => chat.operation === 'connect' && chat.sourceIds.includes(second.id) && chat.sourceIds.includes(first.id))
-      if (existing) { activate(first.id, existing); return }
+      // One shared conversation per pair of goals, whether the board noticed the link or the user asked.
+      const [branchA = '', branchB = ''] = branchIds
+      const existing = pairChat(records(), branchA, branchB)
+      stopLinkJob(pairKey(branchA, branchB))
+      // Connecting by hand supersedes a paused automatic check; the shared conversation shows its own state from here.
+      if (lastScan(records(), branchA, branchB)?.status === 'error') editor.run(() => { const owner = cardId(pairOwner(branchA, branchB)); if (owner) update(editor, owner, node => node.type === 'inspiration' ? { ...node, links: (node.links ?? []).filter(scan => !(scan.status === 'error' && [branchA, branchB].includes(scan.otherId))) } : node) }, { history: 'ignore' })
+      if (existing) {
+        const owner = cardId(existing.nodeId)
+        if (!owner) return
+        activate(owner, existing.chat)
+        if (!pairIsSettled(existing.chat) && !running.has(existing.chat.id)) launch(run(owner, existing.chat.id))
+        return
+      }
       const chat = createChat(first.id, [first.id, second.id], branchIds, 'connect')
       if (chat) launch(run(first.id, chat.id))
     },
     manualConnect(a, b) { api.connect([a, b]) },
-    retry(id) { retries.get(id)?.() },
+    stopLink(key) { stopLinkJob(key); activity('coordinator', 'Stopped checking this link. It will be checked again after your next change.') },
+    retryLink(a, b) { clearJob(linkJobKey(pairKey(a, b))); launch(scanPair(a, b, true)) },
+    retry(id) {
+      const again = retries.get(id)
+      if (again) { again(); return }
+      // After a reload the request is gone; retry the conversation from where it is saved.
+      const owner = nodes(editor).find(shape => shape.props.node.chats?.some(chat => chat.id === id))
+      if (owner) launch(run(owner.id, id))
+    },
     stop(id) { cancel(id); activity('coordinator', 'Stopped. Your conversation is saved; continue whenever you like.') },
-    updateGoal(id, goal) { if (!goal.trim()) return; editor.markHistoryStoppingPoint('edit goal'); invalidate(id); update(editor, id, node => node.type === 'inspiration' ? { ...node, goal: goal.trim(), revision: node.revision + 1 } : node); notice('Goal updated. Earlier outcomes may need a fresh look.') },
+    updateGoal(id, goal) { if (!goal.trim()) return; editor.markHistoryStoppingPoint('edit goal'); invalidate(id); update(editor, id, node => node.type === 'inspiration' ? { ...node, goal: goal.trim(), revision: node.revision + 1 } : node); notice('Goal updated. Earlier outcomes may need a fresh look.'); noteActivity([id]) },
     toggleStep(id, index) {
       update(editor, id, node => {
         if (node.type !== 'action') return node
@@ -406,6 +563,7 @@ export function setupUnfold(editor: Editor) {
       if (isEmpty(removed)) return
       const gone = new Set<string>(removed)
       for (const [jobId, job] of running) if (gone.has(job.sourceId)) cancel(jobId)
+      for (const [key, job] of linkJobs) if (gone.has(job.a) || gone.has(job.b)) stopLinkJob(key)
       const open = uiState.get(editor).activeChat
       if (open && gone.has(open.nodeId)) api.closeChat()
       const lines = editor.getCurrentPageShapes().filter(shape => {
@@ -483,9 +641,12 @@ export function setupUnfold(editor: Editor) {
       if (!chatAt(job.sourceId, id) || chatAt(job.sourceId, id)?.messages.at(-1)?.id !== job.lastMessageId) cancel(id)
       else if (!revisionsMatch(job.dependencies, current)) cancelOutdated(id)
     }
+    // A check whose goals or conditions changed is set aside and looked at again with the new state.
+    for (const [key, job] of linkJobs) if (!revisionsMatch(job.dependencies, current)) { stopLinkJob(key); activity('coordinator', 'Conditions changed while the agents checked a link; checking again with the latest.'); noteActivity([job.a, job.b]) }
     const active = uiState.get(editor).activeChat
     if (active && !chatAt(active.nodeId, active.chatId)) api.closeChat()
 
   }, { scope: 'document' })
-  return () => { for (const [id] of running) cancel(id); unlisten(); actions.delete(editor) }
+  // Switching boards or workspaces tears this down: nothing scheduled or running may write into the next board.
+  return () => { disposed = true; clearTimeout(linkTimer); linkQueue.length = 0; for (const [key] of linkJobs) stopLinkJob(key); for (const [id] of running) cancel(id); unlisten(); actions.delete(editor) }
 }

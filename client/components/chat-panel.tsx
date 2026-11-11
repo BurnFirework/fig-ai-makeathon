@@ -5,12 +5,13 @@ import { ArrowRight, Check, ChevronDown, ExternalLink, HelpCircle, LayoutPanelLe
 import { canPublish, currentRevisions, decisionOf, nodeTitle } from '../../shared/chats'
 import { chatMemory } from '../../shared/memory'
 import type { NodeShape } from '../nodes/NodeShapeUtil'
-import { type Chat, type ChatMessage, type Handoff, revisionsMatch } from '../../shared/schema'
+import { type Chat, type ChatMessage, type Conflict, type Handoff, revisionsMatch } from '../../shared/schema'
 import { actions, uiState } from '../actions'
 import { fitBoard, nodeAt, nodes } from '../unfold'
 import { Button } from './ui/button'
 import { Textarea } from './ui/textarea'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu'
+import { CollaborationStatus } from './collaboration'
 
 export function ChatPanel() {
   const editor = useEditor()
@@ -59,12 +60,14 @@ function Conversation({ sourceId, title, chat, chats }: { sourceId: TLShapeId; t
       <Button variant="ghost" size="icon-sm" title="Start a separate exploration" aria-label="New conversation" onClick={() => api?.newChat(sourceId)}><Plus size={16}/></Button>
     </div>
     {sources.length > 1 && <div className="chat-source-row"><Link2 size={13}/><span>Bringing together</span>{sources.map(source => <button key={source.id} title={nodeTitle(source.props.node)} onClick={() => { uiState.update(editor, state => ({ ...state, chatView: 'board' })); editor.select(source.id); fitBoard(editor) }}>{nodeTitle(source.props.node)}</button>)}</div>}
+    {chat.operation === 'connect' && <CollaborationStatus live={busy} handoffs={busy ? job.handoffs ?? [] : lastAssistant?.role === 'assistant' ? lastAssistant.trace ?? [] : []}/>}
     <div className="chat-messages" role="log" aria-label="Conversation messages" tabIndex={0}>
       {isEmpty(chat.messages) && !busy && <div className="chat-welcome"><MessageCircle size={26}/><h3>Where could this take you?</h3><p>Try an idea, ask a question, or tell us what caught your eye.</p></div>}
       {foldTurns(chat.messages).map(item => item.kind === 'turn'
         ? <FoldedTurn key={item.question.id} question={item.question} answer={item.answer} chat={chat}/>
         : <Message key={item.message.id} message={item.message} chat={chat} sourceId={sourceId} isLatest={item.message.id === lastAssistant?.id} busy={busy} stale={item.message.role === 'assistant' && !revisionsMatch(item.message.dependsOn, revisions)} onChoice={text => send(text)} onOwnAnswer={() => composer.current?.focus()}/>)}
       {job && <div className={`chat-job ${job.status}`} role="status">{busy ? <LoaderCircle size={15} className="spin"/> : <RotateCcw size={15}/>}<span>{busy && job.handoffs && isNotEmpty(job.handoffs) ? handoffStatus(job.handoffs.at(-1)) : job.message}</span><Button variant="ghost" size="icon-sm" aria-label={busy ? 'Stop request' : 'Retry request'} onClick={() => busy ? api?.stop(chat.id) : api?.retry(chat.id)}>{busy ? <Square size={13}/> : <RotateCcw size={14}/>}</Button></div>}
+      {!job && chat.messages.at(-1)?.role === 'user' && <div className="chat-job error" role="status"><RotateCcw size={15}/><span>The agents have not answered your last message. Retry to continue from here.</span><Button variant="ghost" size="icon-sm" aria-label="Retry request" onClick={() => api?.retry(chat.id)}><RotateCcw size={14}/></Button></div>}
       {busy && job.handoffs && job.handoffs.length > 1 && <details className="agent-trace live"><summary>All agent steps so far · {job.handoffs.length}</summary><ol aria-label="What the agents are doing">{job.handoffs.map((handoff, index) => <HandoffLine key={index} handoff={handoff}/>)}</ol></details>}
       <div ref={bottom}/>
     </div>
@@ -110,7 +113,7 @@ function FoldedTurn({ question, answer, chat }: { question: Extract<ChatMessage,
       <span className="folded-question">{prompt}</span>
       <span id={`message-${answer.id}`} className="folded-answer" title={answer.text}><Check size={10} strokeWidth={3}/><span>{answer.text}</span></span>
     </button>
-    {open && <div className="folded-detail">{purpose && <small className="message-purpose">{purpose}</small>}<UserNotes message={answer} chat={chat}/></div>}
+    {open && <div className="folded-detail">{question.proposal.kind === 'question' && question.proposal.conflict && <ConflictDetails conflict={question.proposal.conflict}/>}{purpose && <small className="message-purpose">{purpose}</small>}<UserNotes message={answer} chat={chat}/></div>}
   </div>
 }
 
@@ -151,15 +154,19 @@ function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice, onO
     {proposal.kind === 'question' && (isLatest && !stale ? <div className="question-card">
       <span className="your-turn">Your turn</span>
       <h3>{proposal.prompt}</h3>
+      {proposal.conflict && <ConflictDetails conflict={proposal.conflict}/>}
       {proposal.purpose && <button type="button" className="why-toggle" aria-expanded={why} onClick={() => setWhy(value => !value)}><HelpCircle size={12}/>Why this question?</button>}
       {why && <small className="message-purpose">{proposal.purpose}</small>}
-      <div className="chat-choices" role="group" aria-label="Answers">{proposal.options.map((option, index) => <button key={option} type="button" className="choice" disabled={busy} onClick={() => onChoice(option)}><kbd>{index + 1}</kbd><span>{option}</span><ArrowRight size={13}/></button>)}
+      <div className="chat-choices" role="group" aria-label="Answers">{proposal.options.map((option, index) => { const effect = proposal.conflict?.effects[index]; return <button key={option} type="button" className={`choice ${effect ? 'has-effect' : ''}`} disabled={busy} onClick={() => onChoice(option)}><kbd>{index + 1}</kbd><span>{option}{effect && <small className="choice-effect">{effect}</small>}</span><ArrowRight size={13}/></button> })}
         <button type="button" className="choice own" disabled={busy} onClick={onOwnAnswer}><Pencil size={12}/><span>Something else…</span></button></div>
-    </div> : <><p>{proposal.prompt}</p>{proposal.purpose && <small className="message-purpose">{proposal.purpose}</small>}</>)}
+    </div> : <><p>{proposal.prompt}</p>{proposal.conflict && <ConflictDetails conflict={proposal.conflict}/>}{proposal.purpose && <small className="message-purpose">{proposal.purpose}</small>}</>)}
     {proposal.kind === 'research' && <p>{proposal.brief}</p>}
+    {proposal.kind === 'none' && <div className="chat-none"><div className="outcome-label">No useful overlap</div><p>{proposal.reason}</p><small className="message-purpose">Nothing was added. Agents look again when either goal changes.</small></div>}
     {(proposal.kind === 'opportunity' || proposal.kind === 'action') && <div className={`chat-outcome ${decision ? `decision-${decision}` : ''}`}><div className="outcome-label">{proposal.kind === 'opportunity' ? (revisedFrom ? 'Shared direction · revised' : 'Shared direction') : 'Next step'}</div><h3>{proposal.title}</h3>
       {proposal.kind === 'action' ? <ActionSummary action={proposal}/> : <p>{proposal.description}</p>}
       {proposal.kind === 'opportunity' && <div className="outcome-benefits"><p>{proposal.benefitA}</p><p>{proposal.benefitB}</p></div>}
+      {proposal.kind === 'opportunity' && proposal.openPoints && isNotEmpty(proposal.openPoints) && <ul className="open-points" aria-label="Still open">{proposal.openPoints.map(point => <li key={point}>{point}</li>)}</ul>}
+      {proposal.kind === 'opportunity' && proposal.sources && isNotEmpty(proposal.sources) && <div className="source-chips">{proposal.sources.map(source => <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer" title={source.title}>{domainOf(source.url)}<ExternalLink size={11}/></a>)}</div>}
       {stale && decision === undefined && <div className="outcome-stale" role="note">Your conditions or sources changed since this was proposed. Continue the chat for an updated version.</div>}
       {proposal.kind === 'action' && (canPublish(message) ? <Button size="sm" disabled={stale} onClick={() => api?.publish(sourceId, chatId, message.id)}><Plus size={14}/> Add to canvas</Button> : outcome ? <Button variant="outline" size="sm" onClick={viewCard}><Check size={14}/> View on canvas</Button> : <span className="outcome-removed">Outcome removed from canvas</span>)}
       {proposal.kind === 'opportunity' && <div className="decision-area">
@@ -179,6 +186,15 @@ function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice, onO
           <div className="decision-actions"><Button size="sm" disabled={busy || (composing === 'refine' && !note.trim())} onClick={submit}>{composing === 'refine' ? 'Ask for a revision' : 'Decline'}</Button><Button variant="ghost" size="sm" onClick={() => { setComposing(null); setNote('') }}>Cancel</Button></div></div>}
       </div>}
     </div>}
+  </div>
+}
+
+/** What blocks a shared idea and what the agents based that on; the effects sit on the answer buttons. */
+function ConflictDetails({ conflict }: { conflict: Conflict }) {
+  return <div className="conflict-details">
+    <div className="conflict-condition"><span>Blocked by</span><strong>{conflict.condition}</strong></div>
+    {conflict.basis && <p>{conflict.basis}</p>}
+    {isNotEmpty(conflict.sources) && <div className="source-chips">{conflict.sources.map(source => <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer" title={source.title}>{domainOf(source.url)}<ExternalLink size={11}/></a>)}</div>}
   </div>
 }
 

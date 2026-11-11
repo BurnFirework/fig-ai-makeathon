@@ -42,7 +42,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   if (request.method === 'POST' && pathname === '/api/agent') {
     const controller = new AbortController()
     response.on('close', () => controller.abort())
-    const timeout = setTimeout(() => controller.abort(), 270_000)
+    const timeout = setTimeout(() => controller.abort(), 500_000)
     try {
       const chunks: Buffer[] = []; let size = 0
       for await (const bytes of requestBytes(request)) {

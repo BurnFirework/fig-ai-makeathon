@@ -18,6 +18,24 @@ const wait = (signal: AbortSignal, ms: number) => new Promise<void>((resolve, re
 })
 const conditionsOf = (branches: BranchContext[]) => [...new Set(branches.flatMap(branch => branch.memory.filter(item => item.kind === 'constraint').map(item => item.text)))]
 const lower = (text: string) => text.toLowerCase()
+/** The example price preview research reports, so a low budget shows a real conflict. */
+const PREVIEW_PRICE = 45
+const priceIn = (text: string) => { const match = /\$\s?(\d+)/.exec(text); return match?.[1] ? Number(match[1]) : undefined }
+/** The price of the option research added to a candidate, never a budget the description repeats. */
+const optionPrice = (description: string) => priceIn(description.split('Example option:')[1] ?? '')
+const STOP = new Set(['what', 'draws', 'would', 'like', 'yourself', 'want', 'that', 'this', 'with', 'from', 'have', 'just', 'some', 'something', 'about', 'more', 'really', 'maybe', 'make', 'first', 'step', 'toward', 'feel', 'manageable', 'explore', 'exploring', 'there', 'their', 'your', 'yes', 'try', 'trying'])
+const words = (branch: BranchContext) => new Set([branch.goal, ...branch.memory.filter(item => item.kind !== 'assumption' && item.kind !== 'declined').map(item => item.text.split(' — ').at(-1) ?? item.text)].join(' ').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(word => word.length >= 4 && !STOP.has(word)))
+/** Preview overlap: a shared kind of condition (time, place, company) or a shared word. */
+function overlapOf(a: BranchContext, b: BranchContext): string | undefined {
+  const keys = (branch: BranchContext) => new Set(branch.memory.flatMap(item => item.kind === 'constraint' && item.key && ['time', 'place', 'group'].includes(item.key) ? [item.key] : []))
+  const key = [...keys(a)].find(item => keys(b).has(item))
+  if (key) return key === 'time' ? 'the same time' : key === 'place' ? 'the same area' : 'the same company'
+  const word = [...words(a)].find(item => words(b).has(item))
+  return word ? `“${word}”` : undefined
+}
+function draftFor(a: BranchContext, b: BranchContext, conditions: string[], shared?: string) {
+  return { title: `${a.goal.replace(/^./, letter => letter.toUpperCase())}, together with ${lower(b.goal)}`, description: `One small session that serves both goals${shared ? `, since both mention ${shared}` : ''}.${isNotEmpty(conditions) ? ` It keeps to ${conditions.join(', ')}.` : ''} This is an example proposal; availability has not been checked.`, benefitA: `Try ${lower(a.goal)} without a big commitment.`, benefitB: `Make room for ${lower(b.goal)} at the same time.` }
+}
 
 /** Deterministic preview agents. They follow the same coordinator and task types, without a model or web search. */
 export function demoRuntime(delay = 250): AgentRuntime {
@@ -31,10 +49,14 @@ export function demoRuntime(delay = 250): AgentRuntime {
       const followUp = input.outcome ? `How did “${input.outcome.title}” go — what would you like next?` : undefined
       if (input.outcome && input.evidence?.status === 'found' && input.allowed.includes('propose')) {
         const source = input.evidence.sources[0]
+        // An accepted shared direction gets its first step; a finished step gets what comes next.
+        if (input.operation === 'research') return { next: 'propose', action: { title: `Start “${input.outcome.title}”`, summary: 'Pick one date from the linked page and save it.', steps: ['Open the linked page', isNotEmpty(conditions) ? `Check it against ${conditions.slice(0, 2).join(' and ')}` : 'Check the date and price', 'Save one date that fits'], description: 'Example step: no live search was performed in preview mode.', sources: source ? [source] : [] } }
         const answer = first.answers.at(-1)?.answer ?? ''
         return { next: 'propose', action: { title: `Next after “${input.outcome.title}”`, description: `Example follow-up that builds on what you have: ${answer ? `you said “${answer}”, so ` : ''}use the linked directory to pick one session that goes a step further${isNotEmpty(conditions) ? `, checking it against ${conditions.join(', ')}` : ''}. No live search was performed in preview mode.`, sources: source ? [source] : [] } }
       }
-      if (input.outcome && followUp && !input.evidence) {
+      // An accepted shared direction asks for a real first step, not for how it went.
+      if (input.operation === 'research' && input.outcome && !input.evidence) return { next: 'research', brief: `A first step for “${input.outcome.title}”`, mustMatch: conditions.slice(0, 6) }
+      if (input.outcome && followUp && !input.evidence && input.operation !== 'research') {
         if (first.answers.at(-1)?.question !== followUp) return { next: 'ask', question: { prompt: followUp, options: ['I tried it — what next?', 'Not yet, something is in the way', 'Show me a different idea'], purpose: 'Agents build on this step instead of repeating it.' } }
         return { next: 'research', brief: `A next step after “${input.outcome.title}”`, mustMatch: conditions.slice(0, 6) }
       }
@@ -55,26 +77,63 @@ export function demoRuntime(delay = 250): AgentRuntime {
     },
     async research(input, signal) {
       await wait(signal, delay)
-      return { status: 'found', summary: `Example directory for: ${input.brief}`, sources: [{ id: 'example-source', title: 'Example directory · Eventbrite', url: 'https://www.eventbrite.com/d/online/classes/' }], limits: 'Preview only: price, place and availability were not checked.' }
+      // Preview research is labelled as an example: a cheaper search finds a free option, a general one a paid class.
+      const cheap = /free|low-cost|cheaper|бесплат/i.test(input.brief)
+      if (cheap) return { status: 'found', summary: `Example: a free community-run session for ${input.brief.replace(/^.*?:\s*/, '')}.`, sources: [{ id: 'example-free', title: 'Example community meetups · Meetup', url: 'https://www.meetup.com/find/' }], limits: 'Preview only: date and availability were not checked.' }
+      return { status: 'found', summary: `Example: $${PREVIEW_PRICE} per person, from a directory listing for “${input.brief.replace(/\s*within .*$/, '')}”.`, sources: [{ id: 'example-source', title: 'Example directory · Eventbrite', url: 'https://www.eventbrite.com/d/online/classes/' }], limits: 'Preview only: price, place and availability were not checked.' }
     },
     async connection(input, signal) {
       await wait(signal, delay)
       const [a, b] = input.branches
       if (!a || !b) throw new Error('Choose two different branches.')
-      if (input.phase === 'decide' && input.candidate) return { next: 'propose', opportunity: input.candidate, reason: 'Kept the parts both branches accepted.' }
-      const declined = input.branches.flatMap(branch => branch.declined.map(item => lower(item.idea)))
       const conditions = conditionsOf(input.branches)
+      const keep = /\bkeep\b|оставить|сохранить/i.test(input.note)
+      if (input.phase === 'decide') {
+        if (input.evidence?.status === 'found' && input.allowed.includes('revise')) {
+          const base = input.candidate ?? draftFor(a, b, conditions)
+          return { next: 'revise', candidate: { ...base, description: `${base.description.replace(/ Example option:.*$/, '')} Example option: ${input.evidence.summary}`, sources: input.evidence.sources.map(source => ({ title: source.title, url: source.url })) }, reason: 'Added the option the research agent found.' }
+        }
+        const conflict = input.checks?.find(check => check.fit === 'conflict')
+        if (conflict || input.evidence?.status === 'none') {
+          const budget = conditions.find(text => /budget/i.test(text))
+          const price = optionPrice(input.candidate?.description ?? '')
+          return { next: 'ask', question: { prompt: 'Keep your budget or change it?', options: price ? ['Keep my budget, search further', `Raise budget to $${price}`] : ['Keep my conditions, search further', 'Relax one condition'],
+            purpose: 'Only you can change a confirmed condition.',
+            conflict: { condition: conflict?.conflicts[0] ?? budget ?? 'A confirmed condition', basis: conflict?.reason ?? 'The example search found nothing that fits.', effects: ['Agents keep the condition and search for a free or cheaper option.', price ? `Agents use $${price} as your budget and check both goals again.` : 'Agents treat the condition as flexible and check both goals again.'] } } }
+        }
+        const verify = input.checks?.find(check => check.verify)
+        if (verify && input.allowed.includes('research') && input.candidate) {
+          const budget = conditions.find(text => /budget/i.test(text))
+          return { next: 'research', brief: keep ? `Free or low-cost: ${input.candidate.title}` : `${input.candidate.title}${budget ? ` within ${budget.replace(/^Budget:\s*/, '')}` : ''}`, mustMatch: conditions.slice(0, 6), reason: keep ? 'You kept your budget, so this search looks for free options.' : 'A real option is needed to confirm the conditions.' }
+        }
+        const missing = input.checks?.find(check => check.missing)
+        if (missing?.missing) return { next: 'ask', question: { prompt: missing.missing, options: ['I’ll answer below', 'Try a different idea'], purpose: 'A branch agent needs this to check the idea.' } }
+        if (input.candidate && input.allowed.includes('propose')) return { next: 'propose', opportunity: input.candidate, reason: 'Kept the parts both branches accepted.' }
+        return { next: 'none', reason: 'The branch checks left nothing both goals could use.' }
+      }
+      const declined = input.branches.flatMap(branch => branch.declined.map(item => lower(item.idea)))
       const fits = isNotEmpty(conditions) ? ` It keeps to ${conditions.join(', ')}.` : ''
       if (input.focus) return { next: 'check', candidate: { title: `${input.focus.title.replace(/ — revised$/, '')} — revised`, description: `A revised version that follows your comment: “${input.focus.note}”.${fits} This is an example proposal; availability has not been checked.`, benefitA: `Keeps ${lower(a.goal)} small and doable.`, benefitB: `Makes room for ${lower(b.goal)} as you asked.` } }
-      const title = declined.some(idea => idea.includes('a first experience, together')) ? 'A small shared ritual at home' : 'A first experience, together'
-      return { next: 'check', candidate: { title, description: `Explore “${a.goal}” alongside “${b.goal}” in one small, shared experience.${fits} This is an example proposal; availability has not been checked.`, benefitA: `Try ${lower(a.goal)} without a big commitment.`, benefitB: `Make room for ${lower(b.goal)} at the same time.` } }
+      const judged = input.branches.every(branch => branch.memory.some(item => item.kind === 'intent' || item.kind === 'constraint'))
+      const shared = overlapOf(a, b)
+      if (!shared && (input.trigger === 'auto' || judged)) return { next: 'none', reason: `“${a.goal}” and “${b.goal}” don’t share a time, place, company or theme yet.` }
+      if (declined.some(idea => idea.includes('a first experience, together'))) return { next: 'check', candidate: { title: 'A small shared ritual at home', description: `Explore “${a.goal}” alongside “${b.goal}” in one small, shared experience.${fits} This is an example proposal; availability has not been checked.`, benefitA: `Try ${lower(a.goal)} without a big commitment.`, benefitB: `Make room for ${lower(b.goal)} at the same time.` } }
+      const draft = draftFor(a, b, conditions, shared)
+      const refused = input.branches.flatMap(branch => branch.declined).find(item => lower(item.idea) === lower(draft.title))
+      if (refused) return { next: 'none', reason: `You declined “${refused.idea}”${refused.reason ? ` (${refused.reason})` : ''}, and nothing new connects these goals yet.` }
+      return { next: 'check', candidate: draft }
     },
     async checkFit(input, signal) {
       await wait(signal, delay)
       const conflict = input.branch.declined.find(item => lower(input.candidate.title).includes(lower(item.idea)) || lower(item.idea).includes(lower(input.candidate.title)))
       if (conflict) return { fit: 'conflict', reason: `You declined “${conflict.idea}” for this goal.`, conflicts: [conflict.reason || 'Declined earlier'] }
       const conditions = input.branch.memory.filter(item => item.kind === 'constraint').map(item => item.text)
-      return { fit: 'fits', reason: `Matches “${input.branch.goal}”${isNotEmpty(conditions) ? ` and ${conditions.join(', ')}` : ''}.`, conflicts: [] }
+      const budget = conditions.find(text => /budget/i.test(text))
+      const limit = budget ? priceIn(budget) : undefined
+      const price = optionPrice(input.candidate.description)
+      if (budget && limit !== undefined && price !== undefined && price > limit) return { fit: 'conflict', reason: `The example option costs $${price}, above this goal’s ${budget.toLowerCase()}.`, conflicts: [budget] }
+      const priced = budget && !/free/i.test(input.candidate.description.split('Example option:')[1] ?? '') && price === undefined
+      return { fit: 'fits', reason: `Matches “${input.branch.goal}”${isNotEmpty(conditions) ? ` and ${conditions.join(', ')}` : ''}.`, conflicts: [], ...(priced ? { verify: `${budget} needs a real price` } : {}) }
     },
   }
 }

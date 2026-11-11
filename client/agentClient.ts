@@ -50,7 +50,7 @@ export async function requestAgent(request: AgentRequest, signal: AbortSignal, o
       const parsed = AgentFailureSchema.safeParse(value)
       if (parsed.success && parsed.data.requestId === request.requestId) finish(new Error(parsed.data.message))
     })
-    const timer = setTimeout(() => { bridge.agents.cancel(request.requestId).catch(() => {}); finish(new Error('The request timed out. Please retry.')) }, 280_000)
+    const timer = setTimeout(() => { bridge.agents.cancel(request.requestId).catch(() => {}); finish(new Error('The request timed out. Please retry.')) }, 510_000)
     signal.addEventListener('abort', abort, { once: true })
     bridge.agents.run(request).catch((error: unknown) => finish(error instanceof Error ? error : new Error('Local agents unavailable.')))
   })
@@ -67,7 +67,10 @@ export async function requestAgent(request: AgentRequest, signal: AbortSignal, o
   let buffer = ''; let result: AgentResult | undefined
   const accept = (line: string) => {
     if (!line.trim()) return
-    const event = EventSchema.parse(JSON.parse(line))
+    // A reply that does not match the contract is reported plainly, never as raw validation output.
+    const parsed = EventSchema.safeParse(JSON.parse(line))
+    if (!parsed.success) throw new Error('The agents returned a reply Unfold could not read. Nothing was added; please retry.')
+    const event = parsed.data
     if (event.type === 'error') throw new Error(event.message)
     if (event.type === 'activity' || event.type === 'handoff') onEvent(event)
     if (event.type === 'result') result = event.result

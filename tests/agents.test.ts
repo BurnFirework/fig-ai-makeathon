@@ -134,25 +134,32 @@ cases.push(test('4. a refinement produces a revised proposal that needs a new de
   assert.equal(decisionOf(v2), undefined)
 }))
 
-cases.push(test('5. a shared opportunity is checked by each branch agent with only its own goal and conditions', async () => {
+cases.push(test('5. a shared opportunity is checked by each branch agent with only its own goal and conditions; a changed idea is checked again', async () => {
   const a = branch('Learn pottery', [{ id: 'x', kind: 'constraint', key: 'budget', text: 'Budget: up to $30' }])
   const b = branch('Meet people', [{ id: 'y', kind: 'constraint', key: 'time', text: 'Time: weekday evenings' }])
   const runtime = scripted({
     connection: input => Promise.resolve(input.phase === 'draft'
       ? { next: 'check', candidate: { title: 'Saturday pottery social', description: '', benefitA: '', benefitB: '' } }
+      // The connection agent tries to slip a changed idea through "propose": it must be checked again.
       : { next: 'propose', opportunity: { title: 'Weekday evening pottery social', description: 'Moved to a weekday evening', benefitA: '', benefitB: '' }, reason: 'Moved to weekday evenings for the second goal' }),
-    checkFit: input => Promise.resolve(input.branch.goal === 'Meet people' ? { fit: 'conflict', reason: 'Saturday breaks the weekday-evening condition', conflicts: ['Time: weekday evenings'] } : { fit: 'fits', reason: 'Within budget', conflicts: [] }),
+    checkFit: input => Promise.resolve(input.branch.goal === 'Meet people' && input.candidate.title.startsWith('Saturday') ? { fit: 'conflict', reason: 'Saturday breaks the weekday-evening condition', conflicts: ['Time: weekday evenings'] } : { fit: 'fits', reason: 'Fits this goal', conflicts: [] }),
   })
   const { result, events } = await run(request('connect', [a, b]), runtime)
   const checks = runtime.log.filter(entry => entry.task === 'checkFit').map(entry => JSON.stringify(entry.input))
-  assert.equal(checks.length, 2)
-  assert.ok(checks[0]?.includes('Budget: up to $30') && !checks[0].includes('weekday'))
+  assert.equal(checks.length, 4)
+  assert.ok(checks[0]?.includes('Budget: up to $30') && !checks[0].includes('weekday evenings'))
   assert.ok(checks[1]?.includes('weekday evenings') && !checks[1].includes('$30'))
+  assert.ok(checks.slice(2).every(input => input.includes('Weekday evening pottery social')))
   const decide = runtime.log.find(entry => entry.task === 'connection' && JSON.stringify(entry.input).includes('"phase":"decide"'))
   assert.ok(decide && JSON.stringify(decide.input).includes('Saturday breaks'))
   assert.ok(result.proposal.kind === 'opportunity' && result.proposal.title === 'Weekday evening pottery social')
-  const routes = events.flatMap(event => event.type === 'handoff' ? [`${event.handoff.from}>${event.handoff.to}:${event.handoff.outcome}`] : [])
-  assert.deepEqual(routes, ['connection>branch:requested', 'connection>branch:requested', 'branch>connection:fits', 'branch>connection:conflict', 'connection>you:proposed'])
+  const routes = events.flatMap(event => event.type === 'handoff' ? [`${event.handoff.from}>${event.handoff.to}:${event.handoff.task}:${event.handoff.outcome}`] : [])
+  assert.deepEqual(routes, [
+    'connection>coordinator:overlap:found',
+    'connection>branch:check-fit:requested', 'connection>branch:check-fit:requested', 'branch>connection:check-fit:fits', 'branch>connection:check-fit:conflict',
+    'connection>connection:revise:requested',
+    'connection>branch:check-fit:requested', 'connection>branch:check-fit:requested', 'branch>connection:check-fit:fits', 'branch>connection:check-fit:fits',
+    'connection>you:propose:proposed'])
   // Only the agents a step needs run: a fitting branch request never calls the connection agent or research.
   const solo = scripted({ lead: () => Promise.resolve({ next: 'ask', question: { prompt: 'Where?', options: ['Home', 'Studio'], purpose: '' } }) })
   await run(request('branch', [a]), solo)

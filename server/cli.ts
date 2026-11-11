@@ -53,6 +53,14 @@ export async function selectProvider(provider: CliProvider) {
   active = result.config
 }
 
+/** Why a CLI call produced no usable reply. Callers report these as technical failures, never as a finding. */
+export type CliFailure = 'timeout' | 'turns' | 'failed' | 'empty' | 'launch' | 'overflow'
+export class CliError extends Error {
+  constructor(message: string, readonly kind: CliFailure) { super(message); this.name = 'CliError' }
+}
+/** Default time for one CLI call; searches that open pages may need longer. */
+export const CLI_TIMEOUT_MS = 115_000
+
 const RecordSchema = z.record(z.string(), z.unknown())
 export function readCliEvent(line: string, provider: 'claude' | 'codex') {
   const parsed = RecordSchema.safeParse(JSON.parse(line))
@@ -60,14 +68,16 @@ export function readCliEvent(line: string, provider: 'claude' | 'codex') {
   const event = parsed.data
   const item = RecordSchema.safeParse(event.item)
   const message = RecordSchema.safeParse(event.message)
-  let text = ''; let searched = false; let error = ''
+  let text = ''; let searched = false; let error = ''; let failure: CliFailure | undefined
   if (provider === 'codex' && event.type === 'item.completed' && item.success) {
     if (item.data.type === 'agent_message' && typeof item.data.text === 'string') text = item.data.text
     if (item.data.type === 'web_search') searched = true
   }
   if (provider === 'claude') {
     if (event.type === 'result') {
-      if (event.is_error) error = typeof event.result === 'string' ? event.result : 'Claude Code could not complete this request.'
+      // A run that stopped at its turn limit has no reply, even when Claude Code does not flag it as an error.
+      if (event.subtype === 'error_max_turns') { error = 'Claude Code used all its steps before writing a reply.'; failure = 'turns' }
+      else if (event.is_error || (typeof event.subtype === 'string' && event.subtype.startsWith('error'))) { error = typeof event.result === 'string' && event.result ? event.result : 'Claude Code could not complete this request.'; failure = 'failed' }
       else if (event.structured_output) text = JSON.stringify(event.structured_output)
       else if (typeof event.result === 'string') text = event.result
     }
@@ -75,15 +85,16 @@ export function readCliEvent(line: string, provider: 'claude' | 'codex') {
       searched = message.data.content.some(part => { const block = RecordSchema.safeParse(part); return block.success && block.data.type === 'tool_use' && block.data.name === 'WebSearch' })
     }
   }
-  if (event.type === 'turn.failed' || event.type === 'error') error = 'The CLI request failed. Check that you are signed in and have subscription usage available.'
+  if (event.type === 'turn.failed' || event.type === 'error') { error = 'The CLI request failed. Check that you are signed in and have subscription usage available.'; failure = 'failed' }
   // Evidence URLs come from tool events, never from the final assistant message.
   const toolResult = provider === 'claude' && event.type === 'user' && message.success && Array.isArray(message.data.content) && message.data.content.some(part => { const block = RecordSchema.safeParse(part); return block.success && block.data.type === 'tool_result' })
   const evidence = (provider === 'codex' && item.success && item.data.type === 'web_search') || toolResult
   const urls = evidence ? [...line.matchAll(/https?:\/\/[^\s"<>\\]+/g)].map(match => match[0].replace(/[),.;]+$/, '')) : []
-  return { text, searched, urls, error }
+  return { text, searched, urls, error, failure }
 }
 
-export async function callCli(config: CliConfig, prompt: string, signal: AbortSignal, options: { search?: boolean; image?: string } = {}): Promise<{ text: string; searched: boolean; urls: string[] }> {
+export interface CliOptions { search?: boolean; image?: string; timeoutMs?: number; maxTurns?: number }
+export async function callCli(config: CliConfig, prompt: string, signal: AbortSignal, options: CliOptions = {}): Promise<{ text: string; searched: boolean; urls: string[] }> {
   if (config.provider === 'demo') throw new Error('Preview mode has no live provider.')
   const provider = config.provider
   const directory = await mkdtemp(join(tmpdir(), 'unfold-agent-'))
@@ -97,7 +108,7 @@ export async function callCli(config: CliConfig, prompt: string, signal: AbortSi
     }
     const args = provider === 'codex'
       ? ['exec', '--json', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check', '--sandbox', 'read-only', '--disable', 'shell_tool', '--disable', 'hooks', '-c', `web_search="${options.search ? 'live' : 'disabled'}"`, ...(config.model ? ['--model', config.model] : []), ...(imagePath ? ['--image', imagePath] : []), '-']
-      : ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--max-turns', '8', '--permission-mode', 'dontAsk', '--tools', options.search ? 'WebSearch,WebFetch' : '', '--allowedTools', options.search ? 'WebSearch,WebFetch' : '', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '', '--settings', '{"disableAllHooks":true}', ...(config.model ? ['--model', config.model] : [])]
+      : ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--max-turns', String(options.maxTurns ?? 8), '--permission-mode', 'dontAsk', '--tools', options.search ? 'WebSearch,WebFetch' : '', '--allowedTools', options.search ? 'WebSearch,WebFetch' : '', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '', '--settings', '{"disableAllHooks":true}', ...(config.model ? ['--model', config.model] : [])]
     const env = cliEnv()
     let input = prompt
     if (provider === 'claude') {
@@ -107,7 +118,7 @@ export async function callCli(config: CliConfig, prompt: string, signal: AbortSi
     }
     const output = await new Promise<{ text: string; searched: boolean; urls: string[] }>((resolve, reject) => {
       const child = spawn(config.binary, args, { cwd: directory, env, stdio: ['pipe', 'pipe', 'pipe'], shell: false, detached: process.platform !== 'win32' })
-      let buffer = ''; let text = ''; let searched = false; let stderr = ''; let total = 0; let eventError = ''
+      let buffer = ''; let text = ''; let searched = false; let stderr = ''; let total = 0; let eventError = ''; let failure: CliFailure | undefined; let timedOut = false
       const urls = new Set<string>()
       let terminateDone: Promise<void> | undefined
       const kill = () => {
@@ -119,7 +130,8 @@ export async function callCli(config: CliConfig, prompt: string, signal: AbortSi
           }, 1000)
         })
       }
-      const timer = setTimeout(kill, 115_000)
+      const timeoutMs = options.timeoutMs ?? CLI_TIMEOUT_MS
+      const timer = setTimeout(() => { timedOut = true; kill() }, timeoutMs)
       const abort = () => kill()
       signal.addEventListener('abort', abort, { once: true })
       if (signal.aborted) kill()
@@ -127,11 +139,11 @@ export async function callCli(config: CliConfig, prompt: string, signal: AbortSi
       const decoder = new StringDecoder('utf8')
       const acceptLine = (line: string) => {
         if (!line.trim()) return
-        try { const event = readCliEvent(line, provider); if (event.text) text = event.text; searched ||= event.searched; event.urls.forEach(url => urls.add(url)); if (event.error) eventError = event.error } catch { /* Non-protocol diagnostic, not an application result. */ }
+        try { const event = readCliEvent(line, provider); if (event.text) text = event.text; searched ||= event.searched; event.urls.forEach(url => urls.add(url)); if (event.error) { eventError = event.error; failure = event.failure } } catch { /* Non-protocol diagnostic, not an application result. */ }
       }
       child.stdout.on('data', (chunk: Buffer) => {
         total += chunk.length
-        if (total > 5_000_000) { eventError = 'The provider returned too much data.'; kill(); return }
+        if (total > 5_000_000) { eventError = 'The provider returned too much data.'; failure = 'overflow'; kill(); return }
         buffer += decoder.write(chunk)
         let newline: number
         while ((newline = buffer.indexOf('\n')) >= 0) {
@@ -140,12 +152,16 @@ export async function callCli(config: CliConfig, prompt: string, signal: AbortSi
         }
       })
       child.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-4000) })
-      child.on('error', error => { clearTimeout(timer); signal.removeEventListener('abort', abort); reject(new Error(`Could not launch ${provider}: ${error.message}`)) })
+      child.on('error', error => { clearTimeout(timer); signal.removeEventListener('abort', abort); reject(new CliError(`Could not launch ${provider}: ${error.message}`, 'launch')) })
       child.on('close', code => {
         acceptLine(buffer + decoder.end())
         clearTimeout(timer); signal.removeEventListener('abort', abort)
         if (signal.aborted) { (terminateDone ?? Promise.resolve()).then(() => reject(new Error('Stopped.'))).catch((error: unknown) => reject(error instanceof Error ? error : new Error('Termination failed'))); return }
-        if (code !== 0 || eventError || !text) { reject(new Error(eventError || `${provider === 'claude' ? 'Claude Code' : 'Codex CLI'} could not complete the request. Run its login command and check subscription availability.${/auth|login|sign in/i.test(stderr) ? ' Sign-in is required.' : ''}`)); return }
+        const name = provider === 'claude' ? 'Claude Code' : 'Codex CLI'
+        if (timedOut) { reject(new CliError(`${name} did not reply within ${Math.round(timeoutMs / 1000)} seconds.`, 'timeout')); return }
+        if (eventError) { reject(new CliError(eventError, failure ?? 'failed')); return }
+        if (code !== 0) { reject(new CliError(`${name} could not complete the request. Run its login command and check subscription availability.${/auth|login|sign in/i.test(stderr) ? ' Sign-in is required.' : ''}`, 'failed')); return }
+        if (!text) { reject(new CliError(`${name} finished without a reply.`, 'empty')); return }
         resolve({ text, searched, urls: [...urls] })
       })
       child.stdin.end(input)

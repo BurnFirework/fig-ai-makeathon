@@ -25,7 +25,7 @@ port.on('message', ({ data }: { data: unknown }) => {
     if (running.has(message.id)) throw new Error('Duplicate agent request')
     const controller = new AbortController()
     running.set(message.id, controller)
-    const timer = setTimeout(() => controller.abort(), 270_000)
+    const timer = setTimeout(() => controller.abort(), 500_000)
     try {
       const request = parseAgentRequest(message.request)
       const result = await runAgents(request, providerConfig(), controller.signal, event => port.postMessage({ type: 'event', id: message.id, event }))

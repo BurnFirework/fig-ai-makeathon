@@ -190,6 +190,9 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 @media (hover: hover) and (pointer: fine) {
   .card-footer { opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .16s ease, transform .16s ease, visibility 0s linear .16s; }
   .is-hovered .card-footer, .card-footer:hover, .unfold-card:focus-within .card-footer, .is-busy .card-footer { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
+  /* A link the agents noticed stays visible; the card's own actions still wait for hover or focus. */
+  .card-footer:has(.link-pill) { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
+  .unfold-card:not(.is-hovered):not(:focus-within):not(.is-busy) .card-footer:not(:hover):has(.link-pill) > :not(.link-pill) { opacity: 0; visibility: hidden; }
 }
 
 /* The source and conversation share a surface, keeping the image in view. */
@@ -341,7 +344,7 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .live-handoffs { margin: -6px 0 16px; }
 .handoff { display: grid; gap: 1px; padding-left: 9px; line-height: 1.5; font-size: 11px; color: var(--cocoa-soft); }
 .handoff-route { font-weight: 500; color: var(--ink); }
-.handoff.outcome-none .handoff-route, .handoff.outcome-conflict .handoff-route, .handoff.outcome-stopped .handoff-route { color: #8e4242; }
+.handoff.outcome-none .handoff-route, .handoff.outcome-conflict .handoff-route, .handoff.outcome-stopped .handoff-route, .handoff.outcome-failed .handoff-route { color: #8e4242; }
 .handoff.outcome-waiting .handoff-route, .handoff.outcome-proposed .handoff-route { color: #4d6b48; }
 .chat-waiting { font-size: 11px; color: var(--cocoa-soft); margin: -10px 0 14px; padding-left: 10px; border-left: 2px solid var(--accent-300); }
 .declined-banner { background: #f6e6e6; color: #8e4242; }
@@ -430,3 +433,36 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .chat-details > summary { cursor: pointer; color: var(--accent-600); font-weight: 600; width: fit-content; }
 .chat-details p { margin: 6px 0 0; line-height: 1.6; white-space: pre-wrap; }
 .chat-description { font-size: 13px; line-height: 1.6; color: var(--cocoa-soft); white-space: pre-wrap; }
+
+/* Links the agents noticed between two goals: a quiet way in from each card, never opened on its own. */
+.link-pill { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 190px; height: 26px; margin: 0 6px 0 auto; padding: 0 10px; border-radius: 999px; border: 1px solid var(--accent-200); background: var(--paper); color: var(--second-ink-dark); font-size: 11.5px; font-weight: 600; cursor: pointer; pointer-events: auto; box-shadow: 0 2px 8px #2b2d3014; }
+.link-pill > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.link-pill svg { flex-shrink: 0; color: var(--accent-500); }
+.link-pill.tone-decision, .link-pill.tone-ready { border-color: var(--accent-400); background: var(--accent-50); color: var(--accent-600); }
+.link-pill.tone-decision::before { content: ''; flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-500); }
+.link-pill.tone-working { color: var(--cocoa-soft); border-color: var(--line); }
+.link-pill.tone-error { color: #816138; border-color: #ecd6ae; background: #fbf0dc; }
+.link-pill.tone-error svg { color: #816138; }
+.link-pill:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
+
+/* The short state of shared work, from the coordinator's real handoffs. */
+.collab-stages { display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 24px 0; padding: 0; list-style: none; font-size: 11px; color: var(--cocoa-soft); }
+.collab-stages li { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 999px; background: var(--accent-50); }
+.collab-stages li > i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent-300); }
+.collab-stages li.is-current { background: var(--paper); border: 1px solid var(--accent-300); color: var(--ink); font-weight: 600; }
+.collab-stages li.is-current > i { background: var(--accent-500); }
+.collab-stages li.stage-conflict > i, .collab-stages li.stage-conflict.is-current > i { background: #c98a3c; }
+.collab-stages li.stage-none { background: var(--paper); border: 1px solid var(--line); }
+
+.conflict-details { margin: 6px 0 10px; padding: 10px 12px; border-radius: 10px; background: #fbf4e6; color: #6f5631; font-size: 12px; line-height: 1.55; }
+.conflict-details p { margin: 4px 0 6px; }
+.conflict-condition { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.conflict-condition span { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: #9a7a48; }
+.conflict-condition strong { font-weight: 600; color: #5a4424; }
+.conflict-details .source-chips { margin-bottom: 0; }
+.choice.has-effect { border-radius: 14px; align-items: flex-start; }
+.choice.has-effect kbd { margin-top: 1px; }
+.choice-effect { display: block; margin-top: 2px; color: var(--cocoa-soft); font-size: 11.5px; font-weight: 400; line-height: 1.45; }
+.chat-none { padding: 12px 14px; border: 1px dashed var(--line); border-radius: 8px; }
+.chat-none p { margin: 4px 0; font-size: 13px; line-height: 1.6; }
+.open-points { margin: 10px 0 8px; padding: 8px 10px 8px 24px; border-radius: 8px; background: var(--accent-50); font-size: 12px; line-height: 1.55; color: var(--cocoa-soft); }

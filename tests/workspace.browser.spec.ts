@@ -54,7 +54,9 @@ test('legacy boards and images survive migration, reload, export and additive im
   await expect(page.locator('.assistant-message')).toHaveCount(1)
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('I want a gentle creative activity near home')
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
-  await expect(page.locator('.assistant-message')).toHaveCount(2)
+  // The answered question folds into one row with the answer; the new reply follows it.
+  await expect(page.locator('.folded-turn')).toHaveCount(1)
+  await expect(page.locator('.assistant-message')).toHaveCount(1)
   await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Close chat', exact: true }).click()
   await page.getByRole('button', { name: 'Workspace files', exact: true }).click()
@@ -79,7 +81,8 @@ test('legacy boards and images survive migration, reload, export and additive im
   await page.getByRole('textbox', { name: 'Inspiration goal', exact: true }).focus()
   await page.getByRole('button', { name: 'Explore Legacy image 1', exact: true }).click()
   await expect(page.getByRole('log', { name: 'Conversation messages' })).toContainText('I want a gentle creative activity near home')
-  await expect(page.locator('.assistant-message')).toHaveCount(2)
+  await expect(page.locator('.folded-turn')).toHaveCount(1)
+  await expect(page.locator('.assistant-message')).toHaveCount(1)
   expect(await page.evaluate(() => localStorage.getItem('unfold-boards-v1'))).toContain('unfold-board-legacy-second')
   await page.getByRole('button', { name: 'Close chat', exact: true }).click()
   const asset = Object.values(workspace.assets)[0]

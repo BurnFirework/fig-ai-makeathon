@@ -17,5 +17,12 @@ test('board intro appears only while there are no inspiration images', async ({ 
 
   await page.getByRole('textbox', { name: 'Inspiration goal', exact: true }).focus()
   await page.getByRole('button', { name: 'Remove inspiration', exact: true }).click()
+  // Removing asks first; keeping it changes nothing.
+  const dialog = page.getByRole('dialog', { name: 'Remove this photo from your vision board?' })
+  await dialog.getByRole('button', { name: 'Keep it', exact: true }).click()
+  await expect(page.getByRole('img', { name: 'inspiration', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Remove inspiration', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Remove', exact: true }).click()
   await expect(intro).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Undo: Photo removed', exact: true })).toBeVisible()
 })
