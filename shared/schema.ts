@@ -20,7 +20,11 @@ export const ConflictSchema = z.object({
 export type Conflict = z.infer<typeof ConflictSchema>
 export const ProposalSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('reply'), text: z.string().min(1).max(1200) }),
-  z.object({ kind: z.literal('question'), prompt: z.string().min(1), options: z.array(z.string()).min(2).max(4), purpose: z.string(), conflict: ConflictSchema.optional() }),
+  z.object({ kind: z.literal('question'), prompt: z.string().min(1),
+    /** Ready answers to pick. Empty for an open question (a city, a name), which the user answers in their own words. */
+    options: z.array(z.string()).max(4), purpose: z.string(), conflict: ConflictSchema.optional(),
+    /** A hint for the user's own answer, e.g. "Type a city or area". */
+    placeholder: z.string().max(80).optional() }),
   z.object({ kind: z.literal('research'), brief: z.string().min(1) }),
   z.object({ kind: z.literal('opportunity'), title: z.string().min(1), description: z.string(), benefitA: z.string(), benefitB: z.string(),
     /** Real options the research agent found, when the direction relies on them. */

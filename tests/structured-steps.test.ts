@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ActionDraftSchema, actionProposal } from '../shared/coordinator'
+import { ActionDraftSchema, QuestionDraftSchema, actionProposal, isAnswerOption } from '../shared/coordinator'
 import { NodeSchema, ProposalSchema } from '../shared/schema'
 
 const source = { id: 'source-1', title: 'Guide', url: 'https://example.org/guide' }
@@ -31,5 +31,17 @@ cases.push(test('older next-step cards without summary, steps or checked steps s
   const base = { branchId: 'b', sequence: 1, revision: 0, stale: false, dependsOn: [], agent: 'research', createdAt: 1 }
   assert.ok(NodeSchema.safeParse({ ...base, type: 'action', title: 'Old', description: 'Long text', sources: [source], completed: false, reflection: '' }).success)
   assert.ok(NodeSchema.safeParse({ ...base, type: 'action', title: 'New', description: '', summary: 'Why', steps: ['A', 'B'], meta: { time: '5 min' }, doneSteps: [1], sources: [source], completed: false, reflection: '' }).success)
+}))
+cases.push(test('a question offers only real answers; an open question may offer none and hint what to type', () => {
+  for (const invitation of ['Share my city', 'Type my city', 'Enter a city', 'Tell you my area', "I'll type it", 'Other', 'Something else']) assert.equal(isAnswerOption(invitation), false, invitation)
+  for (const answer of ['Near downtown', 'Write poetry', 'Give it a try', 'Pick up pottery', 'Online', 'Name tags help']) assert.equal(isAnswerOption(answer), true, answer)
+  const city = QuestionDraftSchema.parse({ prompt: 'Which city should I search?', options: ['Share my city', 'Type my city'], placeholder: 'Type a city or area' })
+  assert.deepEqual([city.options, city.placeholder], [[], 'Type a city or area'])
+  assert.ok(ProposalSchema.safeParse({ kind: 'question', prompt: city.prompt, options: city.options, purpose: '', placeholder: city.placeholder }).success)
+  // Dropping an invitation keeps each remaining answer with its own effect.
+  const conflict = QuestionDraftSchema.parse({ prompt: 'What should change?', options: ['Keep the budget', 'Other', 'Raise it to $60'], conflict: { condition: 'Budget', effects: ['Look further', 'Ignored', 'Check pricier classes'] } })
+  assert.deepEqual([conflict.options, conflict.conflict?.effects], [['Keep the budget', 'Raise it to $60'], ['Look further', 'Check pricier classes']])
+  // Questions saved before placeholders still load.
+  assert.ok(ProposalSchema.safeParse({ kind: 'question', prompt: 'Online or in person?', options: ['Online', 'In person'], purpose: 'Changes the search.' }).success)
 }))
 await Promise.all(cases)

@@ -5,7 +5,8 @@ import { ArrowRight, Check, ChevronDown, ExternalLink, HelpCircle, LayoutPanelLe
 import { canPublish, currentRevisions, decisionOf, nodeTitle } from '../../shared/chats'
 import { chatMemory } from '../../shared/memory'
 import type { NodeShape } from '../nodes/NodeShapeUtil'
-import { type Chat, type ChatMessage, type Conflict, type Handoff, revisionsMatch } from '../../shared/schema'
+import { type Chat, type ChatMessage, type Conflict, type Handoff, type Proposal, revisionsMatch } from '../../shared/schema'
+import { isAnswerOption } from '../../shared/coordinator'
 import { actions, uiState } from '../actions'
 import { fitBoard, nodeAt, nodes } from '../unfold'
 import { conversationAt, conversations, conversationsFor } from '../conversations'
@@ -54,7 +55,7 @@ function Conversation({ sourceId, title, chat }: { sourceId: TLShapeId; title: s
     if (event.key === 'Escape') api?.closeChat()
     // 1–4 pick an answer to the open question, unless the user is typing.
     const typing = event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement
-    const choice = pending && !typing && !event.metaKey && !event.ctrlKey && !event.altKey ? pending.options[Number(event.key) - 1] : undefined
+    const choice = pending && !typing && !event.metaKey && !event.ctrlKey && !event.altKey ? answerChoices(pending)[Number(event.key) - 1]?.option : undefined
     if (choice) { event.preventDefault(); send(choice) }
   }}>
     <header className="chat-panel-header">
@@ -75,7 +76,7 @@ function Conversation({ sourceId, title, chat }: { sourceId: TLShapeId; title: s
       {empty && <div className="chat-welcome"><MessageCircle size={26}/><h3>Where could this take you?</h3><p>Ask your own question below, or let the agents suggest a few directions.</p><Button variant="secondary" size="sm" className="suggest-button" onClick={() => api?.suggest(sourceId, chat.id)}><Sparkles size={14}/>Suggest directions</Button></div>}
       {foldTurns(chat.messages).map(item => item.kind === 'turn'
         ? <FoldedTurn key={item.question.id} question={item.question} answer={item.answer} chat={chat}/>
-        : <Message key={item.message.id} message={item.message} chat={chat} sourceId={sourceId} isLatest={item.message.id === lastAssistant?.id} busy={busy} stale={item.message.role === 'assistant' && !revisionsMatch(item.message.dependsOn, revisions)} onChoice={text => send(text)} onOwnAnswer={() => composer.current?.focus()}/>)}
+        : <Message key={item.message.id} message={item.message} chat={chat} sourceId={sourceId} isLatest={item.message.id === lastAssistant?.id} busy={busy} stale={item.message.role === 'assistant' && !revisionsMatch(item.message.dependsOn, revisions)} onChoice={text => send(text)}/>)}
       {job && <div className={`chat-job ${job.status}`} role="status">{busy ? <LoaderCircle size={15} className="spin"/> : <RotateCcw size={15}/>}<span>{busy && job.handoffs && isNotEmpty(job.handoffs) ? handoffStatus(job.handoffs.at(-1)) : job.message}</span><Button variant="ghost" size="icon-sm" aria-label={busy ? 'Stop request' : 'Retry request'} onClick={() => busy ? api?.stop(chat.id) : api?.retry(chat.id)}>{busy ? <Square size={13}/> : <RotateCcw size={14}/>}</Button></div>}
       {!job && chat.messages.at(-1)?.role === 'user' && <div className="chat-job error" role="status"><RotateCcw size={15}/><span>The agents have not answered your last message. Retry to continue from here.</span><Button variant="ghost" size="icon-sm" aria-label="Retry request" onClick={() => api?.retry(chat.id)}><RotateCcw size={14}/></Button></div>}
       {busy && job.handoffs && job.handoffs.length > 1 && <details className="agent-trace live"><summary>All agent steps so far · {job.handoffs.length}</summary><ol aria-label="What the agents are doing">{job.handoffs.map((handoff, index) => <HandoffLine key={index} handoff={handoff}/>)}</ol></details>}
@@ -142,7 +143,25 @@ function UserNotes({ message, chat }: { message: Extract<ChatMessage, { role: 'u
   })}</small>
 }
 
-function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice, onOwnAnswer }: { message: ChatMessage; chat: Chat; sourceId: TLShapeId; isLatest: boolean; busy: boolean; stale: boolean; onChoice: (choice: string) => void; onOwnAnswer: () => void }) {
+/** The options worth showing, each with its effect: invitations such as "Share my city" saved by earlier versions are hidden. */
+function answerChoices(proposal: Extract<Proposal, { kind: 'question' }>) {
+  return proposal.options.flatMap((option, index) => isAnswerOption(option) ? [{ option, effect: proposal.conflict?.effects[index] }] : [])
+}
+/** "Something else…" opens a field in the question itself; an open question shows it straight away. */
+function OwnAnswer({ placeholder, busy, open, onOpen, onClose, onSend }: { placeholder: string; busy: boolean; open: boolean; onOpen: () => void; onClose?: (() => void) | undefined; onSend: (text: string) => void }) {
+  const [text, setText] = useState('')
+  const submit = () => { if (text.trim() && !busy) { onSend(text.trim()); setText('') } }
+  if (!open) return <button type="button" className="choice own" disabled={busy} onClick={onOpen}><Pencil size={12}/><span>Something else…</span></button>
+  return <form className="own-answer" onSubmit={event => { event.preventDefault(); submit() }}>
+    <Textarea aria-label="Your answer" placeholder={placeholder} value={text} maxLength={600} rows={1} autoFocus onChange={event => setText(event.target.value)}
+      onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit() } if (event.key === 'Escape' && onClose) { event.stopPropagation(); onClose() } }}/>
+    <div className="own-answer-actions">
+      {onClose && <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>}
+      <Button type="submit" size="sm" disabled={busy || !text.trim()}>Send<ArrowRight size={13}/></Button>
+    </div>
+  </form>
+}
+function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice }: { message: ChatMessage; chat: Chat; sourceId: TLShapeId; isLatest: boolean; busy: boolean; stale: boolean; onChoice: (choice: string) => void }) {
   const editor = useEditor(); const api = actions.get(editor)
   const chatId = chat.id
   const outcomes = useValue('published outcomes', () => message.role === 'assistant' ? nodes(editor).filter(shape => shape.id === message.outcomeId || message.outcomeIds?.includes(shape.id)) : [], [editor, message])
@@ -150,6 +169,7 @@ function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice, onO
   const [composing, setComposing] = useState<'decline' | 'refine' | null>(null)
   const [note, setNote] = useState('')
   const [why, setWhy] = useState(false)
+  const [answering, setAnswering] = useState(false)
   if (message.role === 'user') return <div id={`message-${message.id}`} className="chat-message user-message"><span className="message-label">{message.stance === 'refine' ? 'You · requested changes' : 'You'}</span><p>{message.text}</p><UserNotes message={message} chat={chat}/></div>
   const proposal = message.proposal
   const viewCard = () => { if (!outcome) return; uiState.update(editor, state => ({ ...state, chatView: 'board' })); editor.select(outcome.id); fitBoard(editor) }
@@ -168,8 +188,8 @@ function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice, onO
       {proposal.conflict && <ConflictDetails conflict={proposal.conflict}/>}
       {proposal.purpose && <button type="button" className="why-toggle" aria-expanded={why} onClick={() => setWhy(value => !value)}><HelpCircle size={12}/>Why this question?</button>}
       {why && <small className="message-purpose">{proposal.purpose}</small>}
-      <div className="chat-choices" role="group" aria-label="Answers">{proposal.options.map((option, index) => { const effect = proposal.conflict?.effects[index]; return <button key={option} type="button" className={`choice ${effect ? 'has-effect' : ''}`} disabled={busy} onClick={() => onChoice(option)}><kbd>{index + 1}</kbd><span>{option}{effect && <small className="choice-effect">{effect}</small>}</span><ArrowRight size={13}/></button> })}
-        <button type="button" className="choice own" disabled={busy} onClick={onOwnAnswer}><Pencil size={12}/><span>Something else…</span></button></div>
+      <div className="chat-choices" role="group" aria-label="Answers">{answerChoices(proposal).map(({ option, effect }, index) => <button key={option} type="button" className={`choice ${effect ? 'has-effect' : ''}`} disabled={busy} onClick={() => onChoice(option)}><kbd>{index + 1}</kbd><span>{option}{effect && <small className="choice-effect">{effect}</small>}</span><ArrowRight size={13}/></button>)}
+        <OwnAnswer placeholder={proposal.placeholder ?? 'Type your answer'} busy={busy} open={answering || isEmpty(answerChoices(proposal))} onOpen={() => setAnswering(true)} onClose={isEmpty(answerChoices(proposal)) ? undefined : () => setAnswering(false)} onSend={onChoice}/></div>
     </div> : <><p>{proposal.prompt}</p>{proposal.conflict && <ConflictDetails conflict={proposal.conflict}/>}{proposal.purpose && <small className="message-purpose">{proposal.purpose}</small>}</>)}
     {proposal.kind === 'research' && <p>{proposal.brief}</p>}
     {proposal.kind === 'reply' && <><p>{proposal.text}</p>{outcomes.map(card => <Button key={card.id} variant="outline" size="sm" onClick={() => { uiState.update(editor, state => ({ ...state, chatView: 'board' })); editor.select(card.id); fitBoard(editor) }}>{nodeTitle(card.props.node)}<ArrowRight size={13}/></Button>)}</>}

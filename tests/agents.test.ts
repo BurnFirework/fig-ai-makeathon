@@ -276,11 +276,12 @@ cases.push(test('agent memory needs a user message as its basis; otherwise it st
 
 cases.push(test('an invalid agent reply is retried once with the problem, then fails with a friendly message', async () => {
   const prompts: string[] = []
-  const replies = [JSON.stringify({ next: 'ask', question: { prompt: 'Budget?', options: ['Any'], purpose: '' } }), JSON.stringify({ next: 'ask', question: { prompt: 'Budget?', options: ['Under $30', 'Flexible'], purpose: '' } })]
+  // A question without its prompt is invalid; an open question with no ready answers is not.
+  const replies = [JSON.stringify({ next: 'ask', question: { prompt: '', options: ['Any'], purpose: '' } }), JSON.stringify({ next: 'ask', question: { prompt: 'Budget?', options: ['Under $30', 'Flexible'], purpose: '' } })]
   const step = await parseWithRetry(prompt => { prompts.push(prompt); return Promise.resolve(replies.shift() ?? '') }, 'base', LeadStepSchema, new AbortController().signal)
   assert.equal(step.next, 'ask')
-  assert.match(prompts[1] ?? '', /2 to 4/)
-  await assert.rejects(parseWithRetry(() => Promise.resolve('{"next":"ask","question":{"prompt":"x","options":[]}}'), 'base', LeadStepSchema, new AbortController().signal), (error: Error) => !error.message.includes('too_small') && /retry/.test(error.message))
+  assert.match(prompts[1] ?? '', /prompt/)
+  await assert.rejects(parseWithRetry(() => Promise.resolve('{"next":"ask","question":{"prompt":"","options":[]}}'), 'base', LeadStepSchema, new AbortController().signal), (error: Error) => !error.message.includes('too_small') && /retry/.test(error.message))
 }))
 
 cases.push(test('a chat on an outcome builds beyond it instead of repeating it', async () => {

@@ -14,7 +14,7 @@ How to read the context:
 - "answers" keeps each user message with its stance: "answer"; "question" (the user asked something, it is not a fact); "decline"; "uncertain" (not confirmed: if it matters, ask one short clarifying question); "refine" (feedback on a proposal).
 - "declined" lists ideas the user rejected, with reasons. Do not propose them again unless you state what changed.`
 const memoryRule = `Optional "memory": up to 4 items only for facts the user clearly stated that are missing or outdated in memory: {"kind":"constraint","key":"budget|time|place|group|priority|other","text":"Budget: up to $30","from":"<messageId of that user message>","replaces":"<memory id it corrects, if any>"} or {"kind":"intent","text":"...","from":"<messageId>"}. Your own guesses must use {"kind":"assumption","text":"..."}.`
-const questionRule = `A question object has "prompt" (at most 12 words), "options" with 2 to 4 answers of at most 4 words each (never fewer than 2) and "purpose" (at most 12 words on why it matters). The user can always type their own answer.`
+const questionRule = `A question object has "prompt" (at most 12 words), "options", "purpose" (at most 12 words on why it matters) and an optional "placeholder". Each option is a complete answer the user could pick as it is, at most 4 words, never an invitation to answer such as "Share my city", "Type my answer" or "Other": the user always has a field for their own answer. Give 2 to 4 options when a few answers cover most people. For an open question whose answer you cannot list (a city, a neighborhood, a name, a date), offer only answers grounded in the conversation, such as an area the user mentioned, or none, and set "placeholder" to a short hint for typing it, such as "Type a city or area". Never offer places, dates or names the user has not suggested.`
 const brevityRule = `Write for a calm, quick read: short plain words, no filler, no repeated context. Never pack several ideas into one sentence.`
 const actionRule = `An action object has "title" (at most 8 words), "summary" (one sentence of at most 20 words: what and why), "steps" (2 to 4 concrete steps of at most 12 words each), "meta" (only what is known: "time" like "15 min", "cost" like "Free" or "Under $30", "place" like "At home") and an optional "description" with extra detail of at most 50 words.`
 const json = (value: unknown) => JSON.stringify(value)
@@ -133,7 +133,7 @@ Role: ${input.role === 'branch' ? 'branch agent for one goal' : 'shared agent fo
 - "propose": one small, practical step that is new (not in previousSuggestions). Do not imply registration has occurred. Cite only these source URLs: ${json(evidenceUrls)}.
 ${guidance}
 Return a single JSON object, no markdown, in one of these shapes:
-{"next":"ask","question":{"prompt":"...","options":["...","..."],"purpose":"..."}}
+{"next":"ask","question":{"prompt":"...","options":["...","..."],"purpose":"...","placeholder":"..."}}
 {"next":"research","brief":"...","mustMatch":["..."],"reason":"..."}
 {"next":"propose","action":{"title":"...","summary":"...","steps":["...","..."],"meta":{"time":"...","cost":"...","place":"..."},"description":"","sources":[{"title":"...","url":"https://..."}]}}
 ${questionRule}

@@ -10,11 +10,24 @@ const memoryField = z.array(MemoryUpdateSchema).max(8).optional().catch(undefine
 const reason = z.string().max(300).optional()
 /** What blocks a shared idea, what that is based on, and what each answer would change (one effect per option). */
 export const ConflictDraftSchema = z.object({ condition: z.string().min(1).max(240), basis: z.string().max(600).default(''), effects: z.array(z.string().max(240)).max(4).default([]) })
+/**
+ * An option that only invites the user to answer ("Share my city", "Type my answer", "Other") is not an answer: picking it
+ * tells the agents nothing and makes them ask again. The user's own answer always has its own field.
+ */
+const INVITATION = /^(?:(?:i'?ll|let me|i'?d like to)\s+)?(?:share|type|enter|tell you|specify|input|fill in|write in|name|pick|choose)\s+(?:my|your|it|in|one|own|(?:a|an|the)\s+(?:city|place|area|neighbou?rhood|name|location|date|day|time|budget|amount|answer|option)s?)\b|^(?:other|others|something else|custom|my own(?: answer)?|none of (?:these|the above))\b/i
+export const isAnswerOption = (option: string) => !INVITATION.test(option.trim())
 export const QuestionDraftSchema = z.object({
   prompt: z.string().min(1).max(400),
-  options: z.array(z.string().min(1).max(120)).min(2, 'A question needs 2 to 4 short answer options.').transform(options => options.slice(0, 4)),
+  options: z.array(z.string().min(1).max(120)).max(8).default([]),
   purpose: z.string().max(400).default(''),
   conflict: ConflictDraftSchema.optional().catch(undefined),
+  placeholder: z.string().max(80).optional().catch(undefined),
+}).transform(draft => {
+  // Invitations are dropped with their effects, so each remaining option keeps its own effect.
+  const kept = draft.options.flatMap((option, index) => isAnswerOption(option) ? [{ option: option.trim(), effect: draft.conflict?.effects[index] }] : [])
+  const unique = [...new Map(kept.map(item => [item.option.toLowerCase(), item])).values()].slice(0, 4)
+  const effects = unique.flatMap(item => item.effect === undefined ? [] : [item.effect])
+  return { ...draft, options: unique.map(item => item.option), ...(draft.conflict ? { conflict: { ...draft.conflict, effects: effects.length === unique.length ? effects : [] } } : {}) }
 })
 const short = (max: number) => z.string().transform(text => text.replace(/\s+/g, ' ').trim().slice(0, max))
 export const ActionDraftSchema = z.object({
@@ -166,7 +179,7 @@ export async function runCoordinator(request: AgentRequest, runtime: AgentRuntim
   }
   const remember = (step: { memory?: MemoryUpdate[] | undefined }) => { for (const update of step.memory ?? []) if (memory.length < 8) memory.push(update) }
   const branches = request.branches
-  const question = (draft: z.infer<typeof QuestionDraftSchema>): Proposal => ({ kind: 'question', prompt: draft.prompt, options: draft.options, purpose: draft.purpose })
+  const question = (draft: z.infer<typeof QuestionDraftSchema>): Proposal => ({ kind: 'question', prompt: draft.prompt, options: draft.options, purpose: draft.purpose, ...(draft.placeholder ? { placeholder: draft.placeholder } : {}) })
 
   /** When the bounded chain cannot finish, pause and ask one question instead of inventing a result. */
   const pause = (why: string, prompt: string, options: string[], purpose: string): Proposal => {

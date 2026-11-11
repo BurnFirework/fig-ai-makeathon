@@ -455,6 +455,11 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .choice > svg:last-child { color: var(--accent-500); }
 .choice kbd { flex: 0 0 auto; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-100); color: var(--accent-600); font-family: var(--sans); font-size: 11px; font-weight: 700; }
 .choice.own { border-style: dashed; color: var(--cocoa-soft); font-weight: 400; }
+.own-answer { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--accent-300); border-radius: 16px; background: var(--paper); }
+.own-answer textarea { min-height: 36px; padding: 4px 6px; border: 0; background: transparent; box-shadow: none; font-size: 13px; resize: none; }
+.own-answer textarea:focus-visible { box-shadow: none; outline: none; }
+.own-answer-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.own-answer-actions button { border-radius: 999px; gap: 4px; }
 .choice.own > svg { margin: 0 5px; color: var(--accent-500); }
 .agent-trace > summary { list-style: none; display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; background: var(--accent-50); color: var(--cocoa-soft); }
 .agent-trace > summary::-webkit-details-marker { display: none; }
