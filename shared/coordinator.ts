@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { BoardEditsSchema, editedNodeIds } from './board-edits'
 import { isEmpty, isNotEmpty } from './arrays'
 import { type AgentEvent, type AgentRequest, type AgentResult, type BranchContext, type Conflict, type Handoff, type MemoryUpdate, type Proposal, type Source, MemoryUpdateSchema } from './schema'
 
@@ -43,7 +44,9 @@ export const OpportunityDraftSchema = z.object({
 })
 export type OpportunityDraft = z.infer<typeof OpportunityDraftSchema>
 /** A branch (or shared) lead agent chooses its next task. */
+const BoardReplySchema = z.object({ next: z.literal('respond'), text: z.string().min(1).max(1200), edits: BoardEditsSchema.default([]), usedNodeIds: z.array(z.string()).max(40).default([]), memory: memoryField })
 export const LeadStepSchema = z.discriminatedUnion('next', [
+  BoardReplySchema,
   z.object({ next: z.literal('ask'), question: QuestionDraftSchema, reason, memory: memoryField }),
   z.object({ next: z.literal('research'), brief: z.string().min(1).max(800), mustMatch: z.array(z.string().max(200)).max(8).default([]), reason, memory: memoryField }),
   z.object({ next: z.literal('propose'), action: ActionDraftSchema, reason, memory: memoryField }),
@@ -54,6 +57,7 @@ export type LeadStep = z.infer<typeof LeadStepSchema>
  * then chooses what the shared idea needs next: research, a revision, the user's decision, or nothing more.
  */
 export const ConnectionStepSchema = z.discriminatedUnion('next', [
+  BoardReplySchema,
   z.object({ next: z.literal('none'), reason: z.string().min(1).max(400), memory: memoryField }),
   z.object({ next: z.literal('ask'), question: QuestionDraftSchema, reason, memory: memoryField }),
   z.object({ next: z.literal('check'), candidate: OpportunityDraftSchema, reason, memory: memoryField }),
@@ -78,6 +82,7 @@ export interface LeadInput {
   image?: string | undefined; evidence?: Finding | undefined; previousBriefs: string[]; allowed: LeadStep['next'][]
   /** The conversation continues from this outcome; agents build beyond it instead of repeating it. */
   outcome?: { title: string; description: string } | undefined
+  board?: AgentRequest['board']
 }
 export interface ConnectionInput {
   phase: 'draft' | 'decide'; branches: BranchContext[]; note: string; focus?: AgentRequest['focus']
@@ -87,6 +92,7 @@ export interface ConnectionInput {
   evidence?: Finding | undefined; previousBriefs?: string[] | undefined
   /** Sources found earlier in this conversation; citable, but the user's latest decision decides whether they still apply. */
   earlierSources?: Source[] | undefined
+  board?: AgentRequest['board']
 }
 /**
  * A step that produced no usable reply: unreadable output, a failed CLI or a timeout. It is a technical failure,
@@ -128,6 +134,17 @@ export async function runCoordinator(request: AgentRequest, runtime: AgentRuntim
   const handoffs: Handoff[] = []
   const activity: AgentResult['activity'] = []
   const memory: MemoryUpdate[] = []
+  let edits: AgentResult['edits'] = []
+  let usedNodeIds: string[] = []
+  const board = request.trigger !== 'auto' && !request.focus ? request.board : undefined
+  const canRespond = board?.messages.at(-1)?.role === 'user'
+  function respond(reply: z.infer<typeof BoardReplySchema>): Proposal {
+    const ids = new Set(board?.cards.map(card => card.id))
+    if (!canRespond || [...reply.usedNodeIds, ...reply.edits.flatMap(editedNodeIds)].some(id => !ids.has(id))) throw new AgentFailure('The agent used a card outside the conversation’s context. Please retry.')
+    edits = reply.edits
+    usedNodeIds = reply.usedNodeIds
+    return { kind: 'reply', text: reply.text }
+  }
   let calls = 0
   const report = (role: AgentResult['activity'][number]['role'], message: string) => { combined.throwIfAborted(); activity.push({ role, message }); emit({ type: 'activity', role, message }) }
   const hand = (handoff: Handoff) => { combined.throwIfAborted(); handoffs.push({ ...handoff, summary: clip(handoff.summary, 480) }); emit({ type: 'handoff', handoff: handoffs[handoffs.length - 1] ?? handoff }) }
@@ -179,13 +196,15 @@ export async function runCoordinator(request: AgentRequest, runtime: AgentRuntim
     }
     for (;;) {
       const allowed: LeadStep['next'][] = evidence ? (searches < limits.research ? ['propose', 'ask', 'research'] : ['propose', 'ask']) : ['ask', 'research']
+      if (canRespond) allowed.push('respond')
       let step: LeadStep
       try {
-        step = await call((task, spend) => runtime.lead({ role, operation: request.operation, branches, note: request.note, image: evidence ? undefined : request.image, evidence, previousBriefs: briefs, allowed, outcome: request.outcome }, task, spend))
+        step = await call((task, spend) => runtime.lead({ role, operation: request.operation, branches, note: request.note, image: evidence ? undefined : request.image, evidence, previousBriefs: briefs, allowed, outcome: request.outcome, board }, task, spend))
       } catch (error) { if (error instanceof OutOfBudget) return flexibleQuestion(evidence, searches); throw error }
-      remember(step)
       if (!allowed.includes(step.next)) return flexibleQuestion(evidence, searches)
+      remember(step)
       switch (step.next) {
+        case 'respond': return respond(step)
         case 'ask':
           hand({ from: role, fromLabel: roleLabel, to: 'you', task: 'ask', outcome: 'waiting', summary: `${evidence ? (evidence.status === 'none' ? 'After a search without a suitable result, needs' : 'After reviewing the research, needs') : 'Needs'} your answer: ${step.question.prompt}` })
           return question(step.question)
@@ -289,7 +308,7 @@ export async function runCoordinator(request: AgentRequest, runtime: AgentRuntim
     }
     const step = async (input: Omit<ConnectionInput, 'branches' | 'note' | 'focus' | 'trigger' | 'previousBriefs'>): Promise<ConnectionStep | undefined> => {
       try {
-        const result = await call((task, spend) => runtime.connection({ ...input, branches, note: request.note, focus: request.focus, trigger: request.trigger, previousBriefs: briefs, ...(isNotEmpty(carried) ? { earlierSources: carried } : {}) }, task, spend))
+        const result = await call((task, spend) => runtime.connection({ ...input, branches, note: request.note, focus: request.focus, trigger: request.trigger, previousBriefs: briefs, board, ...(isNotEmpty(carried) ? { earlierSources: carried } : {}) }, task, spend))
         remember(result)
         // A "propose" that changes the idea is a revision: it goes back to both branches instead of past them.
         if (result.next === 'propose' && candidate && !same(result.opportunity, candidate) && input.allowed.includes('revise')) return { next: 'revise', candidate: result.opportunity, reason: result.reason, memory: result.memory }
@@ -313,9 +332,10 @@ export async function runCoordinator(request: AgentRequest, runtime: AgentRuntim
       return true
     }
 
-    const first = await step({ phase: 'draft', allowed: ['none', 'ask', 'check', ...(searches < limits.research ? ['research' as const] : [])] })
+    const first = await step({ phase: 'draft', allowed: ['none', 'ask', 'check', ...(canRespond ? ['respond' as const] : []), ...(searches < limits.research ? ['research' as const] : [])] })
     if (!first) throw new Error('The connection agent could not finish. Please retry.')
     switch (first.next) {
+      case 'respond': return respond(first)
       case 'none': return none(first.reason)
       case 'ask': return ask(first.question, 'connection', 'Needs your answer before proposing')
       case 'check': adopt(first.candidate); break
@@ -381,7 +401,7 @@ export async function runCoordinator(request: AgentRequest, runtime: AgentRuntim
           }
           adopt(decision.candidate)
           continue
-        case 'check':
+        case 'check': case 'respond':
           throw new Error('The connection agent returned an unsupported step. Please retry.')
       }
     }
@@ -389,7 +409,7 @@ export async function runCoordinator(request: AgentRequest, runtime: AgentRuntim
 
   const proposal = request.operation === 'connect' ? await connect() : await lead()
   combined.throwIfAborted()
-  return { requestId: request.requestId, proposal, activity, mode: runtime.mode, handoffs: handoffs.slice(-24), memory, searches: searchesRun.slice(0, 6) }
+  return { requestId: request.requestId, proposal, activity, mode: runtime.mode, handoffs: handoffs.slice(-24), memory, searches: searchesRun.slice(0, 6), edits, usedNodeIds }
 }
 
 /** The short states of shared work, in the order a connection usually moves through them. */

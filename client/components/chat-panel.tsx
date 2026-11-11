@@ -8,31 +8,37 @@ import type { NodeShape } from '../nodes/NodeShapeUtil'
 import { type Chat, type ChatMessage, type Conflict, type Handoff, revisionsMatch } from '../../shared/schema'
 import { actions, uiState } from '../actions'
 import { fitBoard, nodeAt, nodes } from '../unfold'
+import { conversationAt, conversations, conversationsFor } from '../conversations'
+import { conversationCards } from '../../shared/conversation-record'
 import { Button } from './ui/button'
 import { Textarea } from './ui/textarea'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu'
 import { CollaborationStatus } from './collaboration'
+import { ArtifactContent } from './artifact-content'
 
 export function ChatPanel() {
   const editor = useEditor()
   const state = useValue('active conversation', () => uiState.get(editor), [editor])
   const source = useValue('conversation source', () => state.activeChat ? nodeAt(editor, state.activeChat.nodeId) : undefined, [editor, state.activeChat])
-  const chat = source?.props.node.chats?.find(chat => chat.id === state.activeChat?.chatId)
+  const chat = useValue('board conversation', () => state.activeChat ? conversationAt(editor, state.activeChat.chatId) : undefined, [editor, state.activeChat])
   if (!source || !chat) return null
-  return <Conversation key={chat.id} sourceId={source.id} title={nodeTitle(source.props.node)} chat={chat} chats={source.props.node.chats ?? []}/>
+  return <Conversation key={chat.id} sourceId={source.id} title={nodeTitle(source.props.node)} chat={chat}/>
 }
 
-function Conversation({ sourceId, title, chat, chats }: { sourceId: TLShapeId; title: string; chat: Chat; chats: Chat[] }) {
+function Conversation({ sourceId, title, chat }: { sourceId: TLShapeId; title: string; chat: Chat }) {
   const editor = useEditor(); const api = actions.get(editor)
   const state = useValue('conversation status', () => uiState.get(editor), [editor])
-  const sources = useValue('chat sources', () => chat.sourceIds.flatMap(id => nodes(editor).filter(shape => shape.id === id)), [editor, chat.sourceIds])
+  const cards = useValue('board cards', () => nodes(editor), [editor])
+  const sources = conversationCards(chat).flatMap(id => cards.filter(shape => shape.id === id))
+  const chats = useValue('card conversations', () => conversationsFor(editor, sourceId), [editor, sourceId])
+  const unattached = cards.filter(card => !conversationCards(chat).includes(card.id))
   const [draft, setDraft] = useState('')
   const bottom = useRef<HTMLDivElement>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
   useEffect(() => { composer.current?.focus({ preventScroll: true }) }, [])
   const job = state.jobs[chat.id]; const busy = job?.status === 'running'
   const lastAssistant = chat.messages.filter(message => message.role === 'assistant').at(-1)
-  const revisions = useValue('dependency revisions', () => currentRevisions(nodes(editor).map(shape => ({ id: shape.id, node: shape.props.node }))), [editor])
+  const revisions = useValue('dependency revisions', () => currentRevisions(nodes(editor).map(shape => ({ id: shape.id, node: shape.props.node })), conversations(editor)), [editor])
   const pending = !job && lastAssistant?.role === 'assistant' && lastAssistant.proposal.kind === 'question' && chat.messages.at(-1)?.id === lastAssistant.id ? lastAssistant.proposal : undefined
   useEffect(() => { bottom.current?.scrollIntoView({ block: 'nearest' }) }, [chat.messages.length, busy])
   function send(text = draft) {
@@ -53,11 +59,12 @@ function Conversation({ sourceId, title, chat, chats }: { sourceId: TLShapeId; t
       <div className="chat-view-controls" role="group" aria-label="Chat view"><Button variant="ghost" size="sm" aria-label="Focus view" aria-pressed={state.chatView === 'focus'} title="Focus on this image and its conversation" onClick={() => uiState.update(editor, state => ({ ...state, chatView: 'focus' }))}><Maximize2 size={14}/><span>Focus</span></Button><Button variant="ghost" size="sm" aria-label="Board and chat view" aria-pressed={state.chatView === 'board'} title="Keep the board visible beside the conversation" onClick={() => { uiState.update(editor, state => ({ ...state, chatView: 'board' })); fitBoard(editor) }}><LayoutPanelLeft size={14}/><span>Board & chat</span></Button></div>
       <Button variant="ghost" size="icon-sm" aria-label="Close chat" onClick={() => api?.closeChat()}><X size={17}/></Button>
     </header>
-    {state.chatView === 'focus' && <section className="focus-content" aria-label="Conversation source content">{sources.map(source => <FocusContent key={source.id} source={source}/>)}</section>}
+    {state.chatView === 'focus' && <section className="focus-content" aria-label="Conversation source content">{sources.filter(source => source.id === sourceId || chat.sourceIds.includes(source.id)).map(source => <FocusContent key={source.id} source={source}/>)}</section>}
     <div className="conversation-body">
     <div className="chat-navigation">
       <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="chat-switcher" aria-label="Switch conversation"/>}><span className="truncate">{chat.title}</span><ChevronDown size={13}/></DropdownMenuTrigger><DropdownMenuContent className="w-72" onKeyDown={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>{chats.map(item => <DropdownMenuItem key={item.id} onClick={() => api?.openChat(sourceId, item.id)}><MessageCircle size={14}/><span className="truncate">{item.title}</span>{item.id === chat.id && <Check size={13}/>}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
       <Button variant="ghost" size="icon-sm" title="Start a separate exploration" aria-label="New conversation" onClick={() => api?.newChat(sourceId)}><Plus size={16}/></Button>
+      {isNotEmpty(unattached) && <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="sm" aria-label="Attach a card" disabled={busy}/>}><Link2 size={13}/> Add card</DropdownMenuTrigger><DropdownMenuContent className="w-72" onKeyDown={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>{unattached.map(card => <DropdownMenuItem key={card.id} onClick={() => api?.applyBoardEdits([{ kind: 'attachNodeToConversation', conversationId: chat.id, nodeId: card.id }])}>{nodeTitle(card.props.node)}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>}
     </div>
     {sources.length > 1 && <div className="chat-source-row"><Link2 size={13}/><span>Bringing together</span>{sources.map(source => <button key={source.id} title={nodeTitle(source.props.node)} onClick={() => { uiState.update(editor, state => ({ ...state, chatView: 'board' })); editor.select(source.id); fitBoard(editor) }}>{nodeTitle(source.props.node)}</button>)}</div>}
     {chat.operation === 'connect' && <CollaborationStatus live={busy} handoffs={busy ? job.handoffs ?? [] : lastAssistant?.role === 'assistant' ? lastAssistant.trace ?? [] : []}/>}
@@ -135,7 +142,8 @@ function UserNotes({ message, chat }: { message: Extract<ChatMessage, { role: 'u
 function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice, onOwnAnswer }: { message: ChatMessage; chat: Chat; sourceId: TLShapeId; isLatest: boolean; busy: boolean; stale: boolean; onChoice: (choice: string) => void; onOwnAnswer: () => void }) {
   const editor = useEditor(); const api = actions.get(editor)
   const chatId = chat.id
-  const outcome = useValue('published outcome', () => message.role === 'assistant' && message.outcomeId ? nodes(editor).find(shape => shape.id === message.outcomeId) : undefined, [editor, message])
+  const outcomes = useValue('published outcomes', () => message.role === 'assistant' ? nodes(editor).filter(shape => shape.id === message.outcomeId || message.outcomeIds?.includes(shape.id)) : [], [editor, message])
+  const outcome = outcomes[0]
   const [composing, setComposing] = useState<'decline' | 'refine' | null>(null)
   const [note, setNote] = useState('')
   const [why, setWhy] = useState(false)
@@ -161,6 +169,7 @@ function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice, onO
         <button type="button" className="choice own" disabled={busy} onClick={onOwnAnswer}><Pencil size={12}/><span>Something else…</span></button></div>
     </div> : <><p>{proposal.prompt}</p>{proposal.conflict && <ConflictDetails conflict={proposal.conflict}/>}{proposal.purpose && <small className="message-purpose">{proposal.purpose}</small>}</>)}
     {proposal.kind === 'research' && <p>{proposal.brief}</p>}
+    {proposal.kind === 'reply' && <><p>{proposal.text}</p>{outcomes.map(card => <Button key={card.id} variant="outline" size="sm" onClick={() => { uiState.update(editor, state => ({ ...state, chatView: 'board' })); editor.select(card.id); fitBoard(editor) }}>{nodeTitle(card.props.node)}<ArrowRight size={13}/></Button>)}</>}
     {proposal.kind === 'none' && <div className="chat-none"><div className="outcome-label">No useful overlap</div><p>{proposal.reason}</p><small className="message-purpose">Nothing was added. Agents look again when either goal changes.</small></div>}
     {(proposal.kind === 'opportunity' || proposal.kind === 'action') && <div className={`chat-outcome ${decision ? `decision-${decision}` : ''}`}><div className="outcome-label">{proposal.kind === 'opportunity' ? (revisedFrom ? 'Shared direction · revised' : 'Shared direction') : 'Next step'}</div><h3>{proposal.title}</h3>
       {proposal.kind === 'action' ? <ActionSummary action={proposal}/> : <p>{proposal.description}</p>}
@@ -224,6 +233,6 @@ function FocusContent({ source }: { source: NodeShape }) {
     return () => { current = false }
   }, [editor, asset])
   return <div className={`focus-source source-${node.type}`}>
-    {node.type === 'inspiration' ? <>{src ? <img src={src} alt={node.goal} draggable={false}/> : <div className="focus-image-placeholder"><MessageCircle size={30}/></div>}<span>{node.goal}</span></> : <div className="focus-outcome"><span className="micro-label">{node.type === 'opportunity' ? 'Shared direction' : 'Next step'}</span><h3>{nodeTitle(node)}</h3>{node.type === 'opportunity' && <p>{node.description}</p>}{node.type === 'action' && <ActionSummary action={node}/>}</div>}
+    {node.type === 'inspiration' ? <>{src ? <img src={src} alt={node.goal} draggable={false}/> : <div className="focus-image-placeholder"><MessageCircle size={30}/></div>}<span>{node.goal}</span></> : <div className="focus-outcome"><span className="micro-label">{node.type === 'opportunity' ? 'Shared direction' : node.type === 'artifact' ? node.content.kind : 'Next step'}</span><h3>{nodeTitle(node)}</h3>{node.type === 'opportunity' && <p>{node.description}</p>}{node.type === 'action' && <ActionSummary action={node}/>}{node.type === 'artifact' && <ArtifactContent content={node.content}/>}</div>}
   </div>
 }

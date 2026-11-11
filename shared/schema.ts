@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { BoardContextSchema, BoardEditsSchema, CardContentSchema } from './board-edits'
 
 const safeUrl = z.url().refine(value => ['https:', 'http:'].includes(new URL(value).protocol), 'Expected an HTTP URL')
 export const SourceSchema = z.object({ id: z.string(), title: z.string(), url: safeUrl })
@@ -17,6 +18,7 @@ export const ConflictSchema = z.object({
 })
 export type Conflict = z.infer<typeof ConflictSchema>
 export const ProposalSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('reply'), text: z.string().min(1).max(1200) }),
   z.object({ kind: z.literal('question'), prompt: z.string().min(1), options: z.array(z.string()).min(2).max(4), purpose: z.string(), conflict: ConflictSchema.optional() }),
   z.object({ kind: z.literal('research'), brief: z.string().min(1) }),
   z.object({ kind: z.literal('opportunity'), title: z.string().min(1), description: z.string(), benefitA: z.string(), benefitB: z.string(),
@@ -61,7 +63,7 @@ export type Handoff = z.infer<typeof HandoffSchema>
 export const ChatMessageSchema = z.discriminatedUnion('role', [
   z.object({ id: z.string(), role: z.literal('user'), text: z.string().max(2000), replyTo: z.string().optional(), stance: StanceSchema.optional() }),
   z.object({
-    id: z.string(), role: z.literal('assistant'), proposal: ProposalSchema, dependsOn: z.array(DependencySchema), outcomeId: z.string().optional(),
+    id: z.string(), role: z.literal('assistant'), proposal: ProposalSchema, dependsOn: z.array(DependencySchema), outcomeId: z.string().optional(), outcomeIds: z.array(z.string()).max(12).optional(),
     decision: DecisionSchema.optional(), revises: z.string().optional(), trace: z.array(HandoffSchema).max(24).optional(),
     /** Research briefs this reply ran, so later searches in the conversation differ. */
     searches: z.array(z.string().max(800)).max(6).optional(),
@@ -69,6 +71,7 @@ export const ChatMessageSchema = z.discriminatedUnion('role', [
 ])
 export const ChatSchema = z.object({
   id: z.string(), title: z.string().max(120), contextChats: z.array(z.object({ nodeId: z.string(), chatId: z.string(), messageId: z.string().optional() })).optional(), sourceIds: z.array(z.string()).min(1).max(2),
+  cardIds: z.array(z.string()).optional(),
   branchIds: z.array(z.string()).min(1).max(2), operation: z.enum(['branch', 'connect', 'research']),
   messages: z.array(ChatMessageSchema), createdAt: z.number(), memory: ChatMemorySchema.optional(),
 })
@@ -82,11 +85,12 @@ export const LinkScanSchema = z.object({
 })
 const base = {
   chats: z.array(ChatSchema).optional(),
-  origin: z.object({ nodeId: z.string(), chatId: z.string(), messageId: z.string() }).optional(),
+  origin: z.object({ nodeId: z.string(), chatId: z.string(), messageId: z.string(), inputs: z.array(DependencySchema).optional() }).optional(),
   branchId: z.string(), sequence: z.number(), revision: z.number().int().nonnegative(), stale: z.boolean(),
   dependsOn: z.array(DependencySchema), agent: z.enum(['you', 'branch', 'research', 'connection']), createdAt: z.number(),
 }
 export const NodeSchema = z.discriminatedUnion('type', [
+  z.object({ ...base, type: z.literal('artifact'), content: CardContentSchema }),
   z.object({ ...base, type: z.literal('inspiration'), assetId: z.string(), goal: z.string().max(600), started: z.boolean(), links: z.array(LinkScanSchema).max(40).optional() }),
   z.object({ ...base, type: z.literal('question'), prompt: z.string(), options: z.array(z.string()).min(2).max(4), purpose: z.string() }),
   z.object({ ...base, type: z.literal('answer'), text: z.string().max(2000), questionId: z.string() }),
@@ -117,6 +121,7 @@ export type MemoryUpdate = z.infer<typeof MemoryUpdateSchema>
 export const FocusSchema = z.object({ kind: z.literal('refine'), title: z.string().max(200), description: z.string().max(2000), note: z.string().max(2000) })
 export const RequestSchema = z.object({
   requestId: z.string().min(1).max(120), operation: z.enum(['branch', 'connect', 'research']),
+  board: BoardContextSchema.optional(),
   branches: z.array(BranchContextSchema).min(1).max(2),
   image: z.string().max(6_000_000).optional(), note: z.string().max(2000),
   /** The user asked to revise this proposal. */
@@ -134,6 +139,7 @@ export type AgentRequest = z.infer<typeof RequestSchema>
 export const ActivitySchema = z.object({ role: z.enum(['branch', 'research', 'connection', 'coordinator']), message: z.string() })
 export const ResultSchema = z.object({
   requestId: z.string(), proposal: ProposalSchema, activity: z.array(ActivitySchema), mode: z.enum(['live', 'demo']),
+  edits: BoardEditsSchema.default([]), usedNodeIds: z.array(z.string()).max(40).default([]),
   handoffs: z.array(HandoffSchema).max(24).default([]), memory: z.array(MemoryUpdateSchema).max(8).default([]),
   searches: z.array(z.string().max(800)).max(6).default([]),
 })

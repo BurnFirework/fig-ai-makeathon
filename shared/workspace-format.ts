@@ -4,11 +4,14 @@ import { T } from '@tldraw/validate'
 import { z } from 'zod'
 import { BoardCatalogSchema } from '../client/boards'
 import { isUnfoldNode, type UnfoldNode } from './schema'
+import { conversationRecord } from './conversation-record'
+import { RelationshipSchema } from './board-edits'
 
 export const MAX_WORKSPACE_BYTES = 128 * 1024 * 1024
 const MAX_ENTRIES = 4096
 export const workspaceTLSchema = createTLSchema({
-  shapes: { ...defaultShapeSchemas, node: { props: { node: new T.Validator<UnfoldNode>(value => { if (!isUnfoldNode(value)) throw new Error('Invalid Unfold node.'); return value }) } }, connection: { props: { start: vecModelValidator, end: vecModelValidator } } },
+  records: { unfold_conversation: conversationRecord },
+  shapes: { ...defaultShapeSchemas, node: { props: { node: new T.Validator<UnfoldNode>(value => { if (!isUnfoldNode(value)) throw new Error('Invalid Unfold node.'); return value }) } }, connection: { props: { start: vecModelValidator, end: vecModelValidator, relationship: T.optional(T.literalEnum(...RelationshipSchema.options)) } } },
   bindings: { ...defaultBindingSchemas, connection: { props: { portId: T.string, terminal: T.literalEnum('start', 'end') } } },
 })
 const SnapshotSchema = z.object({
@@ -76,6 +79,7 @@ export function parseWorkspace(value: unknown): Workspace {
     const records = Object.values(board.document.store)
     if (!records.some(record => record.typeName === 'document') || !records.some(record => record.typeName === 'page')) throw new Error('A board document or page is missing.')
     for (const record of records) {
+      if (record.typeName === 'unfold_conversation' && board.document.store[record.pageId]?.typeName !== 'page') throw new Error('A conversation page is missing from the backup.')
       if (record.typeName === 'asset' && record.type === 'image' && !workspace.assets[record.id]) throw new Error('An image is missing from the backup.')
       if (record.typeName === 'shape' && !board.document.store[record.parentId]) throw new Error('A shape parent is missing from the backup.')
       if (record.typeName === 'binding' && (!board.document.store[record.fromId] || !board.document.store[record.toId])) throw new Error('A connection endpoint is missing from the backup.')

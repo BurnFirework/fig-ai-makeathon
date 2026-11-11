@@ -1,27 +1,37 @@
-/** A card on the board, reduced to what decides which cards grew from which. */
-export interface BranchCard { id: string; branchId: string; inspiration: boolean; sourceBranchIds?: readonly string[] | undefined }
-/** A drawn connection from a source card (`from`) to the card that grew from it (`to`). */
-export interface BranchEdge { from: string; to: string }
+import type { Relationship } from './board-edits'
 
-/**
- * The cards removed together with `rootId`: the card itself and everything that grew from it.
- * For an inspiration that is its whole branch, including shared directions that used it as a source.
- * Other inspirations are never included, even when a line was drawn to one: each photo is its own root.
- */
-export function branchFrom(rootId: string, cards: readonly BranchCard[], edges: readonly BranchEdge[]): string[] {
+export interface BranchCard { id: string; branchId: string; inspiration: boolean; sourceBranchIds?: readonly string[] | undefined }
+export interface BranchEdge { from: string; to: string; relationship?: Relationship }
+
+/** Returns the selected cards and any cards that would lose all of their remaining sources. */
+export function branchFrom(rootIds: readonly string[], cards: readonly BranchCard[], edges: readonly BranchEdge[]): string[] {
   const byId = new Map(cards.map(card => [card.id, card]))
-  const root = byId.get(rootId)
-  if (!root) return []
-  const removed = new Set([rootId])
-  if (root.inspiration) for (const card of cards) {
-    if (!card.inspiration && (card.branchId === rootId || card.sourceBranchIds?.includes(rootId))) removed.add(card.id)
+  const sources = new Map<string, Set<string>>()
+  const hasDevelopmentLink = new Set<string>()
+
+  for (const { from, to, relationship } of edges) {
+    const card = byId.get(to)
+    if (!card || card.inspiration || from === to || !byId.has(from)) continue
+    const inputs = sources.get(to) ?? new Set<string>()
+    inputs.add(from)
+    sources.set(to, inputs)
+    if (relationship !== 'reference') hasDevelopmentLink.add(to)
   }
-  const queue = [...removed]
-  for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
-    for (const edge of edges) {
-      const child = edge.from === id ? byId.get(edge.to) : undefined
-      if (!child || child.inspiration || removed.has(child.id)) continue
-      removed.add(child.id); queue.push(child.id)
+
+  // Older branch cards can retain their source even when their original line is missing.
+  for (const card of cards) {
+    if (card.inspiration || hasDevelopmentLink.has(card.id)) continue
+    const inputs = sources.get(card.id) ?? new Set<string>()
+    for (const id of card.sourceBranchIds ?? [card.branchId]) {
+      if (id !== card.id && byId.get(id)?.inspiration) inputs.add(id)
+    }
+    sources.set(card.id, inputs)
+  }
+
+  const removed = new Set(rootIds.filter(id => byId.has(id)))
+  for (const id of removed) {
+    for (const [child, inputs] of sources) {
+      if (inputs.has(id) && [...inputs].every(input => removed.has(input))) removed.add(child)
     }
   }
   return [...removed]

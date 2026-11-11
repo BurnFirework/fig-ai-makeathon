@@ -3,8 +3,27 @@ import { test } from 'node:test'
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { decodeWorkspace, encodeWorkspace, mergeWorkspaces, parseWorkspace, workspaceTLSchema } from '../shared/workspace-format'
 import { workspaceFixture } from './workspace-fixture'
+import { conversationId, type ConversationRecord } from '../shared/conversation-record'
 
 const cases: Promise<void>[] = []
+cases.push(test('backup and additive import preserve a conversation shared by two cards under its original ID', () => {
+  const workspace = workspaceFixture()
+  const store = workspace.boards['board-a']?.document.store
+  const page = Object.values(store ?? {}).find(record => record.typeName === 'page')
+  assert.ok(store && page)
+  const conversation: ConversationRecord = { typeName: 'unfold_conversation', id: conversationId('shared'), pageId: page.id, chat: {
+    id: 'shared', title: 'Shared ideas', sourceIds: ['shape:root'], cardIds: ['shape:root', 'shape:action'], branchIds: ['shape:root'], operation: 'branch', createdAt: 1,
+    messages: [{ id: 'message', role: 'assistant', proposal: { kind: 'reply', text: 'A useful note.' }, outcomeIds: ['shape:action'], dependsOn: [{ id: 'shape:root', revision: 0 }] }],
+  } }
+  store[conversation.id] = conversation
+  const restored = decodeWorkspace(encodeWorkspace(workspace))
+  assert.deepEqual(restored.boards['board-a']?.document.store[conversation.id], conversation)
+  const merged = mergeWorkspaces(workspaceFixture(), restored)
+  const imported = merged.catalog.boards[2]
+  assert.ok(imported)
+  assert.deepEqual(merged.boards[imported.id]?.document.store[conversation.id], conversation)
+  assert.equal(merged.boards['board-a']?.document.store[conversation.id], undefined)
+}))
 cases.push(test('a portable archive restores every board, custom inspiration image, sources and reflection', () => {
   const original = workspaceFixture()
   const bytes = encodeWorkspace(original)

@@ -57,6 +57,16 @@ try {
   await page.getByRole('img', { name: 'Explore a creative practice', exact: true }).hover({ force: true })
   await page.getByRole('button', { name: 'Explore Explore a creative practice', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Yes, I want to try', exact: false })).toBeVisible({ timeout: 30000 })
+  const composer = page.getByRole('textbox', { name: 'Message', exact: true })
+  await composer.fill('Add a note about light and color.')
+  await composer.press('Enter')
+  await expect(page.locator('.card-artifact')).toContainText('light and color')
+  await expect(page.getByRole('status').filter({ hasText: 'Saved on this device' })).toBeVisible()
+  await expect.poll(async () => {
+    const saved = decodeWorkspace(new Uint8Array(await readFile(libraryPath)))
+    const board = saved.boards[saved.catalog.activeId]
+    return Object.values(board?.document.store ?? {}).some(record => record.typeName === 'unfold_conversation' && record.chat.messages.some(message => message.role === 'assistant' && message.outcomeIds?.length))
+  }).toBe(true)
   await page.getByRole('button', { name: 'Close chat', exact: true }).click()
   await page.waitForTimeout(1000)
   const result = await app.evaluate(async ({ BrowserWindow }) => {
@@ -69,15 +79,16 @@ try {
       const bridge = window.unfoldDesktop.agents
       await bridge.select('codex')
       const requestId = crypto.randomUUID()
+      const note = 'Create one note titled Warm oak with a description about soft daylight. Add it to the board now.'
       return await new Promise((resolve, reject) => {
         const timer = setTimeout(() => { bridge.cancel(requestId); reject(new Error('Live smoke timed out')) }, 125000)
-        const off = bridge.onEvent(payload => { if (payload.requestId === requestId && payload.event.type === 'result') { clearTimeout(timer); off(); offFailure(); resolve(payload.event.result.mode) } })
+        const off = bridge.onEvent(payload => { if (payload.requestId === requestId && payload.event.type === 'result') { clearTimeout(timer); off(); offFailure(); resolve(payload.event.result) } })
         const offFailure = bridge.onFailure(payload => { if (payload.requestId === requestId) { clearTimeout(timer); off(); offFailure(); reject(new Error(payload.message)) } })
-        bridge.run({ requestId, operation: 'branch', branches: [{ id: 'synthetic', goal: 'Try watercolor painting', revision: 0, answers: [], confirmed: [], assumptions: [], previousSuggestions: [] }], note: 'Ask one short question to clarify this synthetic test goal.' }).catch(reject)
+        bridge.run({ requestId, operation: 'branch', branches: [{ id: 'synthetic', goal: 'Study room materials', revision: 0, answers: [], confirmed: [], assumptions: [], previousSuggestions: [] }], note, board: { conversationId: 'synthetic-chat', focusId: 'synthetic', attachedIds: ['synthetic'], selectedIds: ['synthetic'], cards: [{ id: 'synthetic', title: 'Room materials', image: false, revision: 0 }], links: [], messages: [{ role: 'user', text: note }] } }).catch(reject)
       })
     })
-    if (live !== 'live') throw new Error('Real provider was silently replaced with demo')
-    console.log('PASS installed Codex discovery and real live request from packaged app outside project cwd')
+    if (live.mode !== 'live' || !live.edits.some(edit => edit.kind === 'createNode' && edit.content.kind === 'note')) throw new Error('Codex did not return a structured board edit')
+    console.log('PASS installed Codex returned a structured board edit from the packaged app outside project cwd')
   }
   await page.screenshot({ path: resolve('output/desktop/smoke.png') })
   await app.close(); app = undefined
@@ -85,11 +96,12 @@ try {
   const reopened = await app.firstWindow()
   await expect(reopened.getByRole('status').filter({ hasText: 'Saved on this device' })).toBeVisible()
   await expect(reopened.locator('.card-inspiration')).toHaveCount(2)
+  await expect(reopened.locator('.card-artifact')).toContainText('light and color')
   const images = reopened.locator('.card-inspiration img')
   await expect(images).toHaveCount(2)
   if (!(await images.evaluateAll(nodes => nodes.every(image => image.complete && image.naturalWidth > 0)))) throw new Error('Saved desktop images failed to decode')
   if (decodeWorkspace(new Uint8Array(await readFile(libraryPath))).catalog.boards.length !== 4) throw new Error('Imported boards were not retained after restart')
-  console.log('PASS packaged macOS: automatic local save, menu export/import, image archive, quit and reopen without a location picker')
+  console.log('PASS packaged macOS: local save, export/import, generated card and conversation, quit and reopen')
   await app.close(); app = undefined
   const recoveryPath = join(directory, 'profile', 'workspaces', 'recovery.json')
   await writeFile(libraryPath, 'damaged library')

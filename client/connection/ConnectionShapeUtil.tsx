@@ -1,4 +1,5 @@
 import { actions } from '../actions'
+import { RelationshipSchema, type Relationship } from '../../shared/board-edits'
 import {
 	CubicBezier2d,
 	Editor,
@@ -7,6 +8,7 @@ import {
 	Mat,
 	type RecordProps,
 	SVGContainer,
+	T,
 	ShapeUtil,
 	type TLHandle,
 	type TLHandleDragInfo,
@@ -33,7 +35,7 @@ const CONNECTION_TYPE = 'connection'
 
 declare module 'tldraw' {
 	export interface TLGlobalShapePropsMap {
-		[CONNECTION_TYPE]: { start: VecModel; end: VecModel }
+		[CONNECTION_TYPE]: { start: VecModel; end: VecModel; relationship?: Relationship | undefined }
 	}
 }
 
@@ -53,6 +55,7 @@ export class ConnectionShapeUtil extends ShapeUtil<ConnectionShape> {
 	static override props: RecordProps<ConnectionShape> = {
 		start: vecModelValidator,
 		end: vecModelValidator,
+		relationship: T.optional(T.literalEnum(...RelationshipSchema.options)),
 	}
 
 	getDefaultProps(): ConnectionShape['props'] {
@@ -254,7 +257,7 @@ function ConnectionShape({ connection }: { connection: ConnectionShape }) {
 
 	return (
 		<SVGContainer className="ConnectionShape">
-			<path d={getConnectionPath(start, end)} />
+			<path d={getConnectionPath(start, end)} strokeDasharray={connection.props.relationship === 'reference' ? '6 5' : undefined} />
 		</SVGContainer>
 	)
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { BoardEditsSchema, type BoardContext } from '../shared/board-edits'
 import { isEmpty } from '../shared/arrays'
 import { type AgentRuntime, type Budget, type Finding, type LeadStep, AgentFailure, ConnectionStepSchema, FitCheckSchema, LeadStepSchema, runCoordinator, sameUrl } from '../shared/coordinator'
 import { demoRuntime } from '../shared/preview'
@@ -17,6 +18,14 @@ const questionRule = `A question object has "prompt" (at most 12 words), "option
 const brevityRule = `Write for a calm, quick read: short plain words, no filler, no repeated context. Never pack several ideas into one sentence.`
 const actionRule = `An action object has "title" (at most 8 words), "summary" (one sentence of at most 20 words: what and why), "steps" (2 to 4 concrete steps of at most 12 words each), "meta" (only what is known: "time" like "15 min", "cost" like "Free" or "Under $30", "place" like "At home") and an optional "description" with extra detail of at most 50 words.`
 const json = (value: unknown) => JSON.stringify(value)
+const editShape = json(z.toJSONSchema(BoardEditsSchema, { io: 'input' }))
+function boardGuidance(board: BoardContext | undefined) {
+  if (!board) return ''
+  return `For an explicit request to create, revise, attach or reuse board content, choose "respond" with useful content and edits. Continue that request after the user answers any clarifying questions. Ask only if missing information would change the result. An open-ended exploration or a real-world recommendation still uses the exploration and research flow above.
+Return {"next":"respond","text":"brief answer","edits":[],"usedNodeIds":[]} for a conversational answer or board edit. Edits follow this schema: ${editShape}
+Use exact IDs from board.cards, and board.conversationId for attachment. A moodboard is a composition of existing image cards (image:true) with short captions. Create the composition, not instructions to make one. Reference an existing card by ID when it fits. Use "develops" for the card you build from and "reference" for reused material. List IDs of other cards you actually used in usedNodeIds. Include a complete batch and describe only work in that batch. Do not invent images, citations, real events, prices or availability. Ask if required images are missing.
+Board and recent conversation: ${json(board)}`
+}
 const strip = (text: string) => text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
 /** The JSON object in a reply, also when the model wrapped it in a sentence or a code fence. The schema still decides whether it is usable. */
 export function jsonReply(text: string): unknown {
@@ -132,7 +141,8 @@ ${actionRule}
 ${brevityRule}
 ${memoryRule}
 Context: ${contextJson(input.branches)}
-Latest note: ${json(input.note)}`
+Latest note: ${json(input.note)}
+${input.allowed.includes('respond') ? boardGuidance(input.board) : ''}`
       return structured(config, prompt, LeadStepSchema, signal, budget, input.image ? { image: input.image } : {}, (step: LeadStep) => {
         if (!input.allowed.includes(step.next)) return `"next" must be one of ${input.allowed.join(', ')}`
         if (step.next === 'propose' && !step.action.sources.some(source => evidenceUrls.some(url => sameUrl(url, source.url)))) return 'the action must cite at least one of the provided source URLs'
@@ -180,7 +190,8 @@ A candidate's "title" has at most 8 words, "description" at most 30 words, and e
 ${brevityRule}
 ${memoryRule}
 Context: ${contextJson(input.branches)}
-Latest note: ${json(input.note)}`
+Latest note: ${json(input.note)}
+${input.allowed.includes('respond') ? boardGuidance(input.board) : ''}`
       return structured(config, prompt, ConnectionStepSchema, signal, budget, {}, step => {
         if (!input.allowed.includes(step.next)) return `"next" must be one of ${input.allowed.join(', ')}`
         if (step.next === 'revise' && step.candidate.sources?.some(source => !evidenceUrls.some(url => sameUrl(url, source.url)))) return `"sources" may only cite these URLs: ${json(evidenceUrls)}`

@@ -14,6 +14,7 @@ import { Button } from './components/ui/button'
 import { ChatPanel } from './components/chat-panel'
 import { lineage, nodeTitle } from '../shared/chats'
 import { Input } from './components/ui/input'
+import { Textarea } from './components/ui/textarea'
 import { selectAgentProvider } from './agentClient'
 import { useRef, useState, useSyncExternalStore } from 'react'
 import { Editor, type TLComponents, type TLUiOverrides, Tldraw, useEditor, useValue } from 'tldraw'
@@ -43,13 +44,15 @@ async function switchProvider(editor: Editor, provider: string) {
 function Chrome() {
   const editor = useEditor(); const input = useRef<HTMLInputElement>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [noteOpen, setNoteOpen] = useState(false)
   const state = useValue('chrome state', () => uiState.get(editor), [editor])
-  const roots = useValue('roots', () => nodes(editor).filter(shape => shape.props.node.type === 'inspiration'), [editor])
+  const cards = useValue('board cards', () => nodes(editor), [editor])
   const path = useValue('exploration path', () => {
     const id = state.activeChat?.nodeId ?? editor.getSelectedShapeIds()[0]
     return id ? lineage(nodes(editor).map(shape => ({ id: shape.id, node: shape.props.node })), id) : []
   }, [editor, state.activeChat])
-  const selected = useValue('selected node', () => editor.getSelectedShapes().find(shape => editor.isShapeOfType(shape, 'node')), [editor])
+  const selectedCards = useValue('selected cards', () => editor.getSelectedShapes().filter(shape => editor.isShapeOfType(shape, 'node')), [editor])
+  const [selected, referenceTarget] = selectedCards
   const tool = useValue('tool', () => editor.getCurrentToolId(), [editor])
   const jobs = Object.values(state.jobs).filter(job => job.status === 'running').length
   const api = actions.get(editor)
@@ -65,12 +68,12 @@ function Chrome() {
         </Button>
       </div>
     </header>
-    {isEmpty(roots) && <div className="board-heading" aria-hidden="true"><div className="chapter-label"><span className="dot"/> A SPACE FOR WHAT’S NEXT</div><h1>Let your possibilities <em>unfold</em>.</h1><p><span className="ribbon">Start with something that moves you. Find a small way forward.</span></p></div>}
-    {isEmpty(roots) && <div className="empty-state"><div className="empty-mark" aria-hidden="true"><ImagePlus size={30} strokeWidth={1.25}/></div><h1>A little space for your ideas.</h1><p>Add an image that means something to you.<br/>See where it takes you.</p><Button size="lg" onClick={() => input.current?.click()}><ImagePlus size={17}/> Add inspiration</Button><Button variant="link" size="sm" onClick={() => { api?.samples().catch((error: unknown) => reportFailure(editor, error)) }}>Explore a sample board <ArrowRight size={14}/></Button></div>}
+    {isEmpty(cards) && <div className="board-heading" aria-hidden="true"><div className="chapter-label"><span className="dot"/> A SPACE FOR WHAT’S NEXT</div><h1>Let your possibilities <em>unfold</em>.</h1><p><span className="ribbon">Start with something that moves you. Find a small way forward.</span></p></div>}
+    {isEmpty(cards) && <div className="empty-state"><div className="empty-mark" aria-hidden="true"><ImagePlus size={30} strokeWidth={1.25}/></div><h1>A little space for your ideas.</h1><p>Add an image that means something to you.<br/>See where it takes you.</p><Button size="lg" onClick={() => input.current?.click()}><ImagePlus size={17}/> Add inspiration</Button><Button variant="link" size="sm" onClick={() => { api?.samples().catch((error: unknown) => reportFailure(editor, error)) }}>Explore a sample board <ArrowRight size={14}/></Button></div>}
     <ChatPanel/>
     <RemoveDialog/>
     <Toaster offset={state.activeChat && state.chatView === 'board' ? { right: 456, bottom: 24 } : { right: 24, bottom: 24 }}/>
-    {isNotEmpty(roots) && <div className="bottom-toolbar" role="toolbar" aria-label="Canvas tools">
+    {isNotEmpty(cards) && <div className="bottom-toolbar" role="toolbar" aria-label="Canvas tools">
       <div className="tool-group"><Button variant="ghost" size="icon" aria-pressed={tool === 'select'} title="Select (V)" aria-label="Select tool" onClick={() => editor.setCurrentTool('select')}><MousePointer2 size={18}/></Button><Button variant="ghost" size="icon" aria-pressed={tool === 'hand'} title="Pan (H) · hold Space to pan" aria-label="Pan tool" onClick={() => editor.setCurrentTool('hand')}><Hand size={18}/></Button></div>
       <span className="toolbar-divider"/>
       <Button variant="ghost" size="sm" className="add-image-tool" aria-label="Add inspiration" onClick={() => input.current?.click()}><Plus size={18}/><span>Add image</span></Button>
@@ -78,9 +81,20 @@ function Chrome() {
       <Button variant="ghost" size="icon" title="See the whole picture" aria-label="Fit board" onClick={() => fitBoard(editor)}><Expand size={18}/></Button>
       <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label="More canvas actions" title="More canvas actions"/>}><MoreHorizontal size={18}/></DropdownMenuTrigger><DropdownMenuContent side="top" align="end" className="w-52" onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
         {selected && <><DropdownMenuItem onClick={() => api?.openChat(selected.id)}><MessageCircle/>Open attached chat</DropdownMenuItem><DropdownMenuSeparator/></>}
+        <DropdownMenuItem onClick={() => setNoteOpen(true)}><Plus/>Add a note</DropdownMenuItem>
+        {selected && referenceTarget && selectedCards.length === 2 && <DropdownMenuItem onClick={() => api?.applyBoardEdits([{ kind: 'connectNodes', from: selected.id, to: referenceTarget.id, relationship: 'reference' }])}><Merge/>Link as reference</DropdownMenuItem>}
         <DropdownMenuItem onClick={() => editor.undo()}><Undo2/>Undo</DropdownMenuItem><DropdownMenuItem onClick={() => editor.redo()}><Redo2/>Redo</DropdownMenuItem>
       </DropdownMenuContent></DropdownMenu>
     </div>}
+    <Dialog open={noteOpen} onOpenChange={setNoteOpen}><DialogContent onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}><DialogHeader><DialogTitle>Add a note</DialogTitle><DialogDescription>Keep an idea on this board.</DialogDescription></DialogHeader><form className="grid gap-3" onSubmit={event => {
+      event.preventDefault()
+      const form = new FormData(event.currentTarget)
+      const title = form.get('title')
+      const description = form.get('description')
+      if (typeof title !== 'string' || typeof description !== 'string') return
+      const created = api?.applyBoardEdits([{ kind: 'createNode', content: { kind: 'note', title, description }, links: selected ? [{ nodeId: selected.id, relationship: 'reference' }] : [] }])[0]
+      if (created) { setNoteOpen(false); fitBoard(editor) }
+    }}><Input name="title" aria-label="Note title" placeholder="Title" required maxLength={600}/><Textarea name="description" aria-label="Note text" placeholder="Your idea" required maxLength={1200}/><Button type="submit">Add note</Button></form></DialogContent></Dialog>
     <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}><DialogContent className="board-settings" onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}><DialogHeader><DialogTitle>Board settings</DialogTitle><DialogDescription>Your boards stay on this device. Use Workspace files to export a complete backup.</DialogDescription></DialogHeader><label className="settings-label">Agent provider</label>
         <Select items={[{ value: 'demo', label: 'Preview agents' }, { value: 'claude', label: 'Claude Code' }, { value: 'codex', label: 'Codex CLI' }]} disabled={jobs > 0} value={state.mode === 'demo' ? 'demo' : state.provider.toLowerCase().includes('claude') ? 'claude' : 'codex'} onValueChange={provider => {
           if (provider) switchProvider(editor, provider).catch((error: unknown) => reportFailure(editor, error))

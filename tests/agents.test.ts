@@ -24,6 +24,23 @@ const request = (operation: AgentRequest['operation'], branches: BranchContext[]
 const branch = (goal: string, memory: BranchContext['memory'] = [], declined: BranchContext['declined'] = []): BranchContext => ({ id: goal, goal, revision: 0, answers: [], confirmed: memory.map(item => item.text), assumptions: [], previousSuggestions: [], memory, changes: [], declined })
 const found: Finding = { status: 'found', summary: 'A community studio class', sources: [{ id: 's1', title: 'Studio class', url: 'https://studio.example/class' }], limits: '' }
 
+const boardReply = test('the preview agent can produce a composition on the first user turn or ask before it edits', async () => {
+  const prompt = 'Create a moodboard using Materials palette'
+  const board = { conversationId: 'c', focusId: 'room', attachedIds: ['room'], selectedIds: ['room'], cards: [{ id: 'room', title: 'Room photo', revision: 0, image: true }, { id: 'palette', title: 'Materials palette', revision: 1, image: true }], links: [] }
+  const run = (messages: NonNullable<AgentRequest['board']>['messages']) => runCoordinator(request('branch', [branch('room')], { board: { ...board, messages } }), demoRuntime(0), new AbortController().signal, () => {})
+  const direct = await run([{ role: 'user', text: prompt }])
+  assert.equal(direct.proposal.kind, 'reply')
+  const edit = direct.edits[0]
+  assert.ok(edit?.kind === 'createNode' && edit.content.kind === 'moodboard')
+  assert.deepEqual(edit.content.items.map(item => item.nodeId), ['room', 'palette'])
+  const first = { role: 'user' as const, text: prompt + ', but ask me about the mood first.' }
+  const question = await run([first])
+  assert.deepEqual(question.edits, [])
+  assert.ok(question.proposal.kind === 'question')
+  const answered = await run([first, { role: 'assistant', text: question.proposal.prompt }, { role: 'user', text: 'Warm and calm' }])
+  assert.ok(answered.edits[0]?.kind === 'createNode' && answered.edits[0].content.title === 'Warm and calm moodboard')
+})
+
 /** A scripted runtime that records every task it receives. */
 function scripted(script: Partial<AgentRuntime>): AgentRuntime & { log: { task: string; input: unknown }[] } {
   const log: { task: string; input: unknown }[] = []
@@ -41,7 +58,7 @@ const run = (req: AgentRequest, runtime: AgentRuntime, signal = new AbortControl
   return runCoordinator(req, runtime, signal, event => events.push(event), limits).then(result => ({ result, events }))
 }
 
-const cases: Promise<void>[] = []
+const cases: Promise<void>[] = [boardReply]
 
 cases.push(test('messages keep their meaning: questions, doubts and refusals are not confirmed facts', () => {
   assert.equal(classifyMessage('Сколько это стоит?'), 'question')

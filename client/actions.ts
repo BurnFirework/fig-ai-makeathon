@@ -1,5 +1,6 @@
 import { Editor, EditorAtom, type TLShapeId } from 'tldraw'
 import type { Handoff } from '../shared/schema'
+import type { BoardEdit } from '../shared/board-edits'
 
 export interface Activity { id: string; role: string; message: string; time: number; handoff?: Handoff }
 export interface UiState {
@@ -13,6 +14,8 @@ export interface UiState {
 }
 export const uiState = new EditorAtom<UiState>('unfold-ui', () => ({ mode: 'demo', provider: 'Preview', activity: [], panel: false, jobs: {}, saved: true, activeChat: null, chatView: 'focus', removing: null }))
 export interface UnfoldActions {
+  applyBoardEdits(edits: readonly BoardEdit[]): TLShapeId[]
+  startChat(id: TLShapeId): void
   openChat(id: TLShapeId, chatId?: string): void; newChat(id: TLShapeId): void; closeChat(): void;
   send(id: TLShapeId, chatId: string, text: string, replyTo?: string, stance?: 'refine'): void;
   publish(id: TLShapeId, chatId: string, messageId: string): void;
@@ -26,13 +29,10 @@ export interface UnfoldActions {
   stopLink(key: string): void; retryLink(a: string, b: string): void;
   retry(id: string): void; stop(id: string): void;
   updateGoal(id: TLShapeId, goal: string): void;
-  complete(id: TLShapeId, reflection: string): void;
-  /** Takes back "done" on a next step. */
-  reopen(id: TLShapeId): void;
   /** Ticks or unticks one step of a next step's checklist. */
   toggleStep(id: TLShapeId, index: number): void;
-  /** Asks for confirmation before removing these shapes; cards take their whole branch with them. */
-  requestRemove(ids: TLShapeId[]): void; remove(ids: TLShapeId[]): void;
+  /** Asks for confirmation and offers any cards that would lose their last source. */
+  requestRemove(ids: TLShapeId[]): void; remove(ids: TLShapeId[], additionalIds?: readonly TLShapeId[]): void;
   importFiles(files: File[]): Promise<void>; samples(): Promise<void>;
 }
 export const actions = new WeakMap<Editor, UnfoldActions>()

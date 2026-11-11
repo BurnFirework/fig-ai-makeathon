@@ -7,6 +7,8 @@ import { pairKey } from '../../shared/links'
 import type { Chat, Handoff, LinkScan } from '../../shared/schema'
 import { actions, uiState, type UiState } from '../actions'
 import { nodes } from '../unfold'
+import { conversations } from '../conversations'
+import { conversationCards } from '../../shared/conversation-record'
 
 export const STAGE_LABELS: Record<Stage, string> = {
   overlap: 'Overlap found', checking: 'Checking both goals', researching: 'Researching a real option',
@@ -29,7 +31,7 @@ const shortOf = (handoffs: Handoff[]) => collaborationStages(handoffs).current =
 const RANK: Record<Link['tone'], number> = { decision: 0, ready: 1, error: 2, working: 3 }
 
 /** Links of one goal that need attention: a check in progress, a decision or a proposal waiting. Accepted, declined and empty links show nothing. */
-function linksOf(cards: { id: TLShapeId; chats: Chat[]; links: LinkScan[]; title: string }[], id: string, jobs: UiState['jobs']): Link[] {
+function linksOf(cards: { id: TLShapeId; links: LinkScan[]; title: string }[], chats: Chat[], id: TLShapeId, jobs: UiState['jobs']): Link[] {
   const titleOf = (other: string) => cards.find(card => card.id === other)?.title ?? 'another goal'
   const links: Link[] = []
   for (const [key, job] of Object.entries(jobs)) {
@@ -49,10 +51,13 @@ function linksOf(cards: { id: TLShapeId; chats: Chat[]; links: LinkScan[]; title
     if (!cards.some(item => item.id === other) || jobs[`link:${pair}`]) continue
     links.push({ key: `scan:${pair}`, tone: 'error', label: 'Link check paused', short: 'Link paused', other: titleOf(other), retry: [card.id, other], detail: scan.reason })
   }
-  for (const card of cards) for (const chat of card.chats) {
+  for (const chat of chats) {
     if (chat.operation !== 'connect' || !chat.branchIds.includes(id)) continue
     const other = chat.branchIds.find(branch => branch !== id) ?? ''
-    const open = { nodeId: card.id, chatId: chat.id }
+    const attached = conversationCards(chat)
+    const nodeId = attached.includes(id) ? id : cards.find(card => attached.includes(card.id))?.id
+    if (!nodeId) continue
+    const open = { nodeId, chatId: chat.id }
     const job = jobs[chat.id]
     const last = chat.messages.at(-1)
     if (job?.status === 'running') links.push({ key: chat.id, tone: 'working', label: `${STAGE_LABELS[collaborationStages(job.handoffs ?? []).current ?? 'checking']}…`, short: shortOf(job.handoffs ?? []), other: titleOf(other), open })
@@ -67,8 +72,8 @@ function linksOf(cards: { id: TLShapeId; chats: Chat[]; links: LinkScan[]; title
 export function LinkPill({ shapeId }: { shapeId: TLShapeId }) {
   const editor = useEditor(); const api = actions.get(editor)
   const links = useValue('goal links', () => {
-    const cards = nodes(editor).map(shape => ({ id: shape.id, chats: shape.props.node.chats ?? [], links: shape.props.node.type === 'inspiration' ? shape.props.node.links ?? [] : [], title: nodeTitle(shape.props.node) }))
-    return linksOf(cards, shapeId, uiState.get(editor).jobs)
+    const cards = nodes(editor).map(shape => ({ id: shape.id, links: shape.props.node.type === 'inspiration' ? shape.props.node.links ?? [] : [], title: nodeTitle(shape.props.node) }))
+    return linksOf(cards, conversations(editor), shapeId, uiState.get(editor).jobs)
   }, [editor, shapeId])
   const link = links[0]
   if (!link) return null

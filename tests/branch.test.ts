@@ -16,20 +16,28 @@ const edges = [{ from: 'a', to: 'a1' }, { from: 'a1', to: 'a2' }, { from: 'b', t
 const sorted = (ids: string[]) => [...ids].sort()
 
 const cases: Promise<void>[] = []
-cases.push(test('removing a photo removes its whole branch and the shared directions built on it', () => {
-  assert.deepEqual(sorted(branchFrom('a', cards, edges)), ['a', 'a1', 'a2', 's', 's1'])
+cases.push(test('removing one photo leaves a shared direction and its descendants when another source survives', () => {
+  assert.deepEqual(sorted(branchFrom(['a'], cards, edges)), ['a', 'a1', 'a2'])
 }))
-cases.push(test('cards of a branch go with their photo even when a line was deleted', () => {
-  assert.deepEqual(sorted(branchFrom('a', cards, edges.filter(edge => edge.to !== 'a2'))), ['a', 'a1', 'a2', 's', 's1'])
+cases.push(test('a saved branch can still offer cards whose original development line is missing', () => {
+  assert.deepEqual(sorted(branchFrom(['a'], cards, edges.filter(edge => edge.to !== 'a2'))), ['a', 'a1', 'a2'])
 }))
-cases.push(test('removing a card inside a branch keeps its sources and the other photo', () => {
-  assert.deepEqual(sorted(branchFrom('a1', cards, edges)), ['a1', 'a2'])
-  assert.deepEqual(sorted(branchFrom('s', cards, edges)), ['s', 's1'])
+cases.push(test('only descendants that lose their last source are offered alongside a selected card', () => {
+  assert.deepEqual(sorted(branchFrom(['a1'], cards, edges)), ['a1', 'a2'])
+  assert.deepEqual(sorted(branchFrom(['s'], cards, edges)), ['s', 's1'])
 }))
 cases.push(test('a line drawn to another photo never removes that photo', () => {
-  assert.deepEqual(sorted(branchFrom('a', cards, [...edges, { from: 'a', to: 'b' }])), ['a', 'a1', 'a2', 's', 's1'])
+  assert.deepEqual(sorted(branchFrom(['a'], cards, [...edges, { from: 'a', to: 'b' }])), ['a', 'a1', 'a2'])
+}))
+cases.push(test('another source protects a referenced card from being offered for removal', () => {
+  assert.deepEqual(sorted(branchFrom(['a'], cards, [...edges, { from: 'a', to: 'b1', relationship: 'reference' }])), ['a', 'a1', 'a2'])
 }))
 cases.push(test('an unknown card removes nothing', () => {
-  assert.deepEqual(branchFrom('missing', cards, edges), [])
+  assert.deepEqual(branchFrom(['missing'], cards, edges), [])
+}))
+cases.push(test('a shared direction is offered when the last photo is removed or both are removed together', () => {
+  const afterFirst = cards.filter(card => !['a', 'a1', 'a2'].includes(card.id))
+  assert.deepEqual(sorted(branchFrom(['b'], afterFirst, edges)), ['b', 'b1', 's', 's1'])
+  assert.deepEqual(sorted(branchFrom(['a', 'b'], cards, edges)), ['a', 'a1', 'a2', 'b', 'b1', 's', 's1'])
 }))
 await Promise.all(cases)
