@@ -824,6 +824,8 @@ export function setupUnfold(editor: Editor) {
       if (!revisionsMatch(message.dependsOn, revisions())) { notice('Your sources or conditions changed. Continue the chat to update this outcome before adding it.'); return }
       const parents = chat.sourceIds.flatMap(id => nodes(editor).filter(shape => shape.id === id).map(shape => shape.id))
       if (parents.length !== chat.sourceIds.length) { notice('A source was removed. Start a new exploration from an existing node.'); return }
+      // Cards the user added to this chat (“Bringing together”) are sources of the step too; cards this chat made are not.
+      for (const card of nodes(editor)) if (conversationCards(chat).includes(card.id) && !parents.includes(card.id) && card.props.node.origin?.chatId !== chat.id) parents.push(card.id)
       const proposal = message.proposal
       const common = { ...baseNode(source.props.node.branchId, 'research'), dependsOn: message.dependsOn, origin: { nodeId: id, chatId, messageId } }
       editor.markHistoryStoppingPoint('add outcome to canvas')
@@ -837,6 +839,8 @@ export function setupUnfold(editor: Editor) {
             outcomeId = earlier.id
             invalidate(earlier.id)
             update(editor, earlier.id, node => node.type === 'action' ? { ...node, ...action, completed: false, doneSteps: [], stale: false, revision: node.revision + 1, dependsOn: message.dependsOn, origin: { nodeId: id, chatId, messageId } } : node)
+            const linked = new Set(boardLinks(editor).filter(item => item.to === earlier.id).map(item => item.from))
+            for (const parent of parents) if (!linked.has(parent)) link(editor, parent, earlier.id, 'input')
           } else outcomeId = addNode({ ...common, ...action, type: 'action', completed: false, reflection: '' }, parents)
         }
         else return

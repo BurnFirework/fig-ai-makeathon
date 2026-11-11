@@ -76,3 +76,16 @@ test('Refine and Not this on a proposed step', async ({ page }) => {
   await expect(outcome.last().getByRole('button', { name: 'Not this' })).toHaveCount(0)
   await expect(outcome.last().getByRole('button', { name: 'Refine' })).toBeVisible()
 })
+
+test('a step from a chat that brings two cards together is linked to both', async ({ page }) => {
+  await openChat(page, [step('A Saturday 5–7 PM class in SF where you can meet other beginners.')])
+  const links = page.locator('.ConnectionShape path')
+  const before = await links.count()
+  await button(page, 'Board and chat view').click()
+  await button(page, 'Attach a card').click()
+  await page.getByRole('menuitem', { name: 'Meet new people', exact: true }).click()
+  await expect(panel(page).locator('.chat-source-row')).toContainText('Meet new people')
+  await panel(page).locator('.chat-outcome').first().getByRole('button', { name: 'Add to canvas' }).click()
+  await expect(page.locator('.action-body')).toHaveCount(1)
+  await expect(links).toHaveCount(before + 2)
+})
