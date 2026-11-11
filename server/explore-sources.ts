@@ -88,7 +88,7 @@ async function parallel(tool: 'web_search' | 'web_fetch', args: object, signal: 
     return rpc.result.content.flatMap(item => z.object({ results: z.array(pageSchema) }).parse(parseJson(item.text)).results)
   } catch {
     signal.throwIfAborted()
-    throw new Error('Parallel verification failed. Retry this interest in a moment.')
+    throw new Error('Web search couldn’t finish. Retry in a moment.')
   }
 }
 export const findPages = (objective: string, search_queries: string[], signal: AbortSignal) => parallel('web_search', { objective, search_queries }, signal)

@@ -1,264 +1,171 @@
-import { expect, test, type Page } from '@playwright/test'
-import { ExploreRequestSchema } from '../shared/explore'
-import { resolve } from 'node:path'
-import { writeFile } from 'node:fs/promises'
+import { expect, test, type Page, type Route } from '@playwright/test'
+import { ExploreRequestSchema, type ExploreRequest, type ExploreReport } from '../shared/explore'
 
-const live = process.env.UNFOLD_EXPLORE_LIVE === '1'
-const recording = live && process.env.UNFOLD_RECORD_EXPLORE === '1'
-test.use({ video: recording ? { mode: 'on', size: { width: 1440, height: 1000 } } : 'off' })
-const eventTitle = 'Live jazz in the Bay Area'
-const jobTitle = 'Remote design engineering roles'
-const jobTerms = 'Design Engineer OR Design Technologist OR Design Systems Engineer'
+// Explore board through the interface, with the local agent API stubbed. Each test decides what the agents report.
+const pottery = 'Try a Saturday pottery wheel class'
+const jobs = 'Remote design engineering roles'
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true })
+const results = (page: Page) => page.getByRole('complementary', { name: 'Explore results' })
 
-async function caption(page: Page, message: string, delay = 3500) {
-  if (!recording) return
-  await page.evaluate(text => {
-    let label = document.getElementById('explore-caption')
-    if (!label) {
-      label = document.createElement('div')
-      label.id = 'explore-caption'
-      Object.assign(label.style, { position: 'fixed', bottom: '12px', left: '50%', transform: 'translateX(-50%)', zIndex: '10000', maxWidth: '860px', textAlign: 'center', background: '#241e2a', color: '#fff', borderRadius: '12px', padding: '12px 20px', font: '500 16px/1.45 system-ui', boxShadow: '0 4px 20px #241e2a33', pointerEvents: 'none' })
-      document.body.append(label)
-    }
-    label.textContent = text
-  }, message)
-  await page.waitForTimeout(delay)
+type Reply = (request: ExploreRequest) => { reports: ExploreReport[]; shared?: unknown } | 'error' | 'hold'
+async function stub(page: Page, reply: Reply) {
+  const requests: ExploreRequest[] = []
+  await page.route('**/api/config', route => route.fulfill({ json: { mode: 'demo', provider: 'Preview', providers: [] } }))
+  await page.route('**/api/agent', async (route: Route) => {
+    const request = ExploreRequestSchema.parse(route.request().postDataJSON())
+    requests.push(request)
+    const answer = reply(request)
+    if (answer === 'error') return route.fulfill({ status: 500, body: 'down' })
+    if (answer === 'hold') { await new Promise(resolve => setTimeout(resolve, 4000)); return route.fulfill({ status: 500, body: 'late' }).catch(() => {}) }
+    const workers = request.topics.flatMap(topic => (['discovery', 'verification', 'shortlist'] as const).map(stage => ({ type: 'explore-worker', worker: {
+      id: `${topic.sourceId}:${stage}`, sourceId: topic.sourceId, stage, status: 'complete',
+      label: stage === 'discovery' ? 'Search planner' : stage === 'verification' ? 'Source checker' : 'Shortlist agent',
+      message: stage === 'discovery' ? `Searched “${topic.query}” for organizer pages. 3 candidate pages to check.` : stage === 'verification' ? '1 option confirmed · 2 didn’t match.' : 'Chose “Intro to the Wheel”.',
+    } })))
+    return route.fulfill({ contentType: 'application/x-ndjson', body: [...workers, { type: 'explore-result', result: { requestId: request.requestId, ...answer } }].map(event => JSON.stringify(event)).join('\n') + '\n' })
+  })
+  return requests
 }
+const found = (sourceId: string, id: string, title: string) => ({ sourceId, status: 'complete' as const, outcome: 'confirmed' as const, checkedAt: Date.now(), findings: [{
+  id, title, subtitle: 'claystudio.example · San Francisco', when: 'Saturdays, 2:30pm–4:30pm', price: '$89', availability: 'schedule' as const,
+  why: 'The organizer’s page confirms San Francisco, Saturday.', url: `https://example.com/${id}`, source: `https://example.com/${id}`, state: 'new' as const, checkedAt: Date.now(),
+}] })
+const none = (sourceId: string) => ({ sourceId, status: 'complete' as const, outcome: 'incomplete' as const, checkedAt: Date.now(), findings: [], note: '2 pages looked right, but none confirmed Saturday.' })
+const titleOf = (request: ExploreRequest, sourceId: string) => request.topics.find(topic => topic.sourceId === sourceId)?.title
 
-async function seed(page: Page) {
-  if (live) {
-    for (const [file, title, count] of [['jazz.png', eventTitle, 1], ['design.png', jobTitle, 2]] as const) {
-      await page.locator('input[accept^="image/png"]').setInputFiles(resolve('output/explore-demo', file))
-      const inputs = page.getByRole('textbox', { name: 'Inspiration goal' })
-      await expect(inputs).toHaveCount(count)
-      const field = page.locator('.card-inspiration').filter({ has: page.getByRole('img', { name: file.replace('.png', ''), exact: true }) }).getByRole('textbox', { name: 'Inspiration goal' })
-      await field.fill(title)
-      await field.blur()
-    }
-    await page.getByRole('button', { name: /^Mood boards:/ }).click()
-    await page.getByRole('menuitem', { name: 'Rename board' }).click()
-    await page.getByRole('textbox', { name: 'Board name' }).fill('November · Life & work')
-    await button(page, 'Save name').click()
-    if (recording) {
-      const context = [
-        [eventTitle, 'An evening worth going out for', 'Small venues, a warm room, and a set I can share with a friend. San Francisco or Oakland. November 13–30, up to $60 per ticket.'],
-        [eventTitle, 'Keep some space in the week', 'Make time for live music alongside the next career move. Save a few concrete options before choosing a night.'],
-        [jobTitle, 'What I want to make', 'Thoughtful interfaces, interaction prototypes, and design systems. A role where craft and engineering belong on the same team.'],
-        [jobTitle, 'How I want to work', 'Remote within the United States, with room to stay rooted in the Bay Area. Read the employer’s location policy before shortlisting.'],
-      ] as const
-      for (const [source, title, description] of context) {
-        const goals = page.getByRole('textbox', { name: 'Inspiration goal' })
-        for (let i = 0; i < await goals.count(); i++) {
-          if (await goals.nth(i).inputValue() === source) {
-            await page.waitForTimeout(200)
-            const image = await goals.nth(i).evaluate(input => {
-              const photo = input.closest('article')?.querySelector('.inspiration-image')
-              const bounds = photo?.getBoundingClientRect()
-              return bounds ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } : null
-            })
-            if (!image) throw new Error('The inspiration photo is missing.')
-            await page.mouse.click(image.x + image.width / 2, image.y + image.height / 2)
-            break
-          }
-        }
-        await button(page, 'More canvas actions').click()
-        await page.getByRole('menuitem', { name: 'Add a note' }).click()
-        await page.getByRole('textbox', { name: 'Note title' }).fill(title)
-        await page.getByRole('textbox', { name: 'Note text' }).fill(description)
-        await button(page, 'Add note').click()
-        await page.waitForTimeout(200)
-        const cards = page.getByRole('textbox', { name: 'Card title' })
-        const note = await cards.evaluateAll((inputs, title) => {
-          const input = inputs.find(input => input instanceof HTMLInputElement && input.value === title)
-          const bounds = input?.closest('article')?.getBoundingClientRect()
-          return bounds ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } : null
-        }, title)
-        let parent: { x: number; y: number; width: number; height: number } | null = null
-        for (let i = 0; i < await goals.count(); i++) if (await goals.nth(i).inputValue() === source) {
-          parent = await goals.nth(i).evaluate(input => {
-            const bounds = input.closest('article')?.getBoundingClientRect()
-            return bounds ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } : null
-          })
-        }
-        if (!note || !parent) throw new Error('The demo context card is missing.')
-        const offset = title === 'Keep some space in the week' || title === 'How I want to work' ? 2 : 1
-        const targetX = parent.x + parent.width / 2
-        const targetY = parent.y + parent.height + 36 + (offset - 1) * (note.height + 48)
-        await page.mouse.move(note.x + note.width / 2, note.y + 8)
-        await page.mouse.down()
-        await page.mouse.move(targetX, targetY, { steps: 16 })
-        await page.mouse.up()
-      }
-    }
-  } else {
-    await button(page, 'Explore a sample board').click()
-    const cards = page.getByRole('textbox', { name: 'Inspiration goal' })
-    await expect(cards).toHaveCount(2)
-    await cards.first().fill(eventTitle)
-    await cards.first().blur()
-    await cards.last().fill(jobTitle)
-    await cards.last().blur()
-  }
+async function board(page: Page) {
+  await page.goto('/')
+  await button(page, 'Explore a sample board').click()
+  const goals = page.getByRole('textbox', { name: 'Inspiration goal' })
+  await expect(goals).toHaveCount(2)
+  await goals.first().fill(pottery)
+  await goals.first().blur()
+  await goals.last().fill(jobs)
+  await goals.last().blur()
   await button(page, 'Fit board').click()
 }
+async function selectCard(page: Page, title: string) {
+  const bounds = await page.getByRole('textbox', { name: 'Inspiration goal' }).evaluateAll((inputs, wanted) => {
+    const input = inputs.find(item => item instanceof HTMLInputElement && item.value === wanted)
+    const photo = input?.closest('article')?.querySelector('.inspiration-image')?.getBoundingClientRect()
+    return photo ? { x: photo.x + photo.width / 2, y: photo.y + photo.height / 2 } : null
+  }, title)
+  if (!bounds) throw new Error(`Card “${title}” is missing.`)
+  await page.mouse.click(bounds.x, bounds.y)
+}
 
-async function review(page: Page) {
+test('a selected idea is searched with its scope; confirmed options, Show on board and a shared step survive reloads', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  const requests = await stub(page, request => {
+    const reports = request.topics.map(topic => topic.title === pottery ? found(topic.sourceId, 'web:claystudio', 'Intro to the Wheel')
+      : requests.length === 1 ? { sourceId: topic.sourceId, status: 'failed' as const, message: 'Web search couldn’t finish. Retry in a moment.' } : found(topic.sourceId, 'web:beta-job', 'Design Engineer · Beta'))
+    const complete = reports.filter(report => report.status === 'complete')
+    return { reports, ...(complete.length === 2 ? { shared: { title: 'Make room for clay and a new role', summary: 'Book the Saturday class, then apply to the remote role.', checkedAt: Date.now(), items: complete.map(report => ({ sourceId: report.sourceId, finding: report.findings[0] })) } } : {}) }
+  })
+  await board(page)
+  await selectCard(page, pottery)
   await button(page, 'Explore board').click()
   const dialog = page.getByRole('dialog', { name: 'Explore board' })
-  await expect(dialog.getByRole('checkbox', { name: eventTitle })).toBeChecked()
-  await expect(dialog.getByRole('checkbox', { name: jobTitle })).toBeChecked()
-  return dialog
-}
+  await expect(dialog.getByRole('checkbox', { name: pottery })).toBeChecked()
+  await expect(dialog.getByRole('checkbox', { name: jobs })).toHaveCount(0)
+  await expect(dialog).not.toContainText('Search type')
+  await expect(dialog).not.toContainText('Ticketmaster')
+  await expect(dialog.locator('.explore-scope-line')).toHaveText('Pottery wheel class · Saturday')
+  await button(page, `Edit search for ${pottery}`).click()
+  await dialog.getByLabel('City', { exact: true }).fill('San Francisco')
+  await expect(dialog.locator('.explore-scope-line')).toHaveText('Pottery wheel class · San Francisco · Saturday')
+  await expect(dialog.getByLabel('Budget ($)')).toHaveValue('')
+  await dialog.getByRole('button', { name: /Add interests/ }).click()
+  await dialog.getByRole('checkbox', { name: jobs }).check()
+  await expect(dialog.getByRole('status')).toHaveText('2 ideas selected')
+  await button(page, 'Find options').click()
+  await expect(dialog).toBeHidden()
 
-test('Explore approves jazz and remote jobs, retries a failed topic and preserves dismissals on refresh', async ({ page }) => {
-  test.setTimeout(live ? 650000 : 60000)
-  await page.setViewportSize({ width: 1440, height: 1000 })
-  let eventCalls = 0
-  let jobCalls = 0
-  if (!live) {
-    await page.route('**/api/config', route => route.fulfill({ json: { mode: 'demo', provider: 'Preview', providers: [] } }))
-    await page.route('**/api/agent', async route => {
-      const request = ExploreRequestSchema.parse(route.request().postDataJSON())
-      const reports = request.topics.map(topic => {
-        const event = topic.kind === 'events'
-        if (event) eventCalls++
-        else if (++jobCalls === 1) return { sourceId: topic.sourceId, status: 'failed', message: 'JSearch Instant failed. Retry this interest.' }
-        if (event) expect(topic.query).toBe('Jazz')
-        else expect(topic.query).toBe(jobTerms)
-        const title = event ? 'Jazz at the corner club' : 'Design Engineer · US remote'
-        const url = event ? 'https://example.com/jazz' : 'https://example.com/apply'
-        return { sourceId: topic.sourceId, status: 'complete', checkedAt: Date.now(),
-          findings: [{ id: event ? 'ticketmaster:1' : 'job:1', title, subtitle: event ? 'Oakland' : 'Product team', why: 'Confirmed by source',
-            url, source: url, price: eventCalls === 1 ? '$35' : '$39', state: 'new' }] }
-      })
-      await route.fulfill({ contentType: 'application/x-ndjson', body: JSON.stringify({ type: 'explore-result', result: { requestId: request.requestId, reports } }) + '\n' })
-    })
-  }
+  // Partial success: the panel shows what was added and stays quiet about the failed interest.
+  await expect(results(page).getByRole('status')).toHaveText('1 option added to your board')
+  await expect(results(page)).not.toContainText('couldn’t finish')
+  expect(requests[0]?.topics.map(topic => topic.kind)).toEqual(['web', 'web'])
+  expect(requests[0]?.topics.find(topic => topic.title === pottery)).toMatchObject({ city: 'San Francisco', schedule: 'Saturday', query: 'Pottery wheel class' })
+  const log = results(page).locator('details.explore-log')
+  await expect(log).not.toHaveAttribute('open')
+  await expect(results(page).getByText('Search planner', { exact: false }).first()).toBeHidden()
+  await log.locator('summary').click()
+  await expect(log).toContainText('Searched “Pottery wheel class” for organizer pages')
+  await button(page, 'Show on board').click()
+  await expect(page.locator('.card-findings.is-selected')).toHaveCount(1)
+  await expect(page.locator('.card-findings')).toContainText('Schedule published · spots not confirmed')
 
-  await page.goto(live ? 'http://127.0.0.1:43135/' : '/')
-  await seed(page)
-  if (process.env.UNFOLD_EXPLORE_SEED_ONLY) { await page.screenshot({ path: 'output/explore-demo-v2/seed.png' }); return }
-  await caption(page, 'Meaningful design work, more live music, and room for both. This board keeps my goals and constraints together.', 8500)
-  const dialog = await review(page)
-  if (!live) {
-    await expect(dialog.getByRole('heading', { name: 'Explore board' })).toBeFocused()
-    const jobs = dialog.getByRole('checkbox', { name: jobTitle })
-    await jobs.uncheck()
-    await expect(dialog.getByRole('status')).toHaveText('1 interest selected')
-    await expect(dialog.getByRole('checkbox', { name: 'US remote only' })).toHaveCount(0)
-    await jobs.check()
-    await expect(dialog.getByRole('status')).toHaveText('2 interests selected')
-  }
-  await dialog.getByLabel('From', { exact: true }).fill('2026-11-13')
-  await dialog.getByLabel('Through', { exact: true }).fill('2026-11-30')
-  await dialog.getByLabel('Max price ($)', { exact: true }).fill('60')
-  const jobSearch = dialog.getByRole('group', { name: jobTitle }).getByLabel('Search terms')
-  await jobSearch.fill(jobTerms)
-  await expect(dialog.getByRole('checkbox', { name: 'US remote only' })).toBeChecked()
-  if (!live) {
-    await jobSearch.blur()
-    await page.setViewportSize({ width: 390, height: 700 })
-    const action = dialog.getByRole('button', { name: 'Start search' })
-    await expect(action).toBeInViewport({ ratio: 1 })
-    const narrowForm = dialog.locator('.explore-topic-list')
-    expect(await narrowForm.evaluate(list => list.scrollWidth)).toBe(await narrowForm.evaluate(list => list.clientWidth))
-    await dialog.getByRole('checkbox', { name: 'US remote only' }).scrollIntoViewIfNeeded()
-    await expect(action).toBeInViewport({ ratio: 1 })
-    await page.setViewportSize({ width: 1440, height: 1000 })
-  }
-  await caption(page, 'I approve Bay Area jazz under $60 and design engineering work that is remote in the US.', 10000)
-  const liveResponse = recording ? page.waitForResponse(response => response.url().endsWith('/api/agent') && response.request().method() === 'POST') : undefined
-  await button(page, 'Start search').click()
-  if (recording) {
-    await caption(page, 'Seven agents take on discovery, verification, shortlisting, and one shared plan.', 6000)
-    await button(page, 'Watch on board').click()
-    await expect(page.getByRole('complementary', { name: 'Explore agents' })).toBeVisible()
-    await expect(page.locator('.explore-work-panel li')).toHaveCount(7)
-    await caption(page, 'Each agent reports its own progress. Ticketmaster and JSearch supply leads; Parallel checks original listings.', 8000)
-    await expect(page.locator('.explore-work-summary')).toContainText('agents finished', { timeout: 540000 })
-    if (liveResponse) {
-      const response = await liveResponse
-      await writeFile('output/explore-demo-v2/live-request.json', response.request().postData() ?? '')
-    }
-    await page.screenshot({ path: 'output/explore-demo-v2/agents-terminal.png' })
-    process.stdout.write(await page.locator('.explore-work-panel').innerText() + '\n')
-    await expect(page.locator('.explore-work-panel li[data-status="complete"]')).toHaveCount(7)
-    await page.screenshot({ path: 'output/explore-demo-v2/agents-complete.png' })
-    await caption(page, 'Seven agents finished. Two sourced shortlists and a shared plan are now part of the board.', 9000)
-    const download = page.waitForEvent('download')
-    await button(page, 'Board menu').click()
-    await page.getByRole('menuitem', { name: 'Export', exact: true }).click()
-    await (await download).saveAs('output/explore-demo-v2/completed-board.unfold')
-    await button(page, 'Show updates').click()
-    await expect(page.locator('.card-explore-shared')).toHaveCount(1)
-    await caption(page, 'The new cards are highlighted. Each result stays connected to the interest that started it.', 8000)
-    await button(page, 'Hide agent activity').click()
-  } else {
-    await expect(button(page, 'Back to board')).toBeVisible({ timeout: live ? 540000 : 10000 })
-  }
-  if (!live) {
-    await expect(dialog).toContainText('JSearch Instant failed')
-    await button(page, 'Retry failed').click()
-    await expect(button(page, 'Back to board')).toBeVisible()
-    expect(eventCalls).toBe(1)
-    expect(jobCalls).toBe(2)
-  }
-  const groups = page.locator('.card-findings')
-  await expect(groups).toHaveCount(2)
-  if (!recording) {
-    await button(page, 'Back to board').click()
-    await expect(button(page, 'Explore board')).toBeFocused()
-  }
-  await button(page, 'Fit board').click()
-  await caption(page, 'The new findings and shared next step join the photos and context I started with.', 8000)
-  if (recording) {
-    for (const [selector, text] of [
-      ['.card-findings', 'The jazz shortlist includes venue, date, ticket price when available, and a source I can open.'],
-      ['.card-findings', 'Employer pages are checked for US remote eligibility before a design engineering role makes the shortlist.'],
-      ['.card-explore-shared', 'The final agent combines both shortlists into one practical plan, keeping the original sources attached.'],
-    ] as const) {
-      const card = selector === '.card-explore-shared' ? page.locator(selector) : page.locator(selector).filter({ hasText: text.startsWith('The jazz') ? 'Explore board · Events' : 'Explore board · Jobs' })
-      const header = await card.locator('.card-header').boundingBox()
-      if (!header) throw new Error('A result card is missing from the demo.')
-      await page.mouse.click(header.x + header.width / 2, header.y + header.height / 2)
-      await page.keyboard.press('Shift+2')
-      await caption(page, text, 11000)
-      await page.screenshot({ path: text.startsWith('The jazz') ? 'output/explore-demo-v2/jazz-results.png' : selector === '.card-explore-shared' ? 'output/explore-demo-v2/shared-result.png' : 'output/explore-demo-v2/job-results.png' })
-      await button(page, 'Fit board').click()
-    }
-  }
-  const events = groups.filter({ hasText: 'Explore board · Events' }).locator('.finding-row')
-  const jobs = groups.filter({ hasText: 'Explore board · Jobs' }).locator('.finding-row')
-  const candidates = !live || await events.count() > 1 ? events : await jobs.count() > 1 ? jobs : undefined
-  let dismissible = candidates?.first()
-  if (recording && candidates) {
-    const sharedSources = await page.locator('.card-explore-shared a').evaluateAll(links => links.map(link => link.getAttribute('href')))
-    dismissible = undefined
-    for (let index = 0; index < await candidates.count(); index++) {
-      const links = await candidates.nth(index).getByRole('link').evaluateAll(links => links.map(link => link.getAttribute('href')))
-      if (!links.some(link => sharedSources.includes(link))) { dismissible = candidates.nth(index); break }
-    }
-  }
-  const dismissedTitle = dismissible ? (await dismissible.getByRole('link').first().innerText()).trim() : undefined
-  if (dismissible && dismissedTitle) {
-    const dismiss = dismissible.getByRole('button', { name: /^Dismiss / })
-    await dismiss.click()
-    await expect(groups.getByRole('link', { name: dismissedTitle, exact: true })).toHaveCount(0)
-    await caption(page, 'I can dismiss an option I’m not interested in. The decision stays with this board.', 6500)
-  }
+  // A second run finds the job too; the shared step appears only after Add to board.
+  // With a findings card selected, the idea searched before is ticked again; the failed one waits under Add interests.
+  await button(page, 'Explore board').click()
+  await expect(dialog.getByRole('checkbox', { name: pottery })).toBeChecked()
+  await dialog.getByRole('button', { name: /Add interests/ }).click()
+  await dialog.getByRole('checkbox', { name: jobs }).check()
+  await button(page, 'Find options').click()
+  await expect(results(page).getByRole('status')).toHaveText('1 option added to your board')
+  await expect(page.locator('.card-findings')).toHaveCount(2)
+  const shared = results(page).getByRole('region', { name: 'Suggested shared step' })
+  await expect(shared).toContainText('Make room for clay and a new role')
+  await expect(page.locator('.card-explore-shared')).toHaveCount(0)
+  await shared.getByRole('button', { name: 'Add to board' }).click()
+  await expect(page.locator('.card-explore-shared')).toHaveCount(1)
+  // An immediate reload keeps the new cards: Explore writes them at once instead of after the save delay.
+  await page.reload()
+  await expect(page.locator('.card-findings')).toHaveCount(2)
+  await expect(page.locator('.card-explore-shared')).toHaveCount(1)
   await expect(page.getByText('Saved in browser', { exact: true })).toBeAttached()
   await page.reload()
-  await expect(groups).toHaveCount(2)
-  if (dismissedTitle) await expect(groups.getByRole('link', { name: dismissedTitle, exact: true })).toHaveCount(0)
-  await button(page, 'Fit board').click()
-  if (!live) {
-    await review(page)
-    await button(page, 'Start search').click()
-    await expect(button(page, 'Back to board')).toBeVisible()
-    await button(page, 'Back to board').click()
-    await expect(groups).toHaveCount(2)
-    if (dismissedTitle) await expect(groups.getByRole('link', { name: dismissedTitle, exact: true })).toHaveCount(0)
-  }
-  await caption(page, 'A later visit picks up where I left off. My board, verified findings, shared plan, and dismissals are saved.', 8500)
+  await expect(page.locator('.card-explore-shared')).toHaveCount(1)
+
+  // Running the same search again reports options that are already saved instead of claiming new ones.
+  await selectCard(page, pottery)
+  await button(page, 'Explore board').click()
+  await button(page, 'Find options').click()
+  await expect(results(page).getByRole('status')).toHaveText('The option is already on your board')
+  await button(page, 'Show on board').click()
+  await expect(page.locator('.card-findings.is-selected')).toHaveCount(1)
+})
+
+test('without a selection, new ideas are listed but not ticked', async ({ page }) => {
+  await stub(page, () => ({ reports: [] }))
+  await board(page)
+  await page.keyboard.press('Escape')
+  await page.mouse.click(720, 900)
+  await button(page, 'Explore board').click()
+  const dialog = page.getByRole('dialog', { name: 'Explore board' })
+  await expect(dialog.getByRole('checkbox', { name: pottery })).not.toBeChecked()
+  await expect(dialog.getByRole('checkbox', { name: jobs })).not.toBeChecked()
+  await expect(button(page, 'Find options')).toBeDisabled()
+})
+
+test('no confirmed options offers Edit search with the same scope; a failure offers Retry; Stop ends the run', async ({ page }) => {
+  let mode: 'none' | 'error' | 'hold' | 'found' = 'none'
+  const requests = await stub(page, request => mode === 'error' ? 'error' : mode === 'hold' ? 'hold'
+    : { reports: request.topics.map(topic => mode === 'found' ? found(topic.sourceId, 'web:x', `Option for ${titleOf(request, topic.sourceId) ?? ''}`) : none(topic.sourceId)) })
+  await board(page)
+  await selectCard(page, pottery)
+  await button(page, 'Explore board').click()
+  const dialog = page.getByRole('dialog', { name: 'Explore board' })
+  await button(page, `Edit search for ${pottery}`).click()
+  await dialog.getByLabel('City', { exact: true }).fill('Oakland')
+  await button(page, 'Find options').click()
+  await expect(results(page).getByRole('status')).toHaveText('No confirmed options found')
+  await expect(page.locator('.card-findings')).toHaveCount(0)
+  await button(page, 'Edit search').click()
+  await expect(dialog.getByLabel('City', { exact: true })).toHaveValue('Oakland')
+  mode = 'error'
+  await button(page, 'Find options').click()
+  await expect(results(page).getByRole('status')).toHaveText('Search couldn’t finish')
+  mode = 'found'
+  await button(page, 'Retry').click()
+  await expect(results(page).getByRole('status')).toHaveText('1 option added to your board')
+  expect(requests.at(-1)?.topics[0]).toMatchObject({ city: 'Oakland' })
+  mode = 'hold'
+  await selectCard(page, jobs)
+  await button(page, 'Explore board').click()
+  await button(page, 'Find options').click()
+  await expect(results(page).getByRole('status')).toHaveText('Finding options…')
+  await results(page).getByRole('button', { name: 'Stop' }).click()
+  await expect(results(page).getByRole('status')).toHaveText('Search stopped')
+  await expect(button(page, 'Edit search')).toBeVisible()
 })

@@ -108,4 +108,28 @@ cases.push(test('writer rejects archives above the reader entry limit before rep
   assert.throws(() => encodeWorkspace(workspace), /too many/i)
 }))
 
+cases.push(test('saved Explore findings from Events, Jobs and web searches survive the browser and desktop file format', () => {
+  const workspace = workspaceFixture()
+  const store = workspace.boards['board-a']?.document.store
+  const root = Object.values(store ?? {}).find(record => record.id === 'shape:root')
+  assert.ok(store && root?.typeName === 'shape')
+  const finding = { id: 'ticketmaster:1', title: 'Jazz quartet', subtitle: 'Oakland', why: 'Fits your dates', url: 'https://example.com/a', source: 'https://example.com/a', state: 'seen' }
+  const common = { branchId: 'shape:root', sequence: 2, revision: 0, stale: false, dependsOn: [], agent: 'research', createdAt: 1, type: 'findings', checkedAt: 1000, findings: [finding], dismissed: [] }
+  const topics = {
+    events: { kind: 'events', sourceId: 'shape:root', title: 'Jazz', query: 'Jazz', dependencies: [{ id: 'shape:root', revision: 0 }], cities: ['Oakland'], start: '2026-11-13', end: '2026-11-30', maxPrice: 60 },
+    jobs: { kind: 'jobs', sourceId: 'shape:root', title: 'Roles', query: 'Design Engineer', dependencies: [{ id: 'shape:root', revision: 0 }], remoteOnly: true },
+    web: { kind: 'web', category: 'activity', sourceId: 'shape:root', title: 'Pottery', query: 'Pottery wheel class', dependencies: [{ id: 'shape:root', revision: 0 }], city: 'San Francisco', conditions: [], preferences: ['Small group preferred'], context: [], links: [] },
+  }
+  for (const [kind, topic] of Object.entries(topics)) {
+    const record = workspaceTLSchema.types.shape.validate({ ...root, id: `shape:findings-${kind}`, index: `a${kind.length}`, props: { node: { ...common, topic, findings: [{ ...finding, ...(kind === 'web' ? { availability: 'schedule', checkedAt: 2000 } : {}) }] } } })
+    store[record.id] = record
+  }
+  const restored = decodeWorkspace(encodeWorkspace(workspace))
+  for (const kind of Object.keys(topics)) {
+    const record = Object.values(restored.boards['board-a']?.document.store ?? {}).find(item => item.id === `shape:findings-${kind}`)
+    assert.ok(record?.typeName === 'shape' && record.type === 'node' && record.props.node.type === 'findings')
+    assert.equal(record.props.node.topic.kind, kind)
+  }
+}))
+
 await Promise.all(cases)

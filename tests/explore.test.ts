@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mergeFindings, type ExploreFinding } from '../shared/explore'
-import { verifiedJob, selectVerifiedFindings, runExplore, findingEvidence, verifiedEvent } from '../server/explore'
+import { verifiedJob, selectVerifiedFindings, runExplore, findingEvidence, verifiedEvent, emptySearchNote } from '../server/explore'
 
 const url = 'https://jobs.ashbyhq.com/acme/role'
 const lead = { job_id: 'feed-1', job_title: 'Design Technologist', employer_name: 'Acme', job_apply_link: url, job_description: '', job_posted_at_datetime_utc: '', employer_website: '' }
@@ -68,4 +68,38 @@ const eventPriceCheck = test('event prices prefer structured provider data and e
   assert.equal(verifiedEvent({ ...event, priceRanges: [{ min: 40, max: 50, currency: 'USD' }] }, [venuePage], topic)?.price, '$40–$50')
 })
 
-await Promise.all([evidenceCheck, refreshCheck, cancellationCheck, selectionCheck, citationCheck, eventPriceCheck])
+const emptyCheck = test('an interest Ticketmaster does not list ends every agent with a plain reason', async () => {
+  const realFetch = globalThis.fetch
+  const keys = { composio: process.env.COMPOSIO_API_KEY, ticketmaster: process.env.TICKETMASTER_API_KEY }
+  process.env.COMPOSIO_API_KEY = 'test'; process.env.TICKETMASTER_API_KEY = 'test'
+  let calls = 0
+  globalThis.fetch = () => { calls += 1; return Promise.resolve(new Response(JSON.stringify({ successful: true, data: { page: { totalElements: 0 } } }))) }
+  try {
+    const events: import('../shared/schema').AgentEvent[] = []
+    const topic = (sourceId: string, query: string) => ({ sourceId, title: query, query, dependencies: [{ id: sourceId, revision: 0 }], kind: 'events' as const, cities: ['San Francisco'], start: '2026-11-11', end: '2026-12-11' })
+    const result = await runExplore({ operation: 'explore', requestId: 'empty', topics: [topic('pottery', 'Try a Saturday pottery wheel class'), topic('people', 'Meet new people')] }, new AbortController().signal, event => events.push(event))
+    const workers = new Map(events.flatMap(event => event.type === 'explore-worker' ? [[event.worker.id, event.worker] as const] : []))
+    assert.equal(calls, 2, 'one provider search per interest and no page fetches for an empty list')
+    assert.ok([...workers.values()].every(worker => worker.status === 'complete' || worker.status === 'skipped'))
+    assert.match(workers.get('pottery:verification')?.message ?? '', /Ticketmaster lists no events for “Try a Saturday pottery wheel class” in San Francisco/)
+    assert.equal(workers.get('pottery:shortlist')?.status, 'skipped')
+    assert.match(workers.get('shared:synthesis')?.message ?? '', /no interest returned confirmed options/)
+    const report = result.reports[0]
+    assert.equal(report?.status === 'complete' && report.note, emptySearchNote(topic('pottery', 'Try a Saturday pottery wheel class'), 0))
+  } finally {
+    globalThis.fetch = realFetch
+    process.env.COMPOSIO_API_KEY = keys.composio; process.env.TICKETMASTER_API_KEY = keys.ticketmaster
+    if (keys.composio === undefined) delete process.env.COMPOSIO_API_KEY
+    if (keys.ticketmaster === undefined) delete process.env.TICKETMASTER_API_KEY
+  }
+})
+
+const emptyNoteCheck = test('empty searches separate "provider had nothing" from "sources did not confirm"', () => {
+  const events = { sourceId: 'jazz', title: 'Jazz', query: 'Jazz', dependencies: [{ id: 'jazz', revision: 0 }], kind: 'events' as const, cities: ['Oakland'], start: '2026-11-11', end: '2026-11-30', maxPrice: 40 }
+  assert.match(emptySearchNote(events, 3), /listed 3 events, but no venue or ticket page confirmed the date and price/)
+  const jobs = { sourceId: 'work', title: 'Design', query: 'Design engineer', dependencies: [{ id: 'work', revision: 0 }], kind: 'jobs' as const, remoteOnly: true }
+  assert.match(emptySearchNote(jobs, 0), /JSearch found no US remote jobs matching “Design engineer”/)
+  assert.match(emptySearchNote(jobs, 1), /listed 1 job, but no employer listing confirmed US remote work/)
+})
+
+await Promise.all([evidenceCheck, refreshCheck, cancellationCheck, selectionCheck, citationCheck, eventPriceCheck, emptyCheck, emptyNoteCheck])

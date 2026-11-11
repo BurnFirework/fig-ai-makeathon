@@ -30,7 +30,7 @@ export class UnfoldNodeDefinition extends NodeDefinition<UnfoldNode> {
   getBodyHeightPx(_shape: NodeShape, node: UnfoldNode) {
     if (node.type === 'findings') {
       const count = node.findings.filter(finding => !node.dismissed.includes(finding.id)).length
-      return (count ? (node.expanded ? 475 : 70 + Math.min(count, 2) * 138) : 140) + (node.stale ? 24 : 0)
+      return (count ? (node.expanded ? 560 : 64 + Math.min(count, 2) * 168) : 140) + (node.stale ? 24 : 0)
     }
     if (node.type === 'action') return node.fit ?? actionHeight(node, node.expanded === true)
     if (node.type === 'artifact') return 120 + Math.min(140, lines(node.content.description, 40) * 20) + (node.content.kind === 'moodboard' ? Math.ceil(node.content.items.length / 2) * 110 : 0) + (node.stale ? 26 : 0)
@@ -143,15 +143,15 @@ function UnfoldCard({ shape, node }: NodeComponentProps<UnfoldNode>) {
   if (node.type === 'findings') {
     const findings = node.findings.filter(finding => !node.dismissed.includes(finding.id))
     return <article className={`unfold-card card-findings ${selected ? 'is-selected' : ''} ${updated ? 'explore-updated' : ''}`}>
-      <header className="card-header"><span className="card-eyebrow">Explore board · {node.topic.kind === 'events' ? 'Events' : 'Jobs'}</span></header>
+      <header className="card-header"><span className="card-eyebrow">{node.topic.kind === 'web' ? 'Found options' : `Explore board · ${node.topic.kind === 'events' ? 'Events' : 'Jobs'}`}</span></header>
       <div className="card-content findings-body card-interactive" onPointerDown={event => editor.markEventAsHandled(event)} onKeyDown={event => event.stopPropagation()} onWheel={event => { if (node.expanded) editor.markEventAsHandled(event) }}>
-        <div className="findings-meta"><strong>{findings.length} {findings.length === 1 ? 'finding' : 'findings'}</strong><small>Checked {new Date(node.checkedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</small></div>
+        <div className="findings-meta"><strong>{findings.length} {findings.length === 1 ? 'option' : 'options'}</strong></div>
         {node.stale && <div className="stale-banner">Interest changed · search again</div>}
         {findings.slice(0, node.expanded ? undefined : 2).map(finding => <div key={finding.id} className="finding-row">
           <div className="finding-heading"><a href={finding.url} target="_blank" rel="noopener noreferrer">{finding.title}<ExternalLink size={12}/></a><button type="button" className="finding-dismiss" aria-label={`Dismiss ${finding.title}`} onClick={() => api?.dismissFinding(shape.id, finding.id)}><Trash2 size={13}/></button></div>
           <small>{finding.subtitle}</small>
-          <div className="finding-facts">{finding.when && <span>{finding.when}</span>}{finding.price && <span>{finding.price}</span>}{finding.state !== 'seen' && <span className="finding-state">{finding.state}</span>}</div>
-          <p>{finding.why} <a href={finding.source} target="_blank" rel="noopener noreferrer">Source</a></p>
+          <div className="finding-facts">{finding.when && <span>{finding.when}</span>}{finding.price && <span>{finding.price}</span>}{finding.availability && finding.availability !== 'unknown' && <span>{finding.availability === 'spots' ? 'Spots listed as available' : 'Schedule published · spots not confirmed'}</span>}{finding.state !== 'seen' && <span className="finding-state">{finding.state}</span>}</div>
+          <p>{finding.why} <a href={finding.source} target="_blank" rel="noopener noreferrer">Source · {domain(finding.source)}</a> · Checked {new Date(finding.checkedAt ?? node.checkedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</p>
         </div>)}
         {isEmpty(findings) && <p>All findings dismissed.</p>}
         {findings.length > 2 && <button type="button" className="details-toggle" aria-expanded={node.expanded === true} onClick={() => editor.run(() => editor.updateShape<NodeShape>({ id: shape.id, type: 'node', props: { node: { ...node, expanded: !node.expanded } } }), { history: 'ignore' })}>{node.expanded ? 'Show less' : `Show all ${findings.length}`}<ChevronDown size={12}/></button>}

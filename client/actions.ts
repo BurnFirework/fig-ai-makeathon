@@ -1,6 +1,6 @@
 import { Editor, EditorAtom, type TLShapeId } from 'tldraw'
 import type { Handoff } from '../shared/schema'
-import type { ExploreTopic, ExploreWorker } from '../shared/explore'
+import type { ExploreShared, ExploreTopic, ExploreWorker, WebTopic } from '../shared/explore'
 import type { BoardEdit } from '../shared/board-edits'
 
 export interface Activity { id: string; role: string; message: string; time: number; handoff?: Handoff }
@@ -12,16 +12,40 @@ export interface UiState {
   activeChat: { nodeId: TLShapeId; chatId: string } | null;
   /** Shapes the user asked to remove; the confirmation dialog is open while this is set. */
   removing: TLShapeId[] | null;
-  explore: { running: boolean; workers: ExploreWorker[]; updatedIds: TLShapeId[] } | null;
+  explore: ExploreRun | null;
+  /** The Explore board dialog; `reuse` reopens it with the last run's scope (Edit search). */
+  exploreDialog: { reuse: boolean; error?: string } | null;
 }
-export const uiState = new EditorAtom<UiState>('unfold-ui', () => ({ mode: 'demo', provider: 'Preview', activity: [], panel: false, jobs: {}, saved: true, activeChat: null, chatView: 'focus', removing: null, explore: null }))
-export interface ExploreCandidate { topic: ExploreTopic; suggested: boolean; reason: string; conditions: string[] }
-export interface ExploreOutcome { sourceId: string; message: string; retry: boolean }
+/** The latest Explore board run, as the right-hand panel shows it. */
+export interface ExploreRun {
+  running: boolean
+  /** The user stopped it, or the whole request failed (`error`). */
+  stopped: boolean; error: string
+  workers: ExploreWorker[]
+  /** The approved scope of this run, for Edit search and Retry. */
+  topics: WebTopic[]
+  /** Finding groups holding options this run added, and how many options are new. */
+  updatedIds: TLShapeId[]; added: number
+  /** Groups holding options this run found again that were already on the board. */
+  existingIds: TLShapeId[]; existing: number
+  /** Interests whose search failed for a technical reason. */
+  failed: string[]
+  /** A shared next step the agents suggested; its card exists only after Add to board. */
+  shared?: { plan: ExploreShared; addedId?: TLShapeId }
+}
+export const uiState = new EditorAtom<UiState>('unfold-ui', () => ({ mode: 'demo', provider: 'Preview', activity: [], panel: false, jobs: {}, saved: true, activeChat: null, chatView: 'focus', removing: null, explore: null, exploreDialog: null }))
+export interface ExploreCandidate { topic: WebTopic; selected: boolean; suggested: boolean; reason: string; conditions: string[] }
+/** Writes the workspace now instead of after the usual short delay; registered by the workspace for its editor. */
+export const saveNow = new WeakMap<Editor, () => void>()
 
 export interface UnfoldActions {
   exploreCandidates(): ExploreCandidate[]
-  exploreBoard(topics: ExploreTopic[], onProgress: (message: string) => void): Promise<ExploreOutcome[]>
+  exploreBoard(topics: ExploreTopic[]): Promise<void>
   stopExplore(): void
+  /** Reruns the interests that failed, or the whole last run when it could not finish. */
+  retryExplore(): Promise<void>
+  /** Creates (or refreshes) the card for the shared step the agents suggested. */
+  addSharedStep(): TLShapeId | undefined
   dismissFinding(id: TLShapeId, findingId: string): void
   applyBoardEdits(edits: readonly BoardEdit[]): TLShapeId[]
   startChat(id: TLShapeId): void

@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { decodeWorkspace, encodeWorkspace, mergeWorkspaces, workspaceTLSchema, MAX_WORKSPACE_BYTES, type Workspace } from '../shared/workspace-format'
 import type { DesktopFiles } from '../shared/desktop-contract'
 import { type BoardCatalog, initialBoardCatalog } from './boards'
-import { actions, uiState } from './actions'
+import { actions, saveNow, uiState } from './actions'
 import { commitBrowserWorkspace } from './platform/browser-storage'
 
 export const WorkspaceContext = createContext<WorkspaceController | null>(null)
@@ -126,7 +126,8 @@ export class WorkspaceController {
       this.capture()
       this.change(this.current.workspace)
     }, { scope: 'document' })
-    return () => { this.capture(); if (this.editor === editor) this.editor = null; stop() }
+    saveNow.set(editor, () => { this.flush().catch((error: unknown) => this.report(error)) })
+    return () => { this.capture(); if (this.editor === editor) this.editor = null; saveNow.delete(editor); stop() }
   }
   flush(): Promise<void> {
     if (this.timer) { clearTimeout(this.timer); this.timer = undefined }

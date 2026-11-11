@@ -70,6 +70,22 @@ cases.push(test('messages keep their meaning: questions, doubts and refusals are
   assert.deepEqual(interpretMessage('In Oakland, small groups', 'answer').map(draft => draft.key), ['place', 'group'])
 }))
 
+cases.push(test('a reply that only answers the question’s topic in name is kept as intent, also in memory saved earlier', () => {
+  assert.deepEqual(interpretMessage("Haven't booked yet", 'answer', 'Where would you like to take the class?'), [{ kind: 'intent', text: "Where would you like to take the class? — Haven't booked yet" }])
+  assert.deepEqual(interpretMessage('whenever works', 'answer', 'When are you free?').map(draft => draft.kind), ['intent'])
+  assert.deepEqual(interpretMessage("Haven't decided", 'answer', 'What budget?').map(draft => draft.kind), ['intent'])
+  assert.deepEqual(interpretMessage('the Mission', 'answer', 'Which area?'), [{ kind: 'constraint', key: 'place', text: 'Place: the Mission' }])
+  assert.deepEqual(interpretMessage('Twice a week', 'answer', 'How often?'), [{ kind: 'constraint', key: 'time', text: 'Time: Twice a week' }])
+  assert.deepEqual(interpretMessage('В центре', 'answer', 'Где?').map(draft => draft.key), ['place'])
+  const saved = { revision: 2, entries: [
+    { id: 'a', kind: 'constraint' as const, key: 'place' as const, text: "Place: Haven't booked yet", status: 'active' as const, sources: ['m1'], by: 'you' as const, createdAt: 1 },
+    { id: 'b', kind: 'constraint' as const, key: 'place' as const, text: 'Place: Oakland', status: 'active' as const, sources: ['m2'], by: 'you' as const, createdAt: 2 },
+  ] }
+  const memory = chatMemory({ memory: saved, messages: [] })
+  assert.equal(memory.revision, 2, 'reading saved memory differently does not mark dependent results as changed')
+  assert.deepEqual(memory.entries.map(entry => [entry.kind, entry.key, entry.text]), [['intent', undefined, "Haven't booked yet"], ['constraint', 'place', 'Place: Oakland']])
+}))
+
 cases.push(test('1. a corrected budget replaces the old one, keeps history, and reaches every participating agent', async () => {
   let pottery = newChat('pottery', ['a'])
   pottery = { ...pottery, messages: [ask('q1', 'What is your budget?')] }

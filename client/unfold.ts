@@ -8,8 +8,8 @@ import { invalidatedBy } from '../shared/context'
 import { branchFrom, type BranchEdge } from '../shared/branch'
 import { canPublish, chatContext, contextThreads, currentRevisions, decisionOf, foldLegacyMessages, lineage, memoryDependencies, nodeTitle } from '../shared/chats'
 import { applyAgentMemory, applyDrafts, chatMemory, classifyMessage, confirmAssumption, interpretMessage, questionFor, withdrawEntry } from '../shared/memory'
-import { ExploreRequestSchema, mergeFindings, searchScope, type ExploreTopic } from '../shared/explore'
-import { actions, uiState, type ExploreCandidate, type ExploreOutcome, type UnfoldActions } from './actions'
+import { buildWebTopic, ExploreRequestSchema, mergeFindings, searchScope, toWebTopic, type ExploreTopic } from '../shared/explore'
+import { actions, saveNow, uiState, type ExploreCandidate, type ExploreRun, type UnfoldActions } from './actions'
 import { requestAgent, requestExplore, getAgentConfig } from './agentClient'
 import { createOrUpdateConnectionBinding, getConnectionBindings } from './connection/ConnectionBindingUtil'
 import { getNextConnectionIndex } from './connection/keepConnectionsAtBottom'
@@ -501,11 +501,7 @@ export function setupUnfold(editor: Editor) {
     const selected = new Set(editor.getSelectedShapeIds())
     const parents = new Set(boardLinks(editor).filter(link => link.relationship === 'develops').map(link => link.from))
     const threads = chats()
-    const now = new Date()
-    const date = (days: number) => {
-      const value = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days)
-      return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
-    }
+    const current = revisions()
     return nodes(editor).flatMap(({ id, props: { node } }): ExploreCandidate[] => {
       if (node.stale || node.type === 'findings' || node.type === 'question' || node.type === 'answer' || node.branchId.startsWith('explore-shared:') || (node.type === 'action' && node.completed) || (node.type === 'opportunity' && node.status !== 'accepted')) return []
       const title = nodeTitle(node).trim().slice(0, 240)
@@ -514,113 +510,129 @@ export function setupUnfold(editor: Editor) {
       const conditions = thread ? [...new Set(thread.branchIds.flatMap(branch => chatContext(all, id, thread, branch, threads).confirmed))] : []
       const dependencies = [...lineage(all, id).map(record => ({ id: record.id, revision: record.node.revision })), ...(thread ? memoryDependencies(all, id, thread, threads) : [])]
       const seen = all.find(record => record.node.type === 'findings' && record.node.topic.sourceId === id)?.node
-      const details = [title, ...conditions].join(' ')
-      const jobs = /\b(job|jobs|career|hiring|role|roles|work from home|job search|design engineer(?:ing)?|design technologist)\b/i.test(details)
-      const events = /\b(event|events|tickets|show|shows|concert|concerts|gig|gigs|jazz|workshop|workshops|festival)\b/i.test(details)
-      const common = { sourceId: id, title, dependencies }
-      const city = [...( /san francisco|bay area/i.test(details) ? ['San Francisco'] : []), ...(/oakland|bay area/i.test(details) ? ['Oakland'] : [])]
-      const budget = conditions.find(condition => /budget|under|up to|max/i.test(condition))?.match(/\$(\d+(?:\.\d+)?)/)?.[1]
-      const topic: ExploreTopic = seen?.type === 'findings' && revisionsMatch(seen.dependsOn, revisions())
-        ? { ...seen.topic, ...common }
-        : jobs
-          ? { ...common, kind: 'jobs', query: title.replace(/\b(?:find|search for|look for|remote|jobs|roles)\b/gi, '').replace(/\s+/g, ' ').trim() || title, remoteOnly: /\bremote\b|work from home/i.test(details) }
-          : { ...common, kind: 'events', query: /\bjazz\b/i.test(details) ? 'Jazz' : title, cities: city, start: date(0), end: date(30), ...(budget && Number(budget) > 0 ? { maxPrice: Number(budget) } : {}) }
+      const links = node.type === 'action' || node.type === 'opportunity' ? (node.sources ?? []).map(source => source.url) : []
+      // A saved search is reused while its card and conversation are unchanged, so earlier edits to the scope survive.
+      const topic = seen?.type === 'findings' && revisionsMatch(seen.dependsOn, current)
+        ? { ...toWebTopic(seen.topic), sourceId: id, title, dependencies }
+        : buildWebTopic({ sourceId: id, title, dependencies, conditions, links })
       const leaf = !parents.has(id)
-      return [{ topic, suggested: (leaf || selected.has(id)) && (events || jobs || seen?.type === 'findings'),
-        reason: selected.has(id) ? 'Selected card' : leaf && (events || jobs) ? 'Active interest' : events || jobs ? 'Related interest' : 'Choose a search', conditions }]
-    }).sort((a, b) => Number(b.suggested) - Number(a.suggested))
+      const pick = selected.has(id)
+      // Only a selected card or an idea searched before starts ticked; a new idea is the user's choice.
+      return [{ topic, selected: pick, suggested: seen !== undefined,
+        reason: pick ? 'Selected card' : seen ? 'Searched before' : leaf ? 'Active idea' : 'Earlier idea', conditions }]
+    }).sort((a, b) => Number(b.selected) - Number(a.selected) || Number(b.suggested) - Number(a.suggested))
   }
 
-  async function exploreBoard(topics: ExploreTopic[], onProgress: (message: string) => void): Promise<ExploreOutcome[]> {
+  const setExplore = (change: (run: ExploreRun) => ExploreRun) => uiState.update(editor, state => state.explore ? { ...state, explore: change(state.explore) } : state)
+  /** The shared step's card, created or refreshed only when the user asks for it. */
+  function addSharedStep(): TLShapeId | undefined {
+    const run = uiState.get(editor).explore
+    const shared = run?.shared?.plan
+    if (!run || !shared || editor.getIsReadonly()) return
+    const sourceIds = new Set(shared.items.map(item => item.sourceId))
+    const parents = nodes(editor).filter(shape => shape.props.node.type === 'findings' && sourceIds.has(shape.props.node.topic.sourceId))
+    // One option can serve several ideas: it must still be on the board, and no idea's card may have dismissed it.
+    const holds = (id: string) => parents.some(parent => parent.props.node.type === 'findings' && parent.props.node.findings.some(finding => finding.id === id && finding.state !== 'closed'))
+    const dismissed = (id: string) => parents.some(parent => parent.props.node.type === 'findings' && parent.props.node.dismissed.includes(id))
+    const eligible = isNotEmpty(parents) && shared.items.every(item => holds(item.finding.id) && !dismissed(item.finding.id))
+    if (!eligible) { notice('An option in this step was dismissed or changed. Run the search again for a fresh suggestion.'); return }
+    const options = [...new Map(shared.items.map(item => [item.finding.id, item.finding])).values()]
+    // An idea without its own findings card connects through its card on the board.
+    const linked = [...parents.map(parent => parent.id), ...[...sourceIds].flatMap(sourceId => parents.some(parent => parent.props.node.type === 'findings' && parent.props.node.topic.sourceId === sourceId) ? [] : nodes(editor).filter(shape => shape.id === sourceId).map(shape => shape.id))]
+    const topics = run.topics.filter(topic => sourceIds.has(topic.sourceId))
+    const branchId = `explore-shared:${[...sourceIds].sort().join('|')}`
+    const existing = nodes(editor).find(shape => shape.props.node.branchId === branchId && shape.props.node.type === 'action')
+    const content = {
+      title: shared.title, summary: shared.summary, description: '',
+      sources: options.map(finding => ({ id: finding.id, title: finding.title, url: finding.source })),
+      steps: options.map(finding => `Review ${finding.title}`.slice(0, 200)),
+      dependsOn: [...new Map([...topics.flatMap(topic => topic.dependencies), ...parents.map(parent => ({ id: parent.id, revision: parent.props.node.revision }))].map(dependency => [dependency.id, dependency])).values()],
+    }
+    let id: TLShapeId | undefined
+    editor.markHistoryStoppingPoint('add shared step')
+    editor.run(() => {
+      if (existing?.props.node.type === 'action') {
+        if (existing.props.node.completed) { id = existing.id; return }
+        update(editor, existing.id, node => node.type === 'action' ? { ...node, ...content, doneSteps: JSON.stringify(node.steps) === JSON.stringify(content.steps) ? node.doneSteps : [], revision: node.revision + 1, stale: false } : node)
+        id = existing.id
+      } else id = addNode({ ...baseNode(branchId, 'connection'), type: 'action', ...content, completed: false, reflection: '' }, linked, new Map(linked.map(parentId => [parentId, 'reference'])))
+    })
+    if (id) { const added = id; setExplore(current => current.shared ? { ...current, shared: { ...current.shared, addedId: added } } : current); editor.select(added) }
+    saveNow.get(editor)?.()
+    return id
+  }
+
+  async function exploreBoard(topics: ExploreTopic[]): Promise<void> {
     if (exploreRun) throw new Error('An Explore board run is already active.')
     if (editor.getIsReadonly()) throw new Error('This board is read-only.')
-    const parsed = ExploreRequestSchema.safeParse({ operation: 'explore', requestId: crypto.randomUUID(), topics })
-    if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? 'Check the search filters.')
+    const parsed = ExploreRequestSchema.safeParse({ operation: 'explore', requestId: crypto.randomUUID(), topics: topics.map(toWebTopic) })
+    if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? 'Check the search details.')
+    const scope = parsed.data.topics.map(toWebTopic)
     const startRevisions = revisions()
-    const approved = parsed.data.topics.filter(topic => revisionsMatch(topic.dependencies, startRevisions))
-    const changed = parsed.data.topics.filter(topic => !approved.includes(topic))
-    const outdated = (sourceId: string): ExploreOutcome => ({ sourceId, message: 'This interest changed. Review the latest scope and try again.', retry: false })
-    if (isEmpty(approved)) return changed.map(topic => outdated(topic.sourceId))
+    const approved = scope.filter(topic => revisionsMatch(topic.dependencies, startRevisions))
+    if (isEmpty(approved)) throw new Error('These ideas changed while you were choosing. Review the search again.')
     const controller = new AbortController()
     exploreRun = controller
-    uiState.update(editor, state => ({ ...state, explore: { running: true, workers: [], updatedIds: [] } }))
+    uiState.update(editor, state => ({ ...state, explore: { running: true, stopped: false, error: '', workers: [], topics: scope, updatedIds: [], added: 0, existingIds: [], existing: 0, failed: [] } }))
     try {
       const result = await requestExplore({ ...parsed.data, topics: approved }, controller.signal, event => {
-        if (event.type === 'activity') { activity(event.role, event.message); onProgress(event.message) }
-        if (event.type === 'explore-worker') uiState.update(editor, state => {
-          if (!state.explore) return state
-          const workers = state.explore.workers.filter(worker => worker.id !== event.worker.id)
-          const index = state.explore.workers.findIndex(worker => worker.id === event.worker.id)
+        if (event.type === 'activity') activity(event.role, event.message)
+        if (event.type === 'explore-worker') setExplore(run => {
+          const workers = run.workers.filter(worker => worker.id !== event.worker.id)
+          const index = run.workers.findIndex(worker => worker.id === event.worker.id)
           workers.splice(index < 0 ? workers.length : index, 0, event.worker)
-          return { ...state, explore: { ...state.explore, workers } }
+          return { ...run, workers }
         })
       })
       controller.signal.throwIfAborted()
       if (editor.getIsReadonly()) throw new Error('This board became read-only. Run the search again when you can edit it.')
       const latest = revisions()
-      const outcomes = changed.map(topic => outdated(topic.sourceId))
-      const updatedIds: TLShapeId[] = []
-      const pending: { topic: ExploreTopic; report: Extract<typeof result.reports[number], { status: 'complete' }> }[] = []
-      for (const topic of approved) {
-        const report = result.reports.find(report => report.sourceId === topic.sourceId)
-        if (!revisionsMatch(topic.dependencies, latest)) outcomes.push(outdated(topic.sourceId))
-        else if (report?.status !== 'complete') outcomes.push({ sourceId: topic.sourceId, message: report?.message ?? 'The search did not finish. Retry this interest.', retry: true })
-        else pending.push({ topic, report })
-      }
-      if (isNotEmpty(pending)) {
+      const updatedIds: TLShapeId[] = []; const existingIds: TLShapeId[] = []
+      // Counted per option, so one option confirmed for two ideas is one new option.
+      const addedOptions = new Set<string>(); const existingOptions = new Set<string>()
+      const failed = result.reports.flatMap(report => report.status === 'failed' ? [report.sourceId] : [])
+      const complete = approved.flatMap(topic => {
+        const report = result.reports.find(item => item.sourceId === topic.sourceId)
+        return report?.status === 'complete' && revisionsMatch(topic.dependencies, latest) ? [{ topic, report }] : []
+      })
+      if (isNotEmpty(complete)) {
         editor.markHistoryStoppingPoint('apply Explore findings')
         editor.run(() => {
-          for (const { topic, report } of pending) {
+          for (const { topic, report } of complete) {
             const source = nodes(editor).find(shape => shape.id === topic.sourceId)
-            if (!source) { outcomes.push(outdated(topic.sourceId)); continue }
+            if (!source) continue
             const group = nodes(editor).find(shape => shape.props.node.type === 'findings' && shape.props.node.topic.sourceId === topic.sourceId)
             const before = group?.props.node.type === 'findings' ? group.props.node : undefined
-            const retain = before !== undefined && searchScope(before.topic) === searchScope(topic) && revisionsMatch(before.dependsOn, latest)
-            const findings = mergeFindings(before?.findings ?? [], report.findings.filter(finding => finding.state !== 'closed' || before?.findings.some(old => old.id === finding.id)), retain)
-            const visible = findings.filter(finding => !before?.dismissed.includes(finding.id))
-            const count = visible.filter(finding => finding.state === 'new' || finding.state === 'changed').length
+            if (!before && isEmpty(report.findings)) continue
+            const retain = before !== undefined && searchScope(toWebTopic(before.topic)) === searchScope(topic) && revisionsMatch(before.dependsOn, latest)
+            const incoming = report.findings.filter(finding => finding.state !== 'closed' || before?.findings.some(old => old.id === finding.id))
+            const findings = mergeFindings(before?.findings ?? [], incoming, retain, before?.checkedAt)
+            const found = findings.filter(finding => incoming.some(item => item.id === finding.id) && !before?.dismissed.includes(finding.id) && finding.state !== 'closed')
+            const fresh = found.filter(finding => finding.state === 'new').length
+            for (const finding of found) (finding.state === 'new' ? addedOptions : existingOptions).add(finding.id)
+            let id: TLShapeId
             if (group && before) {
               update(editor, group.id, () => ({ ...before, topic, findings, checkedAt: report.checkedAt, revision: before.revision + 1, dependsOn: topic.dependencies, stale: false }))
               invalidate(group.id)
-              updatedIds.push(group.id)
-            } else if (isNotEmpty(findings)) updatedIds.push(addNode({ ...baseNode(source.props.node.branchId, 'research'), type: 'findings', topic, findings, dismissed: [], checkedAt: report.checkedAt, dependsOn: topic.dependencies }, [source.id], new Map([[source.id, 'reference']])))
-            outcomes.push({ sourceId: topic.sourceId, message: count ? `${count} new or changed ${count === 1 ? 'finding' : 'findings'} on the canvas.` : isNotEmpty(report.findings) ? 'No new matches.' : 'No verified matches on this run.', retry: false })
-          }
-          const shared = result.shared
-          if (shared) {
-            const sourceIds = new Set(shared.items.map(item => item.sourceId))
-            const topics = pending.filter(item => sourceIds.has(item.topic.sourceId)).map(item => item.topic)
-            const parents = nodes(editor).filter(shape => shape.props.node.type === 'findings' && sourceIds.has(shape.props.node.topic.sourceId))
-            const eligible = shared.items.every(item => parents.some(parent => parent.props.node.type === 'findings'
-              && parent.props.node.topic.sourceId === item.sourceId && !parent.props.node.dismissed.includes(item.finding.id)
-              && parent.props.node.findings.some(finding => finding.id === item.finding.id && finding.state !== 'closed')))
-            if (eligible && topics.length === sourceIds.size && parents.length === sourceIds.size) {
-              const branchId = `explore-shared:${[...sourceIds].sort().join('|')}`
-              const existing = nodes(editor).find(shape => shape.props.node.branchId === branchId && shape.props.node.type === 'action')
-              const content = {
-                title: shared.title, summary: shared.summary, description: '',
-                sources: shared.items.map(item => ({ id: item.finding.id, title: item.finding.title, url: item.finding.source })),
-                steps: shared.items.map(item => `Review ${item.finding.title}`.slice(0, 200)),
-                dependsOn: [...new Map([...topics.flatMap(topic => topic.dependencies), ...parents.map(parent => ({ id: parent.id, revision: parent.props.node.revision }))].map(dependency => [dependency.id, dependency])).values()],
-              }
-              if (existing) {
-                if (existing.props.node.type === 'action' && !existing.props.node.completed) {
-                  update(editor, existing.id, node => node.type === 'action' ? { ...node, ...content, doneSteps: JSON.stringify(node.steps) === JSON.stringify(content.steps) ? node.doneSteps : [], revision: node.revision + 1, stale: false } : node)
-                  updatedIds.push(existing.id)
-                }
-              } else updatedIds.push(addNode({ ...baseNode(branchId, 'connection'), type: 'action', ...content, completed: false, reflection: '' }, parents.map(parent => parent.id), new Map(parents.map(parent => [parent.id, 'reference']))))
-            }
+              id = group.id
+            } else id = addNode({ ...baseNode(source.props.node.branchId, 'research'), type: 'findings', topic, findings, dismissed: [], checkedAt: report.checkedAt, dependsOn: topic.dependencies }, [source.id], new Map([[source.id, 'reference']]))
+            if (fresh) updatedIds.push(id)
+            else if (isNotEmpty(found)) existingIds.push(id)
           }
         })
         editor.markHistoryStoppingPoint('Explore findings applied')
       }
-      uiState.update(editor, state => ({ ...state, explore: state.explore ? { ...state.explore, updatedIds } : null }))
-      return outcomes
+      const added = addedOptions.size
+      const existing = [...existingOptions].filter(id => !addedOptions.has(id)).length
+      setExplore(run => ({ ...run, updatedIds, added, existingIds, existing, failed, ...(result.shared ? { shared: { plan: result.shared } } : {}) }))
+      // Results are written at once rather than after the usual delay, so an immediate reload keeps them.
+      saveNow.get(editor)?.()
+    } catch (error) {
+      const stopped = controller.signal.aborted
+      setExplore(run => ({ ...run, stopped, error: stopped ? '' : error instanceof Error ? error.message : 'Explore board could not finish.' }))
     } finally {
       if (exploreRun === controller) exploreRun = undefined
-      uiState.update(editor, state => ({ ...state, explore: state.explore ? {
-        ...state.explore, running: false, workers: state.explore.workers.map(worker => worker.status === 'running' || worker.status === 'queued' ? { ...worker, status: 'skipped', message: controller.signal.aborted ? 'Search stopped' : 'Search ended before this task finished' } : worker),
-      } : null }))
+      setExplore(run => ({ ...run, running: false, workers: run.workers.map(worker => worker.status === 'running' || worker.status === 'queued' ? { ...worker, status: 'skipped', message: controller.signal.aborted ? 'Stopped by you.' : 'The search ended before this step.' } : worker) }))
     }
   }
 
@@ -628,6 +640,14 @@ export function setupUnfold(editor: Editor) {
     exploreCandidates,
     exploreBoard,
     stopExplore() { exploreRun?.abort() },
+    async retryExplore() {
+      const run = uiState.get(editor).explore
+      if (!run || run.running) return
+      const topics = run.error ? run.topics : run.topics.filter(topic => run.failed.includes(topic.sourceId))
+      if (isEmpty(topics)) return
+      try { await exploreBoard(topics) } catch (error) { setExplore(current => ({ ...current, error: error instanceof Error ? error.message : 'Explore board could not finish.' })) }
+    },
+    addSharedStep,
     dismissFinding(id, findingId) {
       const node = nodeAt(editor, id)?.props.node
       if (editor.getIsReadonly() || node?.type !== 'findings' || node.dismissed.includes(findingId) || node.dismissed.length >= 500) return

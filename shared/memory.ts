@@ -29,6 +29,31 @@ const TOPICS: { key: MemoryKey; pattern: RegExp }[] = [
   { key: 'group', pattern: /alone|with whom|on your own|with others|одн[иао]|с кем/i },
 ]
 
+// When a reply has no recognizable place, time, budget or company, the question's topic alone is not enough to make it one:
+// "Haven't booked yet" to "Where…?" is a status, not a place. Such replies are kept as intent instead.
+const NOT_A_VALUE = words("haven't|have not|hasn't|not yet|no idea|doesn't matter|does not matter|no preference|anywhere|wherever|whenever|any ?time|either way|ещё не|еще не|пока не|неважно|без разницы|где угодно|когда угодно|всё равно|все равно", 'i')
+const PLACE_WORDS = words('street|st|avenue|ave|road|district|neighbou?rhood|downtown|uptown|city|area|park|center|centre|campus|near|nearby|close to|walking distance|north|south|east|west|side|район\\p{L}*|центр\\p{L}*|улиц\\p{L}*|рядом|недалеко', 'i')
+const TIME_WORDS = words('days?|weeks?|weekly|months?|monthly|daily|once|twice|times|hours?|утр\\p{L}*|вечер\\p{L}*|недел\\p{L}*|месяц\\p{L}*|раз в', 'i')
+const BUDGET_WORDS = words('cheap|affordable|inexpensive|low|modest|not much|tight|splurge|budget|дешев\\p{L}*|недорог\\p{L}*|бюджет\\p{L}*', 'i')
+const GROUP_WORDS = words('alone|friends?|partner|family|kids|group|solo|together|others|people|друз\\p{L}*|семь\\p{L}*|групп\\p{L}*', 'i')
+/** Whether a reply can stand as a condition of this kind. */
+export function fitsMemoryKey(key: MemoryKey, value: string): boolean {
+  const direct = key === 'place' ? PLACE.test(value) : key === 'time' ? TIME.test(value) : key === 'budget' ? budgetText(value) !== undefined : key === 'group' ? GROUP.test(value) : true
+  if (direct) return true
+  if (NOT_A_VALUE.test(value)) return false
+  if (key === 'place') {
+    const tokens = value.trim().replace(/[.!]+$/, '').split(/\s+/)
+    const named = tokens.length <= 4 && tokens.every(token => /^\p{Lu}[\p{L}.-]*$/u.test(token))
+    return named || /\d/.test(value) || PLACE_WORDS.test(value) || tokens.slice(1).some(token => /^\p{Lu}\p{Ll}/u.test(token))
+  }
+  if (key === 'time') return /\d/.test(value) || TIME_WORDS.test(value)
+  if (key === 'budget') return BUDGET_WORDS.test(value)
+  if (key === 'group') return GROUP_WORDS.test(value)
+  return true
+}
+const FALLBACK_KEYS = new Set<MemoryKey>(['place', 'time', 'budget', 'group'])
+const WISH = words("want|wanna|would like|i'd like|looking for|hoping|interested in|try|learn|join|meet|find|хочу|хотел\\p{L}*|ищу|интересно|попробовать|научиться", 'i')
+
 export interface MemoryDraft { kind: MemoryEntry['kind']; key?: MemoryKey; text: string }
 
 const clip = (text: string, length = 160) => text.replace(/\s+/g, ' ').trim().slice(0, length)
@@ -63,20 +88,26 @@ export function interpretMessage(text: string, stance: Stance, question?: string
   const add = (draft: MemoryDraft) => { if (!drafts.some(existing => existing.key === draft.key && existing.kind === draft.kind && normalize(existing.text) === normalize(draft.text))) drafts.push(draft) }
   if (stance === 'decline') add({ kind: 'declined', text: clip(question ? `Declined: ${question}` : value) })
   const clauses = value.split(/[,;.!\n]+/).map(clause => clause.trim()).filter(Boolean)
+  // Clauses that carry no place, time, budget, company or priority, e.g. "I want to meet people through a ceramics group".
+  const loose: string[] = []
   for (const clause of clauses) {
+    const before = drafts.length
     const budget = budgetText(clause)
     if (budget) add({ kind: 'constraint', key: 'budget', text: budget })
     if (TIME.test(clause)) add({ kind: 'constraint', key: 'time', text: `${MEMORY_LABELS.time}: ${clip(clause, 120)}` })
     if (PLACE.test(clause)) add({ kind: 'constraint', key: 'place', text: `${MEMORY_LABELS.place}: ${clip(clause, 120)}` })
     if (GROUP.test(clause)) add({ kind: 'constraint', key: 'group', text: `${MEMORY_LABELS.group}: ${clip(clause, 120)}` })
     if (PRIORITY.test(clause) && !budget) add({ kind: 'constraint', key: 'priority', text: `${MEMORY_LABELS.priority}: ${clip(clause, 140)}` })
+    if (drafts.length === before) loose.push(clause)
   }
   if (stance === 'decline') return drafts
   if (isEmpty(drafts) && question) {
     const topic = TOPICS.find(item => item.pattern.test(question))
-    if (topic) return [{ kind: 'constraint', key: topic.key, text: `${MEMORY_LABELS[topic.key]}: ${clip(value, 120)}` }]
+    if (topic && fitsMemoryKey(topic.key, value)) return [{ kind: 'constraint', key: topic.key, text: `${MEMORY_LABELS[topic.key]}: ${clip(value, 120)}` }]
   }
   if (isEmpty(drafts)) add({ kind: 'intent', text: clip(question && value.length < 60 ? `${question} — ${value}` : value, 240) })
+  // A stated wish survives next to the conditions extracted from the same message.
+  else for (const clause of loose) if (WISH.test(clause) || clause.split(/\s+/).length >= 4) add({ kind: 'intent', text: clip(clause, 240) })
   return drafts
 }
 
@@ -103,7 +134,7 @@ export function applyDrafts(memory: ChatMemory, drafts: MemoryDraft[], sources: 
 
 /** Saved chats from before memory existed get the same interpretation, with stable ids. */
 export function chatMemory(chat: Pick<Chat, 'memory' | 'messages'>): ChatMemory {
-  if (chat.memory) return chat.memory
+  if (chat.memory) return repairMemory(chat.memory)
   let memory: ChatMemory = { revision: 0, entries: [] }
   for (const message of chat.messages) {
     if (message.role !== 'user') continue
@@ -111,6 +142,25 @@ export function chatMemory(chat: Pick<Chat, 'memory' | 'messages'>): ChatMemory 
     memory = applyDrafts(memory, interpretMessage(message.text, message.stance ?? classifyMessage(message.text), questionFor(chat.messages, message)), [message.id], 'you', 0, () => `${message.id}:${index++}`)
   }
   return { ...memory, revision: 0 }
+}
+
+/**
+ * Earlier versions saved any reply to a "where/when/how much" question as that condition. Such entries are read as the
+ * user's intent instead, so a reply like "Haven't booked yet" no longer acts as a place. The saved data is unchanged.
+ */
+function repairMemory(memory: ChatMemory): ChatMemory {
+  const label = (key: MemoryKey) => `${MEMORY_LABELS[key]}: `
+  if (!memory.entries.some(entry => misfiled(entry))) return memory
+  return { ...memory, entries: memory.entries.map(entry => {
+    if (!misfiled(entry) || !entry.key) return entry
+    const { key: _key, ...rest } = entry
+    return { ...rest, kind: 'intent', text: entry.text.slice(label(entry.key).length) }
+  }) }
+}
+function misfiled(entry: MemoryEntry): boolean {
+  if (entry.kind !== 'constraint' || entry.by !== 'you' || !entry.key || !FALLBACK_KEYS.has(entry.key)) return false
+  const prefix = `${MEMORY_LABELS[entry.key]}: `
+  return entry.text.startsWith(prefix) && !fitsMemoryKey(entry.key, entry.text.slice(prefix.length))
 }
 
 export function questionFor(messages: ChatMessage[], message: ChatMessage): string | undefined {
