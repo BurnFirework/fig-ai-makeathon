@@ -5,8 +5,8 @@ import { WorkspaceSchema } from '../shared/workspace-format'
 import { AgentConfigSchema, AgentEventEnvelopeSchema, AgentFailureSchema } from '../shared/agent-contract'
 import type { AgentRequest } from '../shared/schema'
 
-const session = z.object({ workspace: WorkspaceSchema.nullable(), session: z.string(), name: z.string().nullable() })
-const ack = z.object({ session: z.string(), revision: z.number(), name: z.string().nullable(), savedAt: z.number() })
+const session = z.object({ workspace: WorkspaceSchema.nullable(), session: z.string(), notice: z.string().nullable() })
+const ack = z.object({ session: z.string(), revision: z.number(), savedAt: z.number() })
 async function invoke(channel: string, payload?: unknown): Promise<unknown> { return await ipcRenderer.invoke(channel, payload) }
 function subscribe<T>(channel: string, schema: z.ZodType<T>, listener: (payload: T) => void) {
   const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => { const parsed = schema.safeParse(payload); if (parsed.success) listener(parsed.data) }
@@ -16,11 +16,10 @@ function subscribe<T>(channel: string, schema: z.ZodType<T>, listener: (payload:
 const files: DesktopFiles = {
   load: async () => session.parse(await invoke('workspace:load')),
   save: async value => ack.parse(await invoke('workspace:save', value)),
-  saveAs: async value => ack.nullable().parse(await invoke('workspace:saveAs', value)),
-  open: async () => session.nullable().parse(await invoke('workspace:open')),
-  newWorkspace: async () => session.parse(await invoke('workspace:new')),
+  restoreBackup: async () => session.nullable().parse(await invoke('workspace:restore')),
+  showDataFolder: async () => { await invoke('workspace:show-data') },
   exportCopy: async workspace => z.boolean().parse(await invoke('workspace:export', workspace)),
-  subscribeCommands: listener => subscribe('workspace:command', z.enum(['save', 'saveAs', 'open', 'new']), listener),
+  subscribeCommands: listener => subscribe('workspace:command', z.enum(['save', 'import', 'export']), listener),
   onCloseRequested: listener => { ipcRenderer.send('workspace:close-listener', true); const off = subscribe('workspace:close-requested', z.object({dirty:z.boolean()}), listener); return () => { off(); ipcRenderer.send('workspace:close-listener', false) } },
   markDirty: () => { ipcRenderer.send('workspace:dirty') },
   closeReady: async success => { await invoke('workspace:close-ready', success) },

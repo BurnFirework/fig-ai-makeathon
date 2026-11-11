@@ -2,7 +2,7 @@
 
 Status: implemented initial web/macOS version, November 8, 2026. The sections below retain the design contract and reasoning. Current implementation and verification commands are in README.md.
 
-Implementation notes: the browser adapter uses transactional ID/revision comparison to reject stale writers rather than a renewable ownership lease. Archive assets use safe numeric ZIP entry paths with CRC/size verification and byte deduplication; no hash-authenticity claim is made. Native file revisions are session-fenced; recovery is a separate atomically written checkpoint, and Save As works after a failed original save. Packaging currently produces an unsigned local macOS app; public signing/notarization and other-OS distribution are not configured. A static browser runs preview locally; live AI needs the local helper or installed desktop. The independent Sol storage and native reviews found issues that were reproduced, fixed, and rechecked.
+Implementation notes: the browser adapter uses transactional ID/revision comparison to reject stale writers rather than a renewable ownership lease. Archive assets use safe numeric ZIP entry paths with CRC/size verification and byte deduplication; no hash-authenticity claim is made. Native file revisions are session-fenced. Desktop now owns one automatically saved library beneath Electron userData; recovery is a separate atomically written checkpoint, and failed saves keep edits available for export and retry. Packaging currently produces an unsigned local macOS app; public signing/notarization and other-OS distribution are not configured. A static browser runs preview locally; live AI needs the local helper or installed desktop. The independent Sol storage and native reviews found issues that were reproduced, fixed, and rechecked.
 
 ## Outcome and scope
 
@@ -10,12 +10,12 @@ One React/tldraw application runs in the browser and in an installed Electron ap
 
 | Environment | Durable board storage | Moving work between environments | AI execution |
 | --- | --- | --- | --- |
-| Electron desktop | User-selected `.unfold` workspace file; separate local recovery checkpoint | Open, Save As, export a copy, import boards | Installed provider CLIs through a supervised local Node process |
-| Safari or other browser | Application-owned IndexedDB, with migration from current tldraw storage | Download `.unfold` backup; import a selected file locally | Shared preview mode; live providers only through the existing local helper when deliberately running it |
+| Electron desktop | App-managed `workspaces/default.unfold` beneath Electron userData; separate recovery checkpoint | Import boards; export a backup copy | Installed provider CLIs through a supervised local Node process |
+| Safari or other browser | Application-owned IndexedDB, with migration from current tldraw storage | Export `.unfold` for desktop import | Shared preview mode; live providers only through the existing local helper when deliberately running it |
 
 No hosted application backend, account system, hosted board/image storage, or automatic synchronization is introduced. A desktop process is local application code, not a remote service. Web and desktop storage remain independent until the user moves a workspace file between them.
 
-Start with one workspace file containing the whole board library, rather than a file per board or a required folder. Keep the existing board switcher. A workspace can start untitled with local recovery; its first Save opens a native file picker, and subsequent edits autosave to that location. Opening a file makes that file the working workspace. Import adds boards to the current workspace. Export writes a portable copy without changing the working location.
+Desktop creates and reopens one managed workspace file containing the whole board library. Keep the board switcher and New board; normal use has no workspace picker or Save As. Import copies boards into the managed library. Export creates a portable copy without changing the working location. The accepted storage decision and primary-source investigation are recorded in [DESKTOP_STORAGE_RESEARCH.md](DESKTOP_STORAGE_RESEARCH.md).
 
 ## Current constraints
 
@@ -31,7 +31,7 @@ Start with one workspace file containing the whole board library, rather than a 
 
 ## Usage before implementation details
 
-The user-facing desktop actions are New workspace, Open, Save, Save As, Import boards, and Export backup. Existing new-board and rename actions operate inside the workspace. Cmd/Ctrl+S uses the same save queue as autosave. Safari has the same board UI, Import boards, and Export backup, with no installation or native picker requirement.
+Desktop’s Board menu contains Import, Export backup, and Show data folder. The native File menu also offers Import and Export backup. Existing new-board and rename actions operate inside the library. Cmd/Ctrl+S flushes the same queue as autosave without asking for a location. The web Board menu exposes Export only; Safari downloads an ordinary file. Import is a desktop action. Both environments retain the shared canvas and domain model.
 
 Sketch of the application's calling code, not code to paste into the repository:
 
@@ -84,7 +84,6 @@ These are ownership boundaries, not a requirement for a framework of one-line wr
 
 ```ts
 type SaveState =
-  | { kind: 'untitled'; recoveryRevision: number | null }
   | { kind: 'dirty' | 'saving'; revision: number }
   | { kind: 'saved'; revision: number; savedAt: number }
   | { kind: 'failed' | 'conflict'; revision: number; message: string }
@@ -111,7 +110,7 @@ interface AgentClient {
 
 Derive concrete document types from tldraw snapshots and existing Zod schemas. Brand IDs/revisions only where they prevent mixing different identities. The private storage interface loads validated workspace data, reads asset bytes, and commits a complete revision with an expected prior revision. It does not expose generic paths or filesystem methods to the UI.
 
-The controller owns current edits, inactive board snapshots, asset references, and save scheduling. Each adapter owns durable commits. Electron main alone owns the selected path and its write authority. Scope snapshots, commits, and acknowledgments by a unique workspace-session generation as well as revision. Open/New/Save As drain or invalidate the previous queue before changing handles; reject late messages from an old session. This hides migration, asset hydration, queued saves, import collisions, and platform-specific persistence behind a small application interface.
+The controller owns current edits, inactive board snapshots, asset references, and save scheduling. Each adapter owns durable commits. Electron main owns the managed path and its write authority; the renderer receives a session token, never a writable path. Scope commits and acknowledgments by session and revision, and reject stale writers. The bridge offers load, save, export, startup backup restoration, and revealing the data folder. It has no working-file Open, New, or Save As APIs. This hides migration, asset hydration, queued saves, import collisions, and platform-specific persistence behind a small application interface.
 
 ## One portable workspace format
 
@@ -131,18 +130,21 @@ Export captures one coherent workspace revision. Missing images make export fail
 
 ## Desktop file saves and recovery
 
-The selected workspace file is the durable working document. Electron IndexedDB is not a second board authority. Keep a clearly labeled recovery checkpoint under the app's user-data directory for untitled work and save failures; it is never silently promoted over an existing file. Atomically replace recovery checkpoints too, recording workspace ID, source-file identity/fingerprint, base commit ID, session, and recovery revision. Match that lineage before offering recovery, rather than treating a later timestamp as proof. Save As updates recovery lineage only after the destination commits successfully.
+The canonical library is `path.join(app.getPath('userData'), 'workspaces', 'default.unfold')`. On packaged macOS this resolves to `~/Library/Application Support/Unfold/workspaces/default.unfold`. Development uses a separate profile, and the existing `UNFOLD_DESKTOP_USER_DATA` override supports isolated runs. Keep this storage identity stable across releases. Electron IndexedDB is not a second board authority.
 
-1. Document/catalog changes allocate a monotonic workspace revision and enter one serialized queue. Start with a short debounce and a bounded maximum wait, so continuous editing cannot postpone every save indefinitely. Keep assets in their original stored bytes.
-2. Capture an immutable revision covering catalog, every board, and its image closure. Coalesce queued revisions, but never lose changes from another board. Capture the outgoing editor before board unmount; preserve existing cancellation on board switches.
-3. Main validates the sender, workspace handle, request, expected commit ID, and size. Only the native picker grants a working file path; renderer requests use an opaque handle.
-4. Compare the file fingerprint with the last accepted checkpoint. A mismatch or deletion stops autosave and offers Reopen or Save As. Do not overwrite an externally changed file silently.
-5. Encode/write a temporary sibling file, flush and close it, retain the previous validated checkpoint, and replace the target. Sync the containing directory where supported. Validate platform-specific replacement behavior rather than promising universal power-loss durability.
-6. Acknowledge the committed revision. The UI marks that revision saved only after acknowledgment; later edits remain dirty. Recovery-copy success is reported separately from saving the chosen file.
+The same directory holds `recovery.json` and a best-effort `previous.unfold`. A checkpoint contains the archive bytes and the known canonical fingerprint. These are local recovery copies, not independent-device backups. The first empty workspace is saved before exposing the canvas. After each edit:
 
-Use one desktop application instance and one editing window initially. Main serializes all writes. This prevents competing Unfold windows, but a fingerprint check does not eliminate a race with unrelated external software. Automatic merging, simultaneous independent writers, and network-filesystem guarantees are outside the initial version.
+1. Allocate a monotonic revision and enter one serialized queue. The existing 650ms scheduling bounds the initial wait while edits continue. Capture catalog, inactive and active boards, and stored image bytes together.
+2. Main validates the IPC sender, session, revision, payload and size. It checkpoints current edits before attempting the canonical write, where possible.
+3. Compare canonical bytes against the last accepted fingerprint. An external change or deletion stops autosave; the UI keeps edits available for export and asks the user to reopen Unfold to choose a version.
+4. Retain the prior canonical revision where possible. Write a temporary sibling, flush and close it, atomically replace the canonical path, and sync the containing directory where supported. This is not a universal power-loss durability guarantee.
+5. Acknowledge the committed revision. Later edits remain dirty; recovery success alone never reports a successful canonical save.
 
-On workspace replacement or quit, stop new edits, capture the latest snapshot, and await flush before teardown. If saving fails, keep work available and offer Retry, Save As, or Cancel close; discarding is explicit. An edited untitled workspace needs a successful Save As or an explicit Keep recovery and close action that waits for the recovery commit acknowledgment. Canceling its picker leaves the window open. An untouched empty workspace can close immediately. Save on ordinary edits, not just shutdown. After a crash, offer a validated newer recovery checkpoint and explain its relationship to the file. Edits not yet checkpointed can still be lost; do not describe autosave as lossless.
+Use one application instance and one editing window. Main serializes writes. Fingerprints do not eliminate races with unrelated external software; concurrent merging and network-filesystem guarantees remain outside scope.
+
+Quit fences editing and waits for the final flush. A save failure leaves the window open with Retry save and menu export available. Normal quit has no file picker. Startup loads the managed library first. When a valid checkpoint differs, the user chooses saved boards or recovered edits. Preserve the unselected version before replacing anything. A damaged canonical file with valid recovery offers recovery; otherwise, show Restore backup and Show data folder. Restoration validates a chosen archive, preserves existing damaged library/recovery bytes, then copies the backup into the canonical location. The chosen backup never becomes a live save destination.
+
+When no managed library or managed recovery exists, migrate the legacy `workspace-recovery.json`. Validate its archive and compare it with its external source file, if available. Divergent valid versions require a choice; recovery may contain newer edits, so timestamps are not a selection rule. Atomically copy the selected bytes to the canonical location and read them back before publishing success. Leave legacy recovery and external files untouched. A one-time notice explains automatic saving and the original copies. A later startup uses the canonical library and never repeats a successful import. Corrupt legacy data blocks empty initialization and offers backup restoration. Other external files remain available for manual additive import.
 
 A whole-workspace file rewrites image bytes and needs temporary disk space. That cost is accepted for the initial small vision-board library. A folder becomes a separate future storage decision only if real workspace sizes make this problematic; no size or speed claim has been measured.
 
@@ -162,7 +164,7 @@ Migration must first be proven against the installed tldraw version:
 
 For multiple browser tabs, use an IndexedDB-transactional writer ownership token plus revision checks. Another tab can explain that the workspace is open elsewhere and offer takeover after ownership expires or is explicitly released. Every commit verifies current ownership; BroadcastChannel is notification, not the authority. Preserve the prior committed revision on quota/write failure and keep the current in-memory workspace exportable.
 
-Browser import/export uses a file input and Blob download, including Safari. Native File System Access APIs are not required. Requesting persistent browser storage can reduce eviction risk if granted, but it is not a backup and cannot prevent the user clearing site data. Native/browser workspaces do not synchronize automatically. Optional Chrome/Edge linked-file saving is deferred because desktop file saving and universal backups already satisfy this scope.
+Browser export uses a Blob download, including Safari. Desktop import uses a file input and copies validated boards into its library. Native browser File System Access APIs are not required. Requesting persistent browser storage can reduce eviction risk if granted, but it is not a backup and cannot prevent the user clearing site data. Native/browser workspaces do not synchronize automatically. Optional browser linked-file saving is deferred; web export and desktop import provide the agreed transfer path.
 
 ## Share agent behavior, adapt transport
 
@@ -202,14 +204,14 @@ Each slice ends with working behavior and focused checks. Keep current browser p
 | Slice | Concrete deliverable | Smallest relevant verification |
 | --- | --- | --- |
 | 1. Complete portable data | Versioned workspace format and archive converter, proved against current boards/assets | Two-board round trip with nested custom images, accepted/rejected decisions, sources and reflection; inactive board included; missing/corrupt asset and unsupported-version rejection; prove legacy public extraction works |
-| 2. Shared controller and browser | Controlled tldraw stores/asset adapter, app-owned IndexedDB, non-destructive legacy migration, import/export UI, truthful save state | Original-key migration and interrupted retry without duplication; canceled/invalid import preserves existing work; quota error; stale-writer rejection; one actual Safari export/import/reload smoke with images |
-| 3. Electron files | Bundled shared UI, restricted preload, native Open/Save/Save As, autosave/recovery, single editing window, shortcuts and quit coordination | Temporary-file failure leaves old file valid; stale acknowledgment/session cannot mark newer work saved; mismatched recovery lineage rejected; external edit stops overwrite; canceled/failed untitled close retains work; unauthorized IPC rejected |
+| 2. Shared controller and browser | Controlled tldraw stores/asset adapter, app-owned IndexedDB, non-destructive legacy migration, web export and desktop import UI, truthful save state | Original-key migration and interrupted retry without duplication; invalid import preserves existing work; quota error; stale-writer rejection; one browser export/reload smoke with images |
+| 3. Electron files | Bundled shared UI, restricted preload, automatic managed library, migration/recovery, menu import/export, single editing window and quit coordination | Managed create/reopen without picker; preserved legacy migration; divergence requires choice; corrupt-library backup restore; failed close retains edits; stale writer and external-change rejection |
 | 4. Shared AI runtime | Transport injection for all config/provider/run calls; local preview; supervised child and packaged CLI discovery | Shared request validation/cancellation checks; child failure preserves canvas; packaged GUI-launch provider discovery; owned subprocesses stop on quit |
 | 5. Distributable app | pnpm desktop dev/build/package scripts, pinned supported Electron/tooling, bundled resources and native binary staging if needed | Packaged macOS smoke without Vite/server/node_modules present: create/save/reopen two boards with images, source links, and one targeted live provider run/cancel; production web build still works |
 
 Use Electron Builder for initial packaging, matching T3's tooling family, with a small explicit build for main/preload/agent entry. Keep browser assets reusable; do not ship secrets or development `.env`. An official shared desktop build cannot rely on a user disabling Gatekeeper: plan macOS signing/notarization and Windows signing for the platforms actually distributed. Sign/update distribution is distinct from board storage. Start with macOS; add target-OS file/process/package checks when distributing Windows/Linux rather than claiming support from compilation alone. Automatic update infrastructure is not required for the first build.
 
-Run required `pnpm check`, `pnpm lint`, `pnpm test`, and `pnpm build` after relevant implementation. Use one packaged desktop smoke and one Safari smoke to cover the new platform behavior; broaden only for a concrete failure or a newly supported platform. No unrelated visual/performance/browser matrix is prescribed.
+Run required `pnpm check`, `pnpm lint`, `pnpm test`, and `pnpm build` after relevant implementation. Use one packaged desktop smoke and one focused browser export smoke for the managed-storage change; broaden only for a concrete failure or a newly supported platform. No unrelated visual/performance/browser matrix is prescribed.
 
 ## Design comparison and synthesis
 
@@ -223,7 +225,7 @@ Two independent candidate sketches were reviewed against shared behavior, durabl
 | Typed native boundary and packaged CLI lifecycle | 2 | 2 |
 | Scope appropriate to this small board app | 2 | 1 |
 
-The file candidate is the base: one portable working file, simpler moving/restoring, and fewer user-managed pieces. Its accepted cost is whole-file replacement. The folder candidate contributed no desktop HTTP listener, explicit flush semantics, and a single commit point; it was rejected as the initial storage shape because immutable document generations, manifest heads, folder locks, and orphan cleanup are unnecessary for the present board scope. Both candidates independently identified browser migration, source-of-truth ownership, and static preview as required work.
+The file candidate remains the base. The later desktop storage decision makes that file app-managed, with explicit menu import and export for portability. Its accepted cost is whole-file replacement. The folder candidate contributed no desktop HTTP listener, explicit flush semantics, and a single commit point; it was rejected as the initial storage shape because immutable document generations, manifest heads, folder locks, and orphan cleanup are unnecessary for the present board scope. Both candidates independently identified browser migration, source-of-truth ownership, and static preview as required work.
 
 Keeping tldraw IndexedDB as a desktop authority and mirroring it to a file was rejected because two durable writers make save status and recovery ambiguous. A generic native filesystem API was rejected because callers would need to coordinate paths, permissions, and commits themselves. Do not split the UI or introduce a full backend framework to implement these adapters.
 
@@ -232,9 +234,9 @@ Keeping tldraw IndexedDB as a desktop authority and mirroring it to a file was r
 - Complete legacy extraction through the public tldraw path is the first technical gate. If it cannot resolve every image, stop that migration and keep old data readable; do not fall back to private schema assumptions.
 - This plan preserves stored images and document decisions. Should original-resolution uploads or activity history become durable requirements, change the data model and format explicitly.
 - Whole-file writes, temporary disk space, and uncheckpointed edits are accepted initial limits. No benchmark or crash-durability claim has been made.
-- Local files plus browser import/export provide portability, not automatic sync or simultaneous editing.
+- Local files, web export, and desktop import provide portability, not automatic sync or simultaneous editing.
 - Installed CLI sign-in and usage are still required for live AI. A desktop build does not grant provider access or make inference offline.
 
-The first implementation step is the two-board archive round trip and legacy-image extraction fixture. No Electron dependency or live persistence change is needed to prove that data boundary first.
+The archive boundary and legacy browser extraction are implemented. The desktop storage revision adds an app-managed canonical file and preserves earlier file-based data during migration.
 
 Verification record: implementation checks and platform smoke results are recorded in README.md and the accompanying test scripts. Do not interpret the original planning acceptance table as proof of untested platform or distribution capabilities.

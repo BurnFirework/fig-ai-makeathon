@@ -49,15 +49,18 @@ Older question and answer cards are folded into an **Earlier exploration** chat 
 The web and Electron desktop app share the same React/tldraw interface and board logic. Data stays on your device. There is no hosted board backend, account system, or automatic cloud sync.
 
 - **Browser:** boards, images, attached conversations, decisions, source links, and reflections save in IndexedDB. Existing tldraw boards are migrated through the editor's public loading path; their original databases and catalog are retained. A stale tab cannot overwrite a newer committed workspace.
-- **Desktop:** use **Workspace files** or the native File menu to Open, Save, and Save As. Once you choose a `.unfold` file, edits autosave there. Unsaved work also has a local recovery checkpoint. Conflicting external file edits stop overwriting and can be recovered with Save As.
+- **Desktop:** Unfold creates and reopens one local board library automatically. Edits autosave without a location picker, and quitting waits for pending saves. The packaged macOS app stores the library at `~/Library/Application Support/Unfold/workspaces/default.unfold`, resolved through Electron’s `userData` path. **Board menu → Show data folder** reveals the location. Development uses a separate `Unfold Development` profile; `UNFOLD_DESKTOP_USER_DATA` overrides the profile for isolated runs.
 
 Browser saves flush when the page is backgrounded; leaving with pending or failed saves triggers the browser's unsaved-changes warning. Browser/OS termination can still interrupt asynchronous IndexedDB writes.
 
-On desktop, differing saved/recovery versions require an explicit choice. The recovery version is retained as a `.conflict-*.unfold` backup beside the recovery checkpoint before opening the chosen version. If recovery is unreadable, the startup screen and File → Open can open a healthy workspace; the unreadable checkpoint is preserved as `.unreadable-*` before replacement. Opening an existing file remains possible if recovery storage is unavailable. Both web and desktop bundle the SDK's fonts, icons, and translations instead of requiring its asset CDN.
-- **Backup/restore:** **Export all boards** creates one `.unfold` ZIP containing every board and its actual stored image bytes. **Import boards** adds them without replacing your current boards. Safari uses ordinary download/file-input APIs, with no installation or native browser filesystem API required.
+Both web and desktop bundle the SDK's fonts, icons, and translations instead of requiring its asset CDN.
+
+- **Web → desktop:** **Board menu → Export** downloads a `.unfold` ZIP containing every board and its stored image bytes. Desktop’s **Board menu → Import** copies those boards into its library without replacing existing boards or changing the imported file. Web exposes Export only; Safari uses an ordinary download.
+- **Desktop backups and recovery:** **Board menu → Export backup** creates a portable copy without changing where edits save. The app also keeps a local recovery checkpoint and a best-effort previous revision, which are not substitutes for a backup on another device. Save failures keep edits available for export and offer Retry save. Differing saved/recovery versions require a choice; damaged libraries offer backup restoration and access to the data folder instead of silently creating empty boards.
+- **Existing desktop data:** the previous `workspace-recovery.json` is migrated into the managed library once. If it differs from its original `.unfold` file, Unfold asks which version to keep. Original files and legacy recovery remain unchanged. Subsequent edits save in Unfold; old external files remain copies. Other `.unfold` files can be imported manually.
 - Running processes, the open chat/view mode, and undo history are temporary. Backups preserve stored resized images, not discarded full-resolution originals.
 
-Browser data belongs to its profile and site origin; clearing site data removes it. Export a backup to keep a portable copy. Desktop and browser workspaces move through explicit export/import rather than synchronizing automatically.
+Browser data belongs to its profile and site origin; clearing site data removes it. Export before clearing it to keep a portable copy. Web-to-desktop transfer is manual; browser and desktop libraries do not synchronize automatically.
 
 Static web builds can run preview conversations locally. Live AI requires the desktop app or the existing localhost helper and the selected CLI's sign-in; model inputs still go to that provider. The desktop runs its local agent process separately so agent failure does not disable file saving.
 
@@ -180,3 +183,9 @@ Live CLI calls were not repeated for this UI/context change. Earlier Codex verif
   - **Run 2 passed:** seven real searches across three turns, every reply read, no technical failure. The run ended with a justified decision. Verified Saturday-morning classes cost $89 (SMAart) and $90 (Pottery-SF), above the $80 budget the run had chosen, citing pottery-sf.com.
   - The test's automatic answers chose “keep the budget, search again”, so this run did not reach an accepted card. Live results vary by run.
 
+## Automatic desktop storage verification — November 8, 2026
+
+- TypeScript checking, lint, the full Node suites (52 lint-rule tests and 60 application tests), production web build, and macOS packaging pass.
+- Native/controller tests cover automatic saves, legacy migration without altering source files, both recovery choices, failed migration retry, corrupt data and safe restoration, external changes, stale sessions, failed writes, and edits remaining exportable after a failed close.
+- The packaged macOS smoke passes automatic save, menu-only import/export, preservation of imported backup files, quit/reopen without a location picker, stored image decoding, and startup restoration after damaged library/recovery files.
+- One Chromium smoke passes legacy board/image migration, reload, conversation preservation, web Export, absence of web Import, and fresh-image persistence. Windows/Linux, WebKit, and live AI were not repeated for this storage/menu change.

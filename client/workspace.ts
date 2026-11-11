@@ -1,7 +1,7 @@
 import { createTLStore, loadSnapshot, type Editor, type TLAsset, type TLAssetStore, type TLStore } from 'tldraw'
 import { createContext } from 'react'
 import { z } from 'zod'
-import { decodeWorkspace, encodeWorkspace, mergeWorkspaces, parseWorkspace, workspaceTLSchema, MAX_WORKSPACE_BYTES, type Workspace } from '../shared/workspace-format'
+import { decodeWorkspace, encodeWorkspace, mergeWorkspaces, workspaceTLSchema, MAX_WORKSPACE_BYTES, type Workspace } from '../shared/workspace-format'
 import type { DesktopFiles } from '../shared/desktop-contract'
 import { type BoardCatalog, initialBoardCatalog } from './boards'
 import { actions, uiState } from './actions'
@@ -38,7 +38,7 @@ function download(bytes: Uint8Array) {
   const link = document.createElement('a'); link.href = url; link.download = 'Unfold.unfold'; link.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
-export interface WorkspaceState { workspace: Workspace; status: string; error: string; name: string | null; generation: number; busy: boolean }
+export interface WorkspaceState { workspace: Workspace; status: string; error: string; notice: string | null; busy: boolean }
 export class WorkspaceController {
   private current: WorkspaceState
   private listeners = new Set<() => void>()
@@ -50,11 +50,11 @@ export class WorkspaceController {
   private session: string
   private closed = false
   readonly desktop: DesktopFiles | undefined
-  constructor(workspace: Workspace, options: { desktop?: DesktopFiles; session?: string; name?: string | null; persisted: boolean }) {
+  constructor(workspace: Workspace, options: { desktop?: DesktopFiles; session?: string; notice?: string | null; persisted: boolean }) {
     this.desktop = options.desktop
     this.session = options.session ?? ''
     this.expected = options.persisted ? { id: workspace.id, revision: workspace.revision } : null
-    this.current = { workspace, status: options.persisted ? (this.desktop ? (options.name ? 'Saved to file' : 'Saved to recovery') : 'Saved in browser') : 'Preparing storage…', error: '', name: options.name ?? null, generation: 0, busy: false }
+    this.current = { workspace, status: options.persisted ? (this.desktop ? 'Saved on this device' : 'Saved in browser') : 'Preparing storage…', error: '', notice: options.notice ?? null, busy: false }
   }
   getSnapshot = () => this.current
   hasUnsavedChanges = () => Boolean(this.current.error) || this.expected?.id !== this.current.workspace.id || this.expected.revision !== this.current.workspace.revision
@@ -64,6 +64,7 @@ export class WorkspaceController {
     this.listeners.forEach(listener => listener())
   }
   report(error: unknown) { this.publish({ error: error instanceof Error ? error.message : 'The operation could not finish.', status: 'Not saved' }) }
+  dismissNotice() { this.publish({ notice: null }) }
   private change(workspace: Workspace) {
     if (this.closed) return
     this.publish({ workspace: { ...workspace, revision: this.current.workspace.revision + 1 }, status: 'Unsaved changes', error: '' })
@@ -139,10 +140,9 @@ export class WorkspaceController {
       if (this.desktop) {
         const ack = await this.desktop.save({ workspace: snapshot, session })
         if (ack.session !== this.session) return
-        this.publish({ name: ack.name })
       } else await commitBrowserWorkspace(snapshot, this.expected)
       this.expected = { id: snapshot.id, revision: snapshot.revision }
-      if (this.current.workspace.revision === snapshot.revision) this.publish({ status: this.desktop ? (this.current.name ? 'Saved to file' : 'Saved to recovery') : 'Saved in browser', error: '' })
+      if (this.current.workspace.revision === snapshot.revision) this.publish({ status: this.desktop ? 'Saved on this device' : 'Saved in browser', error: '' })
     })
     return this.pending
   }
@@ -172,59 +172,17 @@ export class WorkspaceController {
       if (this.desktop) {
         const ack = await this.desktop.save({ workspace: merged, session: this.session })
         if (ack.session !== this.session) throw new Error('The workspace changed while importing.')
-        this.publish({ name: ack.name })
       } else await commitBrowserWorkspace(merged, this.expected)
       this.expected = { id: merged.id, revision: merged.revision }
-      this.publish({ workspace: merged, status: this.desktop ? (this.current.name ? 'Saved to file' : 'Saved to recovery') : 'Saved in browser', error: '' })
+      this.publish({ workspace: merged, status: this.desktop ? 'Saved on this device' : 'Saved in browser', error: '' })
     })
-  }
-  private async chooseSaveAs(): Promise<boolean> {
-    if (!this.desktop) { await this.exportCopy(); return true }
-    if (this.timer) { clearTimeout(this.timer); this.timer = undefined }
-    await this.pending.catch(() => undefined)
-    this.capture()
-    const ack = await this.desktop.saveAs({ workspace: this.current.workspace, session: this.session })
-    if (!ack) return false
-    this.session = ack.session
-    this.expected = { id: this.current.workspace.id, revision: ack.revision }
-    this.publish({ name: ack.name, status: 'Saved to file', error: '' })
-    return true
   }
   cancelClose() { this.editor?.updateInstanceState({ isReadonly: false }); this.publish({ busy: false }) }
   prepareClose(): Promise<boolean> {
     return this.transition(async () => {
-      if (!this.current.name) return await this.chooseSaveAs()
       await this.flush()
       return true
     }, true)
-  }
-  saveAs(): Promise<boolean> { return this.transition(() => this.chooseSaveAs()) }
-  async openFile() {
-    const desktop = this.desktop
-    if (!desktop) return
-    await this.transition(async () => {
-      if (this.current.name) await this.flush()
-      else if (!await this.chooseSaveAs()) return
-      const opened = await desktop.open()
-      if (opened?.workspace) this.replace(opened.workspace, opened.session, opened.name)
-    })
-  }
-  async newFile() {
-    const desktop = this.desktop
-    if (!desktop) return
-    await this.transition(async () => {
-      if (this.current.name) await this.flush()
-      else if (!await this.chooseSaveAs()) return
-      const opened = await desktop.newWorkspace()
-      this.replace(opened.workspace ?? emptyWorkspace(), opened.session, opened.name)
-      await this.flush()
-    })
-  }
-  private replace(workspace: Workspace, session: string, name: string | null) {
-    this.editor = null
-    this.session = session
-    this.expected = name ? { id: workspace.id, revision: workspace.revision } : null
-    this.publish({ workspace: parseWorkspace(workspace), generation: this.current.generation + 1, name, status: name ? 'Saved to file' : 'Saved to recovery', error: '' })
   }
   dispose() { this.closed = true; if (this.timer) clearTimeout(this.timer); this.listeners.clear() }
 }

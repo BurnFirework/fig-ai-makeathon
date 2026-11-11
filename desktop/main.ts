@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, shell } from 
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { extname, join, resolve, sep } from 'node:path'
 import { existsSync } from 'node:fs'
+import { mkdir } from 'node:fs/promises'
 import { z } from 'zod'
 import { RecoveryConflictError, WorkspaceFiles, atomicWrite } from './workspace-files'
 import { WorkspaceSchema, encodeWorkspace } from '../shared/workspace-format'
@@ -31,7 +32,7 @@ else {
       return response
     })
   })
-  const files = new WorkspaceFiles(join(app.getPath('userData'), 'workspace-recovery.json'))
+  const files = new WorkspaceFiles(app.getPath('userData'))
   const window = new BrowserWindow({ width: 1440, height: 960, minWidth: 800, minHeight: 650, title: 'Unfold', icon, webPreferences: { preload: join(directory, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
   const agents = createAgentHost(window)
   let mayClose = false
@@ -50,28 +51,23 @@ else {
   handle('workspace:load', async () => {
     try { return await files.load() } catch (error) {
       if (!(error instanceof RecoveryConflictError)) throw error
-      const result = await dialog.showMessageBox(window, { type: 'warning', title: 'Choose a workspace version', message: `${error.sourceName} and its recovery contain different versions.`, detail: 'Both copies are preserved. Open the saved file, or recover edits as an untitled workspace and use Save As to keep them separately.', buttons: ['Open saved file', 'Use recovery', 'Cancel'], defaultId: 0, cancelId: 2 })
-      if (result.response === 2) throw error
-      return await files.load(result.response === 0 ? 'saved' : 'recovery')
+      const result = await dialog.showMessageBox(window, { type: 'warning', title: 'Recover your boards', message: error.savedAvailable ? `${error.sourceName} and its recovery contain different versions.` : error.message, detail: 'Choose the version to keep in Unfold. The other copy and any original workspace files will be preserved.', buttons: error.savedAvailable ? ['Use saved boards', 'Use recovered edits', 'Cancel'] : ['Use recovered edits', 'Cancel'], defaultId: 0, cancelId: error.savedAvailable ? 2 : 1 })
+      if (result.response === (error.savedAvailable ? 2 : 1)) throw error
+      return await files.load(error.savedAvailable && result.response === 0 ? 'saved' : 'recovery')
     }
   })
   handle('workspace:save', async value => { const result = await files.save(saveSchema.parse(value)); dirty = false; return result })
-  handle('workspace:saveAs', async value => {
-    const data = saveSchema.parse(value)
-    const destination = await dialog.showSaveDialog(window, { title: 'Save workspace', defaultPath: 'My workspace.unfold', filters })
-    if (destination.canceled || !destination.filePath) return null
-    const result = await files.save(data, destination.filePath); dirty = false; return result
-  })
-  handle('workspace:open', async () => {
-    const selected = await dialog.showOpenDialog(window, { title: 'Open workspace', filters, properties: ['openFile'] })
+  handle('workspace:restore', async () => {
+    const selected = await dialog.showOpenDialog(window, { title: 'Restore an Unfold backup', defaultPath: files.directory, filters, properties: ['openFile'] })
     const path = selected.filePaths[0]
-    return selected.canceled || !path ? null : files.openFile(path)
+    return selected.canceled || !path ? null : files.restoreFile(path)
   })
-  handle('workspace:new', () => files.newWorkspace())
+  handle('workspace:show-data', async () => { await mkdir(files.directory, { recursive: true }); const error = await shell.openPath(files.directory); if (error) throw new Error(error) })
   handle('workspace:export', async value => {
     const workspace = WorkspaceSchema.parse(value)
-    const destination = await dialog.showSaveDialog(window, { title: 'Export workspace copy', defaultPath: 'Workspace backup.unfold', filters })
+    const destination = await dialog.showSaveDialog(window, { title: 'Export backup', defaultPath: 'Unfold backup.unfold', filters })
     if (destination.canceled || !destination.filePath) return false
+    if (resolve(destination.filePath).startsWith(files.directory + sep)) throw new Error('Choose a backup location outside Unfold’s data folder.')
     await atomicWrite(destination.filePath, encodeWorkspace(workspace)); return true
   })
   ipcMain.on('workspace:close-listener', (event, value: unknown) => { if (authorized(event)) closeListener = value === true })
@@ -104,10 +100,9 @@ else {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'Unfold', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }] },
     { label: 'File', submenu: [
-      { label: 'New workspace', accelerator: 'CmdOrCtrl+N', click: () => command('new') },
-      { label: 'Open workspace…', accelerator: 'CmdOrCtrl+O', click: () => command('open') },
-      { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => command('save') },
-      { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => command('saveAs') },
+      { label: 'Import…', click: () => command('import') },
+      { label: 'Export backup…', click: () => command('export') },
+      { label: 'Save now', accelerator: 'CmdOrCtrl+S', visible: false, acceleratorWorksWhenHidden: true, click: () => command('save') },
     ] },
     { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
   ]))

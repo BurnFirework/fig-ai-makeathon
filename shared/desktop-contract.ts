@@ -1,15 +1,14 @@
 import type { Workspace } from './workspace-format'
 
-export interface DesktopSession { workspace: Workspace | null; session: string; name: string | null }
-export interface DesktopAck { session: string; revision: number; name: string | null; savedAt: number }
+export interface DesktopSession { workspace: Workspace | null; session: string; notice: string | null }
+export interface DesktopAck { session: string; revision: number; savedAt: number }
 export interface DesktopSave { workspace: Workspace; session: string }
-export type DesktopCommand = 'save' | 'saveAs' | 'open' | 'new'
+export type DesktopCommand = 'save' | 'import' | 'export'
 export interface DesktopFiles {
   load(): Promise<DesktopSession>
   save(value: DesktopSave): Promise<DesktopAck>
-  saveAs(value: DesktopSave): Promise<DesktopAck | null>
-  open(): Promise<DesktopSession | null>
-  newWorkspace(): Promise<DesktopSession>
+  restoreBackup(): Promise<DesktopSession | null>
+  showDataFolder(): Promise<void>
   exportCopy(workspace: Workspace): Promise<boolean>
   markDirty(): void
   subscribeCommands(listener: (command: DesktopCommand) => void): () => void

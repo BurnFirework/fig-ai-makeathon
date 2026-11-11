@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path'
 import { decodeWorkspace } from '../shared/workspace-format.ts'
 const directory = await mkdtemp(join(tmpdir(), 'unfold-desktop-smoke-'))
 const path = join(directory, 'Workspace.unfold')
+const libraryPath = join(directory, 'profile', 'workspaces', 'default.unfold')
 const executablePath = process.env.UNFOLD_SMOKE_EXECUTABLE || resolve('output/desktop/mac-arm64/Unfold.app/Contents/MacOS/Unfold')
 let app
 try {
@@ -22,7 +23,10 @@ try {
   await page.waitForTimeout(6000)
   await expect(page.getByTestId('tl-license-expired')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Explore a sample board' })).toBeVisible()
-  await app.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }); dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }) }, path)
+  await app.evaluate(({ dialog }) => {
+    dialog.showSaveDialog = async () => { throw new Error('Normal desktop use must not ask for a save location') }
+    dialog.showOpenDialog = async () => { throw new Error('Normal desktop use must not ask for a workspace') }
+  })
   await page.getByRole('button', { name: 'Explore a sample board' }).click()
   await expect(page.locator('.card-inspiration')).toHaveCount(2)
   await page.getByRole('button', { name: /^Mood boards:/ }).click()
@@ -32,11 +36,23 @@ try {
   await expect(page.locator('.card-inspiration')).toHaveCount(0)
   await page.getByRole('button', { name: 'Explore a sample board' }).click()
   await expect(page.locator('.card-inspiration')).toHaveCount(2)
-  await page.getByRole('button', { name: 'Workspace files' }).click()
-  await page.getByRole('menuitem', { name: 'Save workspace', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Saved to file' })).toBeVisible()
-  const workspace = decodeWorkspace(new Uint8Array(await readFile(path)))
+  await expect(page.getByRole('status').filter({ hasText: 'Saved on this device' })).toBeVisible()
+  const workspace = decodeWorkspace(new Uint8Array(await readFile(libraryPath)))
   if (workspace.catalog.boards.length !== 2 || Object.keys(workspace.assets).length < 2) throw new Error('File did not contain both images')
+  await page.getByRole('button', { name: 'Board menu', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: /Save|New workspace|Open workspace/ })).toHaveCount(0)
+  await expect(page.getByRole('menuitem', { name: 'Show data folder', exact: true })).toBeVisible()
+  await app.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }) }, path)
+  await page.getByRole('menuitem', { name: 'Export backup', exact: true }).click()
+  await expect.poll(async () => { try { return decodeWorkspace(new Uint8Array(await readFile(path))).catalog.boards.length } catch { return 0 } }).toBe(2)
+  await app.evaluate(({ dialog }) => { dialog.showSaveDialog = async () => { throw new Error('Autosave must not ask for a location') } })
+  await page.getByRole('button', { name: 'Board menu', exact: true }).click()
+  const choosing = page.waitForEvent('filechooser')
+  await page.getByRole('menuitem', { name: 'Import', exact: true }).click()
+  await (await choosing).setFiles(path)
+  await expect(page.getByRole('status').filter({ hasText: 'Saved on this device' })).toBeVisible()
+  await expect.poll(async () => decodeWorkspace(new Uint8Array(await readFile(libraryPath))).catalog.boards.length).toBe(4)
+  if (decodeWorkspace(new Uint8Array(await readFile(path))).catalog.boards.length !== 2) throw new Error('Import altered its source backup')
   // Photos ignore DOM pointer events so tldraw can hit-test the canvas underneath.
   await page.getByRole('img', { name: 'Explore a creative practice', exact: true }).hover({ force: true })
   await page.getByRole('button', { name: 'Explore Explore a creative practice', exact: true }).click()
@@ -67,22 +83,25 @@ try {
   await app.close(); app = undefined
   app = await _electron.launch({ executablePath, cwd: directory, env: { ...process.env, UNFOLD_DESKTOP_USER_DATA: join(directory, 'profile'), UNFOLD_PROVIDER: 'demo' } })
   const reopened = await app.firstWindow()
-  await expect(reopened.getByRole('status').filter({ hasText: 'Saved to file' })).toBeVisible()
+  await expect(reopened.getByRole('status').filter({ hasText: 'Saved on this device' })).toBeVisible()
   await expect(reopened.locator('.card-inspiration')).toHaveCount(2)
   const images = reopened.locator('.card-inspiration img')
   await expect(images).toHaveCount(2)
   if (!(await images.evaluateAll(nodes => nodes.every(image => image.complete && image.naturalWidth > 0)))) throw new Error('Saved desktop images failed to decode')
-  console.log('PASS packaged macOS: native save, real image archive, AI utility process, reopen with decoded images')
+  if (decodeWorkspace(new Uint8Array(await readFile(libraryPath))).catalog.boards.length !== 4) throw new Error('Imported boards were not retained after restart')
+  console.log('PASS packaged macOS: automatic local save, menu export/import, image archive, quit and reopen without a location picker')
   await app.close(); app = undefined
-  const recoveryPath = join(directory, 'profile', 'workspace-recovery.json')
+  const recoveryPath = join(directory, 'profile', 'workspaces', 'recovery.json')
+  await writeFile(libraryPath, 'damaged library')
   await writeFile(recoveryPath, '{truncated')
   app = await _electron.launch({ executablePath, cwd: directory, env: { ...process.env, UNFOLD_DESKTOP_USER_DATA: join(directory, 'profile'), UNFOLD_PROVIDER: 'demo' } })
   const recoveryPage = await app.firstWindow()
-  await expect(recoveryPage.getByRole('alert')).toContainText('recovery workspace could not be read')
+  await expect(recoveryPage.getByRole('alert')).toContainText('library and its recovery could not be read')
   await app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }) }, path)
-  await recoveryPage.getByRole('button', { name: 'Open another workspace', exact: true }).click()
+  await recoveryPage.getByRole('button', { name: 'Restore backup…', exact: true }).click()
   await expect(recoveryPage.locator('.card-inspiration')).toHaveCount(2)
-  console.log('PASS packaged macOS: corrupt recovery can open an intact workspace without deleting recovery data')
+  await expect(recoveryPage.getByRole('status').filter({ hasText: 'Saved on this device' })).toBeVisible()
+  console.log('PASS packaged macOS: damaged library offers backup restore without silently replacing saved boards')
 } catch (error) {
   const page = app?.windows()[0]
   if (page && !page.isClosed()) {

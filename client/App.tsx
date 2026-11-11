@@ -17,7 +17,7 @@ import { Input } from './components/ui/input'
 import { selectAgentProvider } from './agentClient'
 import { useRef, useState, useSyncExternalStore } from 'react'
 import { Editor, type TLComponents, type TLUiOverrides, Tldraw, useEditor, useValue } from 'tldraw'
-import { Activity, ArrowDownToLine, ArrowRight, ChevronRight, Expand, Hand, ImagePlus, Link2, MessageCircle, MoreHorizontal, MousePointer2, Plus, Settings2, Undo2, Redo2, X } from 'lucide-react'
+import { Activity, ArrowDownToLine, ArrowRight, ChevronRight, Expand, Hand, ImagePlus, Merge, MessageCircle, MoreHorizontal, MousePointer2, Plus, Settings2, Undo2, Redo2, X } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './components/ui/dropdown-menu'
 import { actions, uiState } from './actions'
@@ -74,7 +74,7 @@ function Chrome() {
       <div className="tool-group"><Button variant="ghost" size="icon" aria-pressed={tool === 'select'} title="Select (V)" aria-label="Select tool" onClick={() => editor.setCurrentTool('select')}><MousePointer2 size={18}/></Button><Button variant="ghost" size="icon" aria-pressed={tool === 'hand'} title="Pan (H) · hold Space to pan" aria-label="Pan tool" onClick={() => editor.setCurrentTool('hand')}><Hand size={18}/></Button></div>
       <span className="toolbar-divider"/>
       <Button variant="ghost" size="sm" className="add-image-tool" aria-label="Add inspiration" onClick={() => input.current?.click()}><Plus size={18}/><span>Add image</span></Button>
-      <Button variant="ghost" size="icon" title="Connect two inspirations" aria-label="Connect goals" onClick={() => api?.connect()}><Link2 size={18}/></Button>
+      <Button variant="ghost" size="icon" title="Connect two inspirations" aria-label="Connect goals" onClick={() => api?.connect()}><Merge size={18}/></Button>
       <Button variant="ghost" size="icon" title="See the whole picture" aria-label="Fit board" onClick={() => fitBoard(editor)}><Expand size={18}/></Button>
       <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label="More canvas actions" title="More canvas actions"/>}><MoreHorizontal size={18}/></DropdownMenuTrigger><DropdownMenuContent side="top" align="end" className="w-52" onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
         {selected && <><DropdownMenuItem onClick={() => api?.openChat(selected.id)}><MessageCircle/>Open attached chat</DropdownMenuItem><DropdownMenuSeparator/></>}
@@ -115,8 +115,9 @@ function WorkspaceApp({ workspace }: { workspace: WorkspaceController }) {
   const state = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot)
   return <WorkspaceContext.Provider value={workspace}><BoardsContext.Provider value={{ catalog: state.workspace.catalog, update: catalog => workspace.updateCatalog(catalog) }}>
     {state.busy && <div role="status" style={{ position: 'fixed', inset: 0, zIndex: 99999, background: '#fff8', display: 'grid', placeItems: 'center' }}>Updating workspace…</div>}
-    {state.error && <div className="board-storage-error" role="alert">{state.error}</div>}
-    <WorkspaceCanvas key={`${state.generation}:${state.workspace.catalog.activeId}`} workspace={workspace}/>
+    {state.error && <div className="board-storage-error" role="alert">{state.error}<Button variant="ghost" size="sm" onClick={() => { workspace.flush().catch((error: unknown) => workspace.report(error)) }}>Retry save</Button></div>}
+    {state.notice && !state.error && <div className="notice board-storage-notice" role="status"><span>{state.notice}</span><Button variant="ghost" size="icon-sm" aria-label="Dismiss storage notification" onClick={() => workspace.dismissNotice()}><X size={15}/></Button></div>}
+    <WorkspaceCanvas key={state.workspace.catalog.activeId} workspace={workspace}/>
   </BoardsContext.Provider></WorkspaceContext.Provider>
 }
 function WorkspaceCanvas({ workspace }: { workspace: WorkspaceController }) {

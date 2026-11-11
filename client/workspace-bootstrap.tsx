@@ -24,18 +24,18 @@ export function WorkspaceBootstrap({ children }: { children: (controller: Worksp
   const [legacy, setLegacy] = useState<LegacyState | null>(null)
   const [error, setError] = useState('')
   const desktopLoad = useRef<Promise<DesktopSession> | null>(null)
-  const openDesktop = useCallback(async () => {
+  const restoreDesktop = useCallback(async () => {
     try {
       const desktop = window.unfoldDesktop
       if (!desktop) return
-      const loaded = await desktop.open()
-      if (loaded?.workspace) setController(new WorkspaceController(parseWorkspace(loaded.workspace), { desktop, session: loaded.session, name: loaded.name, persisted: true }))
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'The workspace could not be opened.') }
+      const loaded = await desktop.restoreBackup()
+      if (loaded?.workspace) setController(new WorkspaceController(parseWorkspace(loaded.workspace), { desktop, session: loaded.session, notice: loaded.notice, persisted: true }))
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'The backup could not be restored.') }
   }, [])
   useEffect(() => {
     if (!error || controller) return
-    return window.unfoldDesktop?.subscribeCommands(command => { if (command === 'open') openDesktop().catch(() => {}) })
-  }, [error, controller, openDesktop])
+    return window.unfoldDesktop?.subscribeCommands(command => { if (command === 'import') restoreDesktop().catch(() => {}) })
+  }, [error, controller, restoreDesktop])
   useEffect(() => {
     let canceled = false
     async function start() {
@@ -43,7 +43,8 @@ export function WorkspaceBootstrap({ children }: { children: (controller: Worksp
         const loaded = await (desktopLoad.current ??= window.unfoldDesktop.load())
         if (canceled) return
         const workspace = loaded.workspace ? parseWorkspace(loaded.workspace) : emptyWorkspace()
-        const next = new WorkspaceController(workspace, { desktop: window.unfoldDesktop, session: loaded.session, name: loaded.name, persisted: loaded.workspace !== null })
+        const next = new WorkspaceController(workspace, { desktop: window.unfoldDesktop, session: loaded.session, notice: loaded.notice, persisted: loaded.workspace !== null })
+        await next.flush()
         setController(next)
         return
       }
@@ -70,7 +71,7 @@ export function WorkspaceBootstrap({ children }: { children: (controller: Worksp
     return () => { canceled = true }
   }, [legacy])
   if (controller) return children(controller)
-  if (error) return <div role="alert" style={{ padding: 32 }}><h1>Your saved boards are still on this device.</h1><p>{error}</p><p>{window.unfoldDesktop ? 'Your original workspace files have not been changed. You can open another workspace.' : 'Close other Unfold tabs and reload to retry. Existing browser storage has not been deleted.'}</p>{window.unfoldDesktop && <button onClick={() => { openDesktop().catch(() => {}) }}>Open another workspace</button>}<button onClick={() => location.reload()}>Retry</button></div>
+  if (error) return <div role="alert" style={{ padding: 32 }}><h1>Your saved boards could not be opened.</h1><p>{error}</p><p>{window.unfoldDesktop ? 'Existing files have been preserved. You can restore an Unfold backup or find recovery copies in the data folder.' : 'Close other Unfold tabs and reload to retry. Existing browser storage has not been deleted.'}</p>{window.unfoldDesktop && <><button onClick={() => { restoreDesktop().catch(() => {}) }}>Restore backup…</button><button onClick={() => { window.unfoldDesktop?.showDataFolder().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'The data folder could not be opened.')) }}>Show data folder</button></>}<button onClick={() => location.reload()}>Retry</button></div>
   const board = legacy?.catalog.boards[legacy.index]
   return <><div role="status" style={{ padding: 32 }}>Opening your workspace…</div>{legacy && board && <div style={{ position: 'fixed', width: 800, height: 600, left: -10000, top: 0 }}><Tldraw key={board.id} persistenceKey={board.id} {...canvasOptions} onMount={editor => {
     let canceled = false

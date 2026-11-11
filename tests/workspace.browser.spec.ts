@@ -36,7 +36,7 @@ test('browser flushes on background and warns only while edits are unsaved', asy
   await expect(page.getByRole('button', { name: 'Mood boards: Background flush verified', exact: true })).toBeVisible()
 })
 
-test('legacy boards and images survive migration, reload, export and additive import', async ({ page }, testInfo) => {
+test('legacy boards and images survive migration, reload and web export', async ({ page }, testInfo) => {
   page.on('pageerror', error => console.error('BROWSER ERROR', error))
   page.on('dialog', async dialog => {
     expect(dialog.type()).toBe('beforeunload')
@@ -59,9 +59,11 @@ test('legacy boards and images survive migration, reload, export and additive im
   await expect(page.locator('.assistant-message')).toHaveCount(1)
   await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Close chat', exact: true }).click()
-  await page.getByRole('button', { name: 'Workspace files', exact: true }).click()
+  await page.getByRole('button', { name: 'Board menu', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: 'Import', exact: true })).toHaveCount(0)
+  await expect(page.locator('input[aria-label="Import backup"]')).toHaveCount(0)
   const downloading = page.waitForEvent('download')
-  await page.getByRole('menuitem', { name: 'Export all boards' }).click()
+  await page.getByRole('menuitem', { name: 'Export', exact: true }).click()
   const download = await downloading
   const path = testInfo.outputPath('roundtrip.unfold')
   await download.saveAs(path)
@@ -69,10 +71,8 @@ test('legacy boards and images survive migration, reload, export and additive im
   expect(workspace.catalog.boards).toHaveLength(2)
   expect(workspace.appearance).toEqual({ palette: 'sage', pattern: 'grid', tone: 'linen' })
   expect(Object.keys(workspace.assets)).toHaveLength(1)
-  await page.locator('input[aria-label="Import workspace backup"]').setInputFiles(path)
-  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Mood boards: Legacy 1', exact: true }).click()
-  await expect(page.getByRole('menuitem', { name: 'Legacy 2', exact: true })).toHaveCount(2)
+  await expect(page.getByRole('menuitem', { name: 'Legacy 2', exact: true })).toHaveCount(1)
   await page.keyboard.press('Escape')
   await page.reload()
   await expect(page.getByRole('img', { name: 'Legacy image 1', exact: true })).toBeVisible()
@@ -112,7 +112,7 @@ test('invalid browser data reports a recoverable error instead of hanging or rep
     })
   })
   await page.reload()
-  await expect(page.getByRole('alert')).toContainText('Your saved boards are still on this device.')
+  await expect(page.getByRole('alert')).toContainText('Your saved boards could not be opened.')
   expect(await page.evaluate(() => new Promise<unknown>((resolve, reject) => {
     const opening = indexedDB.open('unfold-workspaces-v1', 1)
     opening.onerror = () => reject(opening.error ?? new Error('Database unavailable'))
