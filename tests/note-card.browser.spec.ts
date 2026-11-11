@@ -17,6 +17,7 @@ test('a long note grows to show its whole text without an inner scroll', async (
   const composer = page.getByRole('textbox', { name: 'Message', exact: true })
   await composer.fill(`Add a note about ${warmups}`)
   await composer.press('Enter')
+  await page.getByRole('complementary', { name: 'Node conversation' }).getByRole('button', { name: 'Add to canvas' }).click()
   const note = page.locator('.unfold-card', { has: page.locator('.artifact-body') })
   await expect(note).toContainText('slow, careful line drawing of your hand')
   await button(page, 'Close chat').click()
@@ -24,5 +25,12 @@ test('a long note grows to show its whole text without an inner scroll', async (
   // The whole text sits inside the card's frame.
   const [card, text] = await Promise.all([note.boundingBox(), note.locator('.artifact-description').boundingBox()])
   expect(card && text && text.y + text.height <= card.y + card.height).toBe(true)
+  // A long title wraps instead of being cut off.
+  const title = note.getByRole('textbox', { name: 'Card title' })
+  const line = (await title.boundingBox())?.height ?? 0
+  await title.fill('Warm-up sketches before the meetup on Sunday afternoon')
+  await title.press('Enter')
+  await expect(title).not.toBeFocused()
+  await expect.poll(async () => (await title.boundingBox())?.height ?? 0).toBeGreaterThan(line * 1.5)
   await note.screenshot({ path: 'output/note-card.png' })
 })

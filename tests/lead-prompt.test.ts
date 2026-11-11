@@ -4,6 +4,8 @@ import { mkdtemp, writeFile, chmod, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { liveRuntime } from '../server/agents'
+import { LeadStepSchema, runCoordinator } from '../shared/coordinator'
+import { demoRuntime } from '../shared/preview'
 import type { BranchContext } from '../shared/schema'
 
 // Regression for a live failure on November 11, 2026: on a step already on the board, the user asked for easy
@@ -26,7 +28,9 @@ process.stdin.on('end', () => {
 const branch: BranchContext = { id: 'b1', goal: 'Explore a creative practice', revision: 1, answers: [{ question: 'What would help most before Sunday’s sketch meetup?', answer: 'Easy warm-up exercises' }], confirmed: [], assumptions: [], previousSuggestions: ['Join a free SF sketch meetup'], memory: [], changes: [], declined: [] }
 const board = { conversationId: 'c1', focusId: 'n1', selectedIds: [], attachedIds: ['n1'], cards: [{ id: 'n1', title: 'Join a free SF sketch meetup', image: false, revision: 1 }], links: [], messages: [{ role: 'user' as const, text: 'Easy warm-up exercises' }] }
 
-await test('without research results the lead prompt offers no step shape and answers practical help in the chat', async () => {
+const cases: Promise<void>[] = []
+
+cases.push(test('without research results the lead prompt offers no step shape and answers practical help in the chat', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'unfold-lead-'))
   const executable = join(directory, 'claude.cjs'), log = join(directory, 'prompt.txt')
   await writeFile(executable, `#!${process.execPath}\nconst log = ${JSON.stringify(log)}\n${FAKE_CLAUDE}`); await chmod(executable, 0o700)
@@ -39,4 +43,12 @@ await test('without research results the lead prompt offers no step shape and an
     assert.match(prompt, /needs no real-world source .* is a "respond" that answers in "text" with no edits/)
     assert.match(prompt, /"next":"ask"/)
   } finally { await rm(directory, { recursive: true, force: true }) }
-})
+}))
+
+cases.push(test('an answer carries the agent’s follow-ups, without duplicates or ones too long for a button', async () => {
+  const runtime = { ...demoRuntime(0), lead: () => Promise.resolve(LeadStepSchema.parse({ next: 'respond', text: 'Here are three warm-ups.', followUps: ['Find the next step', 'Find the next step', 'Save these warm-ups as a note', 'Tell you how the meetup went after Sunday, with all the details you asked about'] })) }
+  const result = await runCoordinator({ requestId: 'r', operation: 'branch', branches: [branch], note: 'Easy warm-up exercises', board }, runtime, new AbortController().signal, () => {})
+  assert.deepEqual(result.proposal, { kind: 'reply', text: 'Here are three warm-ups.', followUps: ['Find the next step', 'Save these warm-ups as a note'] })
+}))
+
+await Promise.all(cases)

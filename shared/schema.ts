@@ -19,7 +19,8 @@ export const ConflictSchema = z.object({
 })
 export type Conflict = z.infer<typeof ConflictSchema>
 export const ProposalSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('reply'), text: z.string().min(1).max(1200) }),
+  /** A chat answer; followUps are what the user might say next, offered as buttons under the latest answer. */
+  z.object({ kind: z.literal('reply'), text: z.string().min(1).max(1200), followUps: z.array(z.string().min(1).max(60)).max(3).optional() }),
   z.object({ kind: z.literal('question'), prompt: z.string().min(1),
     /** Ready answers to pick. Empty for an open question (a city, a name), which the user answers in their own words. */
     options: z.array(z.string()).max(4), purpose: z.string(), conflict: ConflictSchema.optional(),
@@ -72,6 +73,8 @@ export const ChatMessageSchema = z.discriminatedUnion('role', [
     decision: DecisionSchema.optional(), revises: z.string().optional(), trace: z.array(HandoffSchema).max(24).optional(),
     /** Research briefs this reply ran, so later searches in the conversation differ. */
     searches: z.array(z.string().max(800)).max(6).optional(),
+    /** Board changes the agents suggest; nothing changes on the canvas until the user adds them. */
+    proposedEdits: BoardEditsSchema.optional(), editsDeclined: z.boolean().optional(),
   }),
 ])
 export const ChatSchema = z.object({

@@ -237,16 +237,20 @@ export function setupUnfold(editor: Editor) {
     parentIds.forEach((parentId, index) => link(editor, parentId, id, parentIds.length === 2 && node.type === 'opportunity' ? `goal-${index}` : 'input', relationships?.get(parentId)))
     return id
   }
+  /** What an edit may refer to: the turn's cards and conversation, or the whole board for the user's own edits. */
+  function editContext(availableIds?: ReadonlySet<string>, chatId?: string) {
+    return {
+      cards: nodes(editor).filter(shape => !availableIds || availableIds.has(shape.id)).map(({ id, isLocked, props: { node } }) => ({ id, image: node.type === 'inspiration' && editor.getAssets().some(asset => asset.id === node.assetId && asset.type === 'image'), editable: !isLocked && node.type !== 'question' && node.type !== 'answer' && node.type !== 'findings', acceptsDescription: node.type !== 'inspiration' })),
+      conversationIds: chatId ? [chatId] : chats().map(chat => chat.id), revisions: revisions(), links: boardLinks(editor),
+    }
+  }
   function applyBoardEdits(value: readonly BoardEdit[], turn?: {
     chat: Chat; focusId: TLShapeId; messageId: string; dependencies: UnfoldNode['dependsOn']; outputDependencies: UnfoldNode['dependsOn']; availableIds: ReadonlySet<string>; begin: () => void; finish: (created: TLShapeId[]) => void
   }): TLShapeId[] {
     if (editor.getIsReadonly()) throw new Error('The board is read-only right now. Try again when it is available.')
     const cards = nodes(editor).filter(shape => !turn || turn.availableIds.has(shape.id))
     const links = boardLinks(editor)
-    const edits = validateBoardEdits(value, {
-      cards: cards.map(({ id, isLocked, props: { node } }) => ({ id, image: node.type === 'inspiration' && editor.getAssets().some(asset => asset.id === node.assetId && asset.type === 'image'), editable: !isLocked && node.type !== 'question' && node.type !== 'answer' && node.type !== 'findings', acceptsDescription: node.type !== 'inspiration' })),
-      conversationIds: turn ? [turn.chat.id] : chats().map(chat => chat.id), revisions: revisions(), links,
-    }, turn?.dependencies)
+    const edits = validateBoardEdits(value, editContext(turn?.availableIds, turn?.chat.id), turn?.dependencies)
     const ids = new Map<string, TLShapeId>(cards.map(shape => [shape.id, shape.id]))
     const created: TLShapeId[] = []
     const attach = (chatId: string, nodeId: TLShapeId) => {
@@ -376,15 +380,11 @@ export function setupUnfold(editor: Editor) {
       if ([...used].some(id => !availableIds.has(id))) throw new Error('The agent referred to a card outside this conversation’s board context. Please retry.')
       const inputs = [...dependencies, ...board.cards.filter(card => used.has(card.id) && !dependencyIds.has(card.id)).map(({ id, revision }) => ({ id, revision }))]
       const finalDependencies = inputs.map(dependency => dependency.id === ownKey ? { ...dependency, revision: memory.revision } : dependency)
-      const created = applyBoardEdits(result.edits, { chat: current, focusId: sourceId, messageId, dependencies: inputs, outputDependencies: finalDependencies, availableIds,
-        begin: () => { running.delete(chatId); if (memory !== chatMemory(current)) saveMemory(sourceId, chatId, memory) },
-        finish: outcomeIds => editChat(sourceId, chatId, thread => ({ ...thread, messages: [...thread.messages, { id: messageId, role: 'assistant', proposal: result.proposal, dependsOn: finalDependencies, ...(isNotEmpty(outcomeIds) ? { outcomeIds } : {}), ...(isNotEmpty(result.handoffs) ? { trace: result.handoffs } : {}), ...(isNotEmpty(result.searches) ? { searches: result.searches } : {}), ...(focus && revised ? { revises: revised.id } : {}) }] })),
-      })
-      const firstCreated = created[0]
-      if (firstCreated && uiState.get(editor).activeChat?.chatId === chatId) {
-        uiState.update(editor, state => ({ ...state, chatView: 'board' }))
-        fitBoard(editor)
-      }
+      // Board changes are only suggested here: the user sees them in the chat and adds them, or not.
+      if (isNotEmpty(result.edits)) validateBoardEdits(result.edits, editContext(availableIds, chatId), inputs)
+      running.delete(chatId)
+      if (memory !== chatMemory(current)) saveMemory(sourceId, chatId, memory)
+      editChat(sourceId, chatId, thread => ({ ...thread, messages: [...thread.messages, { id: messageId, role: 'assistant', proposal: result.proposal, dependsOn: finalDependencies, ...(isNotEmpty(result.edits) ? { proposedEdits: result.edits } : {}), ...(isNotEmpty(result.handoffs) ? { trace: result.handoffs } : {}), ...(isNotEmpty(result.searches) ? { searches: result.searches } : {}), ...(focus && revised ? { revises: revised.id } : {}) }] }))
       if (result.mode !== uiState.get(editor).mode) {
         uiState.update(editor, state => ({ ...state, mode: result.mode }))
         getAgentConfig().then(config => uiState.update(editor, state => ({ ...state, ...config }))).catch(() => {})
@@ -814,6 +814,28 @@ export function setupUnfold(editor: Editor) {
       editor.markHistoryStoppingPoint('confirm memory')
       saveMemory(id, chatId, confirmAssumption(chatMemory(chat), entryId, Date.now(), () => `${entryId}:confirmed:${index++}`))
       if (chat.operation !== 'connect') noteActivity(chat.branchIds)
+    },
+    addProposedEdits(id, chatId, messageId) {
+      const chat = chatAt(id, chatId)
+      const message = chat?.messages.find(item => item.id === messageId)
+      if (!chat || message?.role !== 'assistant' || !message.proposedEdits) return
+      const edits = message.proposedEdits
+      try {
+        const created = applyBoardEdits(edits, { chat, focusId: id, messageId, dependencies: message.dependsOn, outputDependencies: message.dependsOn, availableIds: new Set(nodes(editor).map(shape => shape.id)), begin: () => {},
+          finish: outcomeIds => editChat(id, chatId, thread => ({ ...thread, messages: thread.messages.map(item => {
+            if (item.id !== messageId || item.role !== 'assistant') return item
+            const { proposedEdits: _edits, editsDeclined: _declined, ...rest } = item
+            return { ...rest, ...(isNotEmpty(outcomeIds) ? { outcomeIds } : {}) }
+          }) })) })
+        if (created[0]) { editor.select(...created); fitBoard(editor) }
+      } catch (error) { notice(error instanceof Error ? error.message : 'The board changed since this was suggested. Ask again for an updated version.') }
+    },
+    skipProposedEdits(id, chatId, messageId, skip) {
+      editChat(id, chatId, thread => ({ ...thread, messages: thread.messages.map(item => {
+        if (item.id !== messageId || item.role !== 'assistant') return item
+        const { editsDeclined: _declined, ...rest } = item
+        return skip ? { ...rest, editsDeclined: true } : rest
+      }) }))
     },
     publish(id, chatId, messageId) {
       const chat = chatAt(id, chatId)

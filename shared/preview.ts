@@ -52,9 +52,9 @@ function previewBoardReply(board: BoardContext | undefined): Extract<LeadStep, {
   const moodRequest = board.messages.map(message => message.role === 'assistant' && message.text === moodQuestion).lastIndexOf(true)
   const request = continuing ? board.messages[moodRequest - 1]?.text ?? '' : latest.text
   const rename = /^rename (?:this card|this) to (.+)$/iu.exec(request)?.[1]?.trim()
-  if (rename) return { next: 'respond', text: `Renamed the card to “${rename.slice(0, 160)}”.`, edits: [{ kind: 'updateNode', nodeId: focus.id, title: rename.slice(0, 160) }], usedNodeIds: [focus.id] }
+  if (rename) return { next: 'respond', text: `I can rename the card to “${rename.slice(0, 160)}”.`, edits: [{ kind: 'updateNode', nodeId: focus.id, title: rename.slice(0, 160) }], usedNodeIds: [focus.id] }
   const named = board.cards.filter(card => card.id !== focus.id && request.toLowerCase().includes(card.title.toLowerCase()))
-  if (/^link (?:this card|this) to /iu.test(request) && named[0]) return { next: 'respond', text: `Linked this card to “${named[0].title}”.`, edits: [{ kind: 'connectNodes', from: named[0].id, to: focus.id, relationship: 'reference' }], usedNodeIds: [focus.id, named[0].id] }
+  if (/^link (?:this card|this) to /iu.test(request) && named[0]) return { next: 'respond', text: `I can link this card to “${named[0].title}”.`, edits: [{ kind: 'connectNodes', from: named[0].id, to: focus.id, relationship: 'reference' }], usedNodeIds: [focus.id, named[0].id] }
   if (!/\b(?:make|create|build|add|draft)\b/iu.test(request)) return undefined
   if (/\bmood ?board\b/iu.test(request)) {
     const candidates = [...new Map([focus, ...named, ...board.cards.filter(card => board.attachedIds.includes(card.id))].filter(card => card.image).map(card => [card.id, card])).values()].slice(0, 4)
@@ -63,12 +63,12 @@ function previewBoardReply(board: BoardContext | undefined): Extract<LeadStep, {
     if (continuing && /\b(?:help me choose|not sure|unsure)\b/iu.test(latest.text)) return { next: 'ask', question: { prompt: moodFollowup, options: ['Warm and calm', 'Quiet and minimal'], purpose: 'Warm tones feel cozy, while a quieter palette puts the focus on shape and texture.' } }
     const mood = continuing ? latest.text.slice(0, 70) : 'Room'
     const title = `${mood} moodboard`
-    return { next: 'respond', text: `I made “${title}” using ${candidates.map(card => `“${card.title}”`).join(' and ')}.`, usedNodeIds: candidates.map(card => card.id), edits: [{ kind: 'createNode', content: { kind: 'moodboard', title, description: 'A starting composition using images from this board.', items: candidates.map((card, index) => ({ nodeId: card.id, caption: index === 0 ? 'Anchor image' : card.title.slice(0, 100) })) }, links: [{ nodeId: focus.id, relationship: 'develops' }, ...candidates.filter(card => card.id !== focus.id).map(card => ({ nodeId: card.id, relationship: 'reference' as const }))] }] }
+    return { next: 'respond', text: `Here is “${title}”, using ${candidates.map(card => `“${card.title}”`).join(' and ')}. Add it if it works for you.`, usedNodeIds: candidates.map(card => card.id), edits: [{ kind: 'createNode', content: { kind: 'moodboard', title, description: 'A starting composition using images from this board.', items: candidates.map((card, index) => ({ nodeId: card.id, caption: index === 0 ? 'Anchor image' : card.title.slice(0, 100) })) }, links: [{ nodeId: focus.id, relationship: 'develops' }, ...candidates.filter(card => card.id !== focus.id).map(card => ({ nodeId: card.id, relationship: 'reference' as const }))] }] }
   }
   if (/\bnote\b/iu.test(request)) {
     const title = 'Design note'
     const detail = request.replace(/^.*?\bnote\s*(?:about|on|for|:)?\s*/iu, '').trim()
-    return { next: 'respond', text: 'I added a design note to the board.', usedNodeIds: [focus.id], edits: [{ kind: 'createNode', content: { kind: 'note', title, description: (detail || `Develop the idea in “${focus.title}” with one clear detail.`).slice(0, 1200) }, links: [{ nodeId: focus.id, relationship: 'develops' }] }] }
+    return { next: 'respond', text: 'Here is a design note you can add to the board.', usedNodeIds: [focus.id], edits: [{ kind: 'createNode', content: { kind: 'note', title, description: (detail || `Develop the idea in “${focus.title}” with one clear detail.`).slice(0, 1200) }, links: [{ nodeId: focus.id, relationship: 'develops' }] }] }
   }
   return undefined
 }

@@ -7,6 +7,7 @@ import { lineage, nodeTitle } from '../../../shared/chats'
 import { actions, uiState } from '../../actions'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
+import { Textarea } from '../../components/ui/textarea'
 import { getNodeHeightPx, type NodeTypePorts } from '../nodeTypes'
 import { NODE_WIDTH_PX } from '../../constants'
 import { Blossom, Tape } from '../../decor'
@@ -99,7 +100,8 @@ function useFittedHeight(shape: NodeShape, deps: unknown[]) {
 function ArtifactBody({ shape, node }: { shape: NodeShape; node: Extract<UnfoldNode, { type: 'artifact' }> }) {
   const editor = useEditor(); const api = actions.get(editor)
   const content = useFittedHeight(shape, [])
-  return <div ref={content} className="card-content artifact-body"><Input aria-label="Card title" className="artifact-title h-auto border-0 bg-transparent p-0 shadow-none focus-visible:ring-0" defaultValue={node.content.title} key={node.revision} maxLength={600} onBlur={event => { if (event.target.value.trim() && event.target.value.trim() !== node.content.title) api?.applyBoardEdits([{ kind: 'updateNode', nodeId: shape.id, title: event.target.value }]) }}/><ArtifactContent content={node.content}/></div>
+  return <div ref={content} className="card-content artifact-body">{/* A title wraps over several lines; Enter saves it instead of adding a line break. */}
+    <Textarea aria-label="Card title" className="artifact-title min-h-0 resize-none rounded-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent" rows={1} defaultValue={node.content.title} key={node.revision} maxLength={600} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur() } }} onBlur={event => { const title = event.target.value.replace(/\s+/g, ' ').trim(); if (title && title !== node.content.title) api?.applyBoardEdits([{ kind: 'updateNode', nodeId: shape.id, title }]) }}/><ArtifactContent content={node.content}/></div>
 }
 const domain = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url } }
 

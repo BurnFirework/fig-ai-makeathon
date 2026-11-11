@@ -57,7 +57,10 @@ export const OpportunityDraftSchema = z.object({
 })
 export type OpportunityDraft = z.infer<typeof OpportunityDraftSchema>
 /** A branch (or shared) lead agent chooses its next task. */
-const BoardReplySchema = z.object({ next: z.literal('respond'), text: z.string().min(1).max(1200), edits: BoardEditsSchema.default([]), usedNodeIds: z.array(z.string()).max(40).default([]), memory: memoryField })
+/** Follow-ups that do not fit are dropped, never a reason to reject the whole reply. */
+const followUpsField = z.array(z.string()).max(8).optional()
+const usableFollowUps = (items: readonly string[] = []) => [...new Set(items.map(item => item.trim()).filter(item => item.length > 0 && item.length <= 60))].slice(0, 3)
+const BoardReplySchema = z.object({ next: z.literal('respond'), text: z.string().min(1).max(1200), edits: BoardEditsSchema.default([]), usedNodeIds: z.array(z.string()).max(40).default([]), followUps: followUpsField, memory: memoryField })
 export const LeadStepSchema = z.discriminatedUnion('next', [
   BoardReplySchema,
   z.object({ next: z.literal('ask'), question: QuestionDraftSchema, reason, memory: memoryField }),
@@ -158,7 +161,8 @@ export async function runCoordinator(request: AgentRequest, runtime: AgentRuntim
     if (!canRespond || [...reply.usedNodeIds, ...reply.edits.flatMap(editedNodeIds)].some(id => !ids.has(id))) throw new AgentFailure('The agent used a card outside the conversation’s context. Please retry.')
     edits = reply.edits
     usedNodeIds = reply.usedNodeIds
-    return { kind: 'reply', text: reply.text }
+    const followUps = usableFollowUps(reply.followUps)
+    return { kind: 'reply', text: reply.text, ...(isNotEmpty(followUps) ? { followUps } : {}) }
   }
   let calls = 0
   const report = (role: AgentResult['activity'][number]['role'], message: string) => { combined.throwIfAborted(); activity.push({ role, message }); emit({ type: 'activity', role, message }) }

@@ -28,6 +28,14 @@ async function send(page: Page, text: string) {
   await composer.press('Enter')
 }
 
+/** Agents only suggest board changes: nothing changes on the canvas until the user adds them from the chat. */
+async function accept(page: Page, label = 'Add to canvas') {
+  const suggestion = conversation(page).getByLabel('Suggested for your canvas').last()
+  await expect(suggestion).toBeVisible()
+  await suggestion.getByRole('button', { name: label }).click()
+  await expect(suggestion).toHaveCount(0)
+}
+
 async function openPhoto(page: Page, title: string, start = false) {
   await button(page, 'Fit board').click()
   await photo(page, title).getByRole('textbox', { name: 'Inspiration goal' }).focus()
@@ -64,6 +72,9 @@ test('two cards share a conversation that asks, creates, reuses images, and undo
   await expect(page.locator('.card-artifact')).toHaveCount(0)
   await caption(page, 'An uncertain answer leads to another question in the same chat.')
   await conversation(page).getByRole('button', { name: /Warm and calm/ }).click()
+  await expect(conversation(page).getByLabel('Suggested for your canvas')).toContainText('Warm and calm moodboard')
+  await expect(page.locator('.card-artifact')).toHaveCount(0)
+  await accept(page)
   const moodboard = page.locator('.card-artifact').filter({ has: page.getByLabel('Moodboard images') })
   await expect(moodboard.getByRole('textbox', { name: 'Card title' })).toHaveValue('Warm and calm moodboard')
   await expect(moodboard.locator('img')).toHaveCount(2)
@@ -72,9 +83,10 @@ test('two cards share a conversation that asks, creates, reuses images, and undo
   await caption(page, 'The agent creates a composition using both existing images. The dashed line marks a reference.')
   await button(page, 'Close chat').click()
   await openPhoto(page, 'Materials palette')
-  await expect(conversation(page)).toContainText('I made “Warm and calm moodboard”')
+  await expect(conversation(page)).toContainText('Here is “Warm and calm moodboard”')
   await caption(page, 'Opening the palette brings back the same question, answer, and result.')
   await send(page, 'Add a note about oak and warm light.')
+  await accept(page)
   const note = page.locator('.card-artifact').filter({ hasText: 'oak and warm light' })
   await expect(note).toBeVisible()
   await expect(page.locator('.ConnectionShape path')).toHaveCount(3)
@@ -92,7 +104,7 @@ test('two cards share a conversation that asks, creates, reuses images, and undo
   await page.reload()
   await expect(moodboard).toBeVisible()
   await openPhoto(page, 'Room photo')
-  await expect(conversation(page)).toContainText('I added a design note to the board.')
+  await expect(conversation(page)).toContainText('Here is a design note you can add to the board.')
   await caption(page, 'After reload, the cards and shared conversation are still on this device.')
 })
 
@@ -110,9 +122,11 @@ test('a UI note can be reused by an agent and survives removal of a referencing 
   await expect(page.locator('.ConnectionShape path[stroke-dasharray]')).toHaveCount(1)
   await openPhoto(page, 'Explore a creative practice', true)
   await send(page, 'Rename this card to Room photo')
-  await expect(conversation(page)).toContainText('Renamed the card to “Room photo”.')
+  await expect(conversation(page)).toContainText('I can rename the card to “Room photo”.')
+  await accept(page, 'Apply changes')
   await send(page, 'Link this card to Palette note')
-  await expect(conversation(page)).toContainText('Linked this card to “Palette note”.')
+  await expect(conversation(page)).toContainText('I can link this card to “Palette note”.')
+  await accept(page, 'Apply changes')
   await expect(page.locator('.ConnectionShape path[stroke-dasharray]')).toHaveCount(2)
   await button(page, 'Close chat').click()
   await button(page, 'Fit board').click()
@@ -132,6 +146,7 @@ test('removing the last image offers to keep or remove its moodboard', async ({ 
   const second = 'Meet new people'
   await openPhoto(page, first, true)
   await send(page, `Create a moodboard using ${second}.`)
+  await accept(page)
   const moodboard = page.locator('.card-artifact').filter({ has: page.getByLabel('Moodboard images') })
   await expect(moodboard.locator('img')).toHaveCount(2)
   await button(page, 'Close chat').click()

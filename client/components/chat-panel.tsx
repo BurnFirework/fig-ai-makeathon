@@ -6,6 +6,7 @@ import { canPublish, currentRevisions, decisionOf, nodeTitle } from '../../share
 import { chatMemory } from '../../shared/memory'
 import type { NodeShape } from '../nodes/NodeShapeUtil'
 import { type Chat, type ChatMessage, type Conflict, type Handoff, type Proposal, revisionsMatch } from '../../shared/schema'
+import type { BoardEdit } from '../../shared/board-edits'
 import { isAnswerOption } from '../../shared/coordinator'
 import { actions, uiState } from '../actions'
 import { fitBoard, nodeAt, nodes } from '../unfold'
@@ -143,6 +144,45 @@ function UserNotes({ message, chat }: { message: Extract<ChatMessage, { role: 'u
   })}</small>
 }
 
+/**
+ * Board changes an answer suggests, shown before anything happens on the canvas: the user adds them or sets them
+ * aside. Agents never change the board on their own.
+ */
+function ProposedEdits({ edits, declined, stale, busy, onAdd, onSkip }: { edits: readonly BoardEdit[]; declined: boolean; stale: boolean; busy: boolean; onAdd: () => void; onSkip: (skip: boolean) => void }) {
+  const editor = useEditor()
+  const titles = useValue('cards named in suggested edits', () => new Map(nodes(editor).map(shape => [shape.id as string, nodeTitle(shape.props.node)])), [editor])
+  const name = (id: string) => `“${titles.get(id) ?? 'a removed card'}”`
+  const onlyNew = edits.every(edit => edit.kind === 'createNode')
+  return <div role="group" className={`proposed-edits ${declined ? 'is-declined' : ''}`} aria-label="Suggested for your canvas">
+    <div className="outcome-label">{onlyNew ? 'Suggested for your canvas' : 'Suggested changes'}</div>
+    <ul>{edits.map((edit, index) => <li key={index}>{
+      edit.kind === 'createNode' ? <><span className="proposed-kind">{edit.content.kind === 'moodboard' ? 'Moodboard' : 'Note'}</span><strong>{edit.content.title}</strong>{edit.content.description && <p>{edit.content.description}</p>}{edit.content.kind === 'moodboard' && <small>Uses {edit.content.items.map(item => name(item.nodeId)).join(', ')}</small>}</>
+        : edit.kind === 'updateNode' ? <span>Rename {name(edit.nodeId)} to “{edit.title}”{edit.description !== undefined ? ' and update its text' : ''}</span>
+          : edit.kind === 'connectNodes' ? <span>Link {name(edit.from)} to {name(edit.to)}</span>
+            : <span>Add {name(edit.nodeId)} to this conversation</span>
+    }</li>)}</ul>
+    <div className="decision-area">
+      {declined ? <><span className="decision-status declined">Not added to your canvas</span><div className="decision-actions"><Button variant="ghost" size="sm" disabled={busy} onClick={() => onSkip(false)}><Undo2 size={13}/> Reconsider</Button></div></>
+        : <>{stale && <span className="decision-status">Your board or conditions changed since this was suggested. Ask again for an updated version.</span>}
+          <div className="decision-actions"><Button size="sm" disabled={busy || stale} onClick={onAdd}>{onlyNew ? <><Plus size={14}/> Add to canvas</> : <><Check size={14}/> Apply changes</>}</Button><Button variant="ghost" size="sm" disabled={busy} onClick={() => onSkip(true)}><X size={14}/> Not this</Button></div></>}
+    </div>
+  </div>
+}
+
+/**
+ * What the user might say after an answer, so the conversation always has a visible way on. The agent's own
+ * suggestions come first; without them, the choices follow where the chat stands: a step on the board can lead to
+ * the next one, and an answer that made no card can be kept as a note — only when the user asks for it.
+ */
+export function followUpsFor(proposal: Extract<Proposal, { kind: 'reply' }>, context: { fromStep: boolean; madeCard: boolean }): string[] {
+  if (proposal.followUps && isNotEmpty(proposal.followUps)) return proposal.followUps
+  return [
+    ...(context.madeCard ? [] : ['Save this as a note']),
+    context.fromStep ? 'Find the next step' : 'Find a concrete step',
+    ...(context.fromStep ? ['Something is in the way'] : []),
+  ].slice(0, 3)
+}
+
 /** The options worth showing, each with its effect: invitations such as "Share my city" saved by earlier versions are hidden. */
 function answerChoices(proposal: Extract<Proposal, { kind: 'question' }>) {
   return proposal.options.flatMap((option, index) => isAnswerOption(option) ? [{ option, effect: proposal.conflict?.effects[index] }] : [])
@@ -166,6 +206,7 @@ function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice }: {
   const chatId = chat.id
   const outcomes = useValue('published outcomes', () => message.role === 'assistant' ? nodes(editor).filter(shape => shape.id === message.outcomeId || message.outcomeIds?.includes(shape.id)) : [], [editor, message])
   const outcome = outcomes[0]
+  const fromStep = useValue('chat continues from a step', () => nodes(editor).some(shape => shape.id === sourceId && (shape.props.node.type === 'action' || shape.props.node.origin !== undefined)), [editor, sourceId])
   const [composing, setComposing] = useState<'decline' | 'refine' | null>(null)
   const [note, setNote] = useState('')
   const [why, setWhy] = useState(false)
@@ -208,7 +249,9 @@ function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice }: {
         <OwnAnswer placeholder={proposal.placeholder ?? 'Type your answer'} busy={busy} open={answering || isEmpty(answerChoices(proposal))} onOpen={() => setAnswering(true)} onClose={isEmpty(answerChoices(proposal)) ? undefined : () => setAnswering(false)} onSend={onChoice}/></div>
     </div> : <><p>{proposal.prompt}</p>{proposal.conflict && <ConflictDetails conflict={proposal.conflict}/>}{proposal.purpose && <small className="message-purpose">{proposal.purpose}</small>}</>)}
     {proposal.kind === 'research' && <p>{proposal.brief}</p>}
-    {proposal.kind === 'reply' && <><p>{proposal.text}</p>{outcomes.map(card => <Button key={card.id} variant="outline" size="sm" onClick={() => { uiState.update(editor, state => ({ ...state, chatView: 'board' })); editor.select(card.id); fitBoard(editor) }}>{nodeTitle(card.props.node)}<ArrowRight size={13}/></Button>)}</>}
+    {proposal.kind === 'reply' && <><p>{proposal.text}</p>{outcomes.map(card => <Button key={card.id} variant="outline" size="sm" onClick={() => { uiState.update(editor, state => ({ ...state, chatView: 'board' })); editor.select(card.id); fitBoard(editor) }}>{nodeTitle(card.props.node)}<ArrowRight size={13}/></Button>)}
+      {message.proposedEdits && <ProposedEdits edits={message.proposedEdits} declined={message.editsDeclined === true} stale={stale} busy={busy} onAdd={() => api?.addProposedEdits(sourceId, chatId, message.id)} onSkip={skip => api?.skipProposedEdits(sourceId, chatId, message.id, skip)}/>}
+      {isLatest && !stale && chat.messages.at(-1)?.id === message.id && (!message.proposedEdits || message.editsDeclined) && <div className="chat-choices follow-ups" role="group" aria-label="What next">{followUpsFor(proposal, { fromStep, madeCard: isNotEmpty(outcomes) }).map(option => <button key={option} type="button" className="choice" disabled={busy} onClick={() => onChoice(option)}><span>{option}</span><ArrowRight size={13}/></button>)}</div>}</>}
     {proposal.kind === 'none' && <div className="chat-none"><div className="outcome-label">No useful overlap</div><p>{proposal.reason}</p><small className="message-purpose">Nothing was added. Agents look again when either goal changes.</small></div>}
     {(proposal.kind === 'opportunity' || proposal.kind === 'action') && <div className={`chat-outcome ${decision ? `decision-${decision}` : ''}`}><div className="outcome-label">{proposal.kind === 'opportunity' ? (revisedFrom ? 'Shared direction · revised' : 'Shared direction') : revisedFrom ? 'Next step · revised' : 'Next step'}</div><h3>{proposal.title}</h3>
       {proposal.kind === 'action' ? <ActionSummary action={proposal}/> : <p>{proposal.description}</p>}
