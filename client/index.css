@@ -580,8 +580,13 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .explore-actions button.bg-primary { background: var(--explore-accent); }
 .explore-actions button.bg-primary:hover { background: color-mix(in srgb, var(--explore-accent) 85%, var(--ink)); }
 .explore-error { color: var(--color-destructive); }
-.findings-body { display: block; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
-.findings-meta, .finding-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+/* Found options are research about a card, not a step on its path: a tinted, dashed card beside it. */
+.unfold-card.card-findings { border-style: dashed; border-color: color-mix(in srgb, var(--accent-600) 40%, var(--line)); background: color-mix(in srgb, var(--accent-50) 60%, var(--paper)); box-shadow: none; }
+.card-findings .card-eyebrow { display: inline-flex; align-items: center; gap: 5px; }
+.findings-body { display: block; flex: 0 0 auto; overflow: visible; }
+.findings-meta { display: block; font-size: 13px; }
+.findings-meta span { color: var(--muted-foreground); }
+.finding-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .finding-row { display: grid; align-content: start; gap: 3px; padding-block: 9px; border-top: 1px solid var(--border); }
 .finding-heading a { display: inline; color: inherit; font-weight: 650; line-height: 1.25; }
 .finding-heading a svg { display: inline; margin-left: 4px; vertical-align: middle; }

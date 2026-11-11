@@ -94,8 +94,8 @@ export class ConnectionShapeUtil extends ShapeUtil<ConnectionShape> {
 
 	// Define the geometry of our connection shape as a cubic bezier curve
 	getGeometry(connection: ConnectionShape) {
-		const { start, end } = getConnectionTerminals(this.editor, connection)
-		const [cp1, cp2] = getConnectionControlPoints(start, end)
+		const { start, end, sideways } = getConnectionTerminals(this.editor, connection)
+		const [cp1, cp2] = getConnectionControlPoints(start, end, sideways)
 		return new CubicBezier2d({
 			start: Vec.From(start),
 			cp1: Vec.From(cp1),
@@ -240,8 +240,8 @@ export class ConnectionShapeUtil extends ShapeUtil<ConnectionShape> {
 	}
 
 	getIndicatorPath(connection: ConnectionShape) {
-		const { start, end } = getConnectionTerminals(this.editor, connection)
-		return new Path2D(getConnectionPath(start, end))
+		const { start, end, sideways } = getConnectionTerminals(this.editor, connection)
+		return new Path2D(getConnectionPath(start, end, sideways))
 	}
 }
 
@@ -250,14 +250,14 @@ function ConnectionShape({ connection }: { connection: ConnectionShape }) {
 	const editor = useEditor()
 
 	// Get the connection terminals
-	const { start, end } = useValue('terminals', () => getConnectionTerminals(editor, connection), [
+	const { start, end, sideways } = useValue('terminals', () => getConnectionTerminals(editor, connection), [
 		editor,
 		connection,
 	])
 
 	return (
 		<SVGContainer className="ConnectionShape">
-			<path d={getConnectionPath(start, end)} strokeDasharray={connection.props.relationship === 'reference' ? '6 5' : undefined} />
+			<path d={getConnectionPath(start, end, sideways)} strokeDasharray={connection.props.relationship === 'reference' ? '6 5' : undefined} />
 		</SVGContainer>
 	)
 }
@@ -272,7 +272,7 @@ export function getConnectionPageCenter(editor: Editor, connection: ConnectionSh
 	const startPage = getConnectionBindingPositionInPageSpace(editor, bindings.start)
 	const endPage = getConnectionBindingPositionInPageSpace(editor, bindings.end)
 	if (!startPage || !endPage) return null
-	const [cp1, cp2] = getConnectionControlPoints(startPage, endPage)
+	const [cp1, cp2] = getConnectionControlPoints(startPage, endPage, isSidePort(bindings.start.props.portId))
 	// Cubic bezier midpoint at t=0.5: (P0 + 3·P1 + 3·P2 + P3) / 8
 	return new Vec(
 		(startPage.x + 3 * cp1.x + 3 * cp2.x + endPage.x) / 8,
@@ -280,8 +280,15 @@ export function getConnectionPageCenter(editor: Editor, connection: ConnectionSh
 	)
 }
 
-// Connections flow top-to-bottom, so control points are offset vertically from each terminal
-function getConnectionControlPoints(start: VecLike, end: VecLike): [Vec, Vec] {
+/** Side ports (a card's search results beside it) are joined left to right instead of top to bottom. */
+export const isSidePort = (portId: string | undefined) => portId?.startsWith('side-') === true
+
+// Connections flow top-to-bottom, so control points are offset vertically from each terminal; side links flow left to right
+function getConnectionControlPoints(start: VecLike, end: VecLike, sideways = false): [Vec, Vec] {
+	if (sideways) {
+		const reach = Math.max(30, Math.abs(end.x - start.x) / 2)
+		return [new Vec(start.x + reach, start.y), new Vec(end.x - reach, end.y)]
+	}
 	const distance = end.y - start.y
 	const adjustedDistance = Math.max(
 		30,
@@ -291,8 +298,8 @@ function getConnectionControlPoints(start: VecLike, end: VecLike): [Vec, Vec] {
 }
 
 // Generate SVG path for the connection
-function getConnectionPath(start: VecLike, end: VecLike) {
-	const [cp1, cp2] = getConnectionControlPoints(start, end)
+function getConnectionPath(start: VecLike, end: VecLike, sideways = false) {
+	const [cp1, cp2] = getConnectionControlPoints(start, end, sideways)
 	return `M ${start.x} ${start.y} C ${cp1.x} ${cp1.y} ${cp2.x} ${cp2.y} ${end.x} ${end.y}`
 }
 
@@ -310,6 +317,6 @@ export function getConnectionTerminals(editor: Editor, connection: ConnectionSha
 		return inPageSpace ? Mat.applyToPoint(shapeTransform, inPageSpace) : connection.props[terminal]
 	}
 
-	return { start: getTerminal('start'), end: getTerminal('end') }
+	return { start: getTerminal('start'), end: getTerminal('end'), sideways: isSidePort(bindings.start?.props.portId) }
 }
 

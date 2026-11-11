@@ -11,6 +11,7 @@ import {
 } from 'tldraw'
 import { NODE_WIDTH_PX, PORT_RADIUS_PX } from '../constants'
 import { Port } from '../ports/Port'
+import { isSidePort } from '../connection/ConnectionShapeUtil'
 import { getNodePorts } from './nodePorts'
 import {
 	getNodeDefinition,
@@ -75,7 +76,7 @@ export class NodeShapeUtil extends ShapeUtil<NodeShape> {
 	getGeometry(shape: NodeShape) {
 		const ports = getNodePorts(this.editor, shape)
 
-		const portGeometries = Object.values(ports).map(
+		const portGeometries = Object.values(ports).filter(port => !isSidePort(port.id)).map(
 			(port) =>
 				new Circle2d({
 					x: port.x - PORT_RADIUS_PX,
@@ -140,7 +141,7 @@ function NodePorts({ shape }: { shape: NodeShape }) {
 	const ports = useValue('node ports', () => getNodeTypePorts(editor, shape), [shape, editor])
 	return (
 		<>
-			{Object.values(ports).map((port) => (
+			{Object.values(ports).filter(port => !isSidePort(port.id)).map((port) => (
 				<Port key={port.id} shapeId={shape.id} port={port} />
 			))}
 		</>

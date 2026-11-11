@@ -1,4 +1,5 @@
 import { isEmpty, isNotEmpty } from '../shared/arrays'
+import { NODE_WIDTH_PX } from './constants'
 import { createShapeId, Editor, type TLBinding, type TLShape, type TLShapeId } from 'tldraw'
 import { toast } from 'sonner'
 import { showUndo } from './components/undo-toast'
@@ -89,10 +90,10 @@ function update(editor: Editor, id: TLShapeId, transform: (node: UnfoldNode) => 
   const shape = nodeAt(editor, id)
   if (shape) editor.updateShape<NodeShape>({ id, type: 'node', props: { node: NodeSchema.parse(transform(shape.props.node)) } })
 }
-function link(editor: Editor, from: TLShapeId, to: TLShapeId, input = 'input', relationship: Relationship = 'develops') {
+function link(editor: Editor, from: TLShapeId, to: TLShapeId, input = 'input', relationship: Relationship = 'develops', output = 'output') {
   const id = createShapeId()
   editor.createShape({ id, type: 'connection', props: { relationship }, index: getNextConnectionIndex(editor) })
-  createOrUpdateConnectionBinding(editor, id, from, { portId: 'output', terminal: 'start' })
+  createOrUpdateConnectionBinding(editor, id, from, { portId: output, terminal: 'start' })
   createOrUpdateConnectionBinding(editor, id, to, { portId: input, terminal: 'end' })
 }
 async function rasterize(file: File): Promise<File> {
@@ -222,19 +223,35 @@ export function setupUnfold(editor: Editor) {
     editChat(id, chatId, current => ({ ...current, memory }))
     if (changed) invalidate(memoryKey(chatId))
   }
+  /**
+   * Places a new card. Found options sit beside the card they were searched for when there is room; any other card goes under its
+   * parents, and beside the children they already have, so a second idea from the same card reads as a branch and
+   * no line runs underneath another card.
+   */
   const addNode = (node: UnfoldNode, parentIds: TLShapeId[], relationships?: ReadonlyMap<string, Relationship>) => {
     const parents = parentIds.flatMap(id => { const shape = nodeAt(editor, id); return shape ? [shape] : [] })
     const center = editor.getViewportPageBounds().center
-    const x = isNotEmpty(parents) ? parents.reduce((total, shape) => total + shape.x, 0) / parents.length : center.x - 160
-    let y = isNotEmpty(parents) ? Math.max(...parents.map(shape => shape.y + getNodeHeightPx(editor, shape))) + 80 : center.y - 100
-    for (let i = 0; i < 40; i++) {
-      const collision = nodes(editor).find(shape => Math.abs(shape.x - x) < 355 && shape.y < y + 330 && shape.y + getNodeHeightPx(editor, shape) > y - 40)
-      if (!collision) break
-      y = collision.y + getNodeHeightPx(editor, collision) + 65
+    const step = NODE_WIDTH_PX + 60
+    const overlapping = (x: number, y: number) => nodes(editor).find(shape => Math.abs(shape.x - x) < NODE_WIDTH_PX + 35 && shape.y < y + 330 && shape.y + getNodeHeightPx(editor, shape) > y - 40)
+    // Beside only when that spot is free: options pushed under a neighbouring card would read as that card's.
+    const beside = node.type === 'findings' && parents[0] && !overlapping(parents[0].x + step, parents[0].y) ? parents[0] : undefined
+    const links = boardLinks(editor)
+    const children = beside ? [] : nodes(editor).filter(shape => shape.props.node.type !== 'findings' && links.some(item => parentIds.includes(item.from) && item.to === shape.id))
+    let x: number, y: number
+    if (beside) {
+      x = beside.x + step; y = beside.y
+    } else if (isNotEmpty(children)) {
+      x = Math.max(...children.map(shape => shape.x)) + step; y = Math.min(...children.map(shape => shape.y))
+      for (let i = 0, hit = overlapping(x, y); hit && i < 40; i++, hit = overlapping(x, y)) x = hit.x + step
+    } else {
+      x = isNotEmpty(parents) ? parents.reduce((total, shape) => total + shape.x, 0) / parents.length : center.x - 160
+      y = isNotEmpty(parents) ? Math.max(...parents.map(shape => shape.y + getNodeHeightPx(editor, shape))) + 80 : center.y - 100
+      for (let i = 0, hit = overlapping(x, y); hit && i < 40; i++, hit = overlapping(x, y)) y = hit.y + getNodeHeightPx(editor, hit) + 65
     }
     const id = createShapeId()
     editor.createShape<NodeShape>({ id, type: 'node', x, y, props: { node } })
-    parentIds.forEach((parentId, index) => link(editor, parentId, id, parentIds.length === 2 && node.type === 'opportunity' ? `goal-${index}` : 'input', relationships?.get(parentId)))
+    if (beside) link(editor, beside.id, id, 'side-in', relationships?.get(beside.id) ?? 'reference', 'side-out')
+    else parentIds.forEach((parentId, index) => link(editor, parentId, id, parentIds.length === 2 && node.type === 'opportunity' ? `goal-${index}` : 'input', relationships?.get(parentId)))
     return id
   }
   /** What an edit may refer to: the turn's cards and conversation, or the whole board for the user's own edits. */

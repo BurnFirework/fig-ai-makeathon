@@ -99,7 +99,7 @@ const base = {
 }
 export const NodeSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('findings'), topic: ExploreTopicSchema, checkedAt: z.number(),
-    findings: z.array(ExploreFindingSchema).max(30), dismissed: z.array(z.string()).max(500), expanded: z.boolean().optional() }),
+    findings: z.array(ExploreFindingSchema).max(30), dismissed: z.array(z.string()).max(500), expanded: z.boolean().optional(), fit: z.number().nonnegative().max(4000).optional() }),
   z.object({ ...base, type: z.literal('artifact'), content: CardContentSchema, fit: z.number().nonnegative().max(4000).optional() }),
   z.object({ ...base, type: z.literal('inspiration'), assetId: z.string(), goal: z.string().max(600), started: z.boolean(), links: z.array(LinkScanSchema).max(40).optional() }),
   z.object({ ...base, type: z.literal('question'), prompt: z.string(), options: z.array(z.string()).min(2).max(4), purpose: z.string() }),

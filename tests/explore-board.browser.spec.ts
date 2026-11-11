@@ -1,5 +1,8 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 import { ExploreRequestSchema, type ExploreRequest, type ExploreReport } from '../shared/explore'
+import { runCoordinator } from '../shared/coordinator'
+import { demoRuntime } from '../shared/preview'
+import { RequestSchema } from '../shared/schema'
 
 // Explore board through the interface, with the local agent API stubbed. Each test decides what the agents report.
 const pottery = 'Try a Saturday pottery wheel class'
@@ -12,7 +15,11 @@ async function stub(page: Page, reply: Reply) {
   const requests: ExploreRequest[] = []
   await page.route('**/api/config', route => route.fulfill({ json: { mode: 'demo', provider: 'Preview', providers: [] } }))
   await page.route('**/api/agent', async (route: Route) => {
-    const request = ExploreRequestSchema.parse(route.request().postDataJSON())
+    const body: unknown = route.request().postDataJSON()
+    // Chat requests get the preview agents' answers; only Explore runs are scripted by the test.
+    const chat = RequestSchema.safeParse(body)
+    if (chat.success) return route.fulfill({ contentType: 'application/x-ndjson', body: JSON.stringify({ type: 'result', result: await runCoordinator(chat.data, demoRuntime(0), new AbortController().signal, () => {}) }) + '\n' })
+    const request = ExploreRequestSchema.parse(body)
     requests.push(request)
     const answer = reply(request)
     if (answer === 'error') return route.fulfill({ status: 500, body: 'down' })
@@ -168,4 +175,62 @@ test('no confirmed options offers Edit search with the same scope; a failure off
   await results(page).getByRole('button', { name: 'Stop' }).click()
   await expect(results(page).getByRole('status')).toHaveText('Search stopped')
   await expect(button(page, 'Edit search')).toBeVisible()
+})
+
+test('found options sit beside their card, can be searched again or removed, and a second child branches sideways', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await stub(page, request => ({ reports: request.topics.map(topic => found(topic.sourceId, 'web:claystudio', 'Intro to the Wheel')) }))
+  await board(page)
+  // Search the rightmost card, so the spot beside it is free; the other card gets the notes.
+  const photos = await page.locator('.card-inspiration').evaluateAll(cards => cards.map(card => ({ x: card.getBoundingClientRect().x, goal: card.querySelector('input')?.value ?? '' })))
+  const right = photos.reduce((a, b) => (b.x > a.x ? b : a)).goal, left = right === jobs ? pottery : jobs
+  await selectCard(page, right)
+  await button(page, 'Explore board').click()
+  await button(page, 'Find options').click()
+  await expect(results(page).getByRole('status')).toHaveText('1 option added to your board')
+
+  // Beside the searched card, level with its top, joined from the side by a dashed line, not under it.
+  const photo = (goal: string) => page.locator('.card-inspiration', { has: page.getByRole('img', { name: goal, exact: true }) })
+  const searched = photo(right)
+  const options = page.locator('.card-findings')
+  await expect(options).toContainText(`for “${right}”`)
+  const [source, beside] = await Promise.all([searched.boundingBox(), options.boundingBox()])
+  expect(source && beside && beside.x > source.x + source.width && Math.abs(beside.y - source.y) < 40, JSON.stringify({ source, beside })).toBe(true)
+  await expect(page.locator('.ConnectionShape path[stroke-dasharray]')).toHaveCount(1)
+
+  // Search again reopens Explore board with that card ticked.
+  // Like every card, its actions show on hover.
+  await options.hover()
+  await options.getByRole('button', { name: 'Search again' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Explore board' })
+  await expect(dialog.getByRole('checkbox', { name: right })).toBeChecked()
+  await page.keyboard.press('Escape')
+
+  // A note goes under its card; a second note from the same card branches next to the first instead of under it.
+  const card = photo(left)
+  const send = async (text: string) => {
+    const composer = page.getByRole('textbox', { name: 'Message', exact: true })
+    await composer.fill(text); await composer.press('Enter')
+    await page.getByRole('complementary', { name: 'Node conversation' }).getByRole('button', { name: 'Add to canvas' }).last().click()
+  }
+  await card.getByRole('textbox', { name: 'Inspiration goal' }).focus()
+  await button(page, `Explore ${left}`).click()
+  await button(page, 'New conversation').click()
+  await send('Add a note about glaze colors.')
+  await send('Add a note about apron and towel.')
+  await button(page, 'Close chat').click()
+  const first = page.locator('.card-artifact', { hasText: 'glaze colors' }), second = page.locator('.card-artifact', { hasText: 'apron and towel' })
+  const [a, b, c] = await Promise.all([card.boundingBox(), first.boundingBox(), second.boundingBox()])
+  expect(a && b && Math.abs(b.x - a.x) < 5 && b.y > a.y + a.height).toBe(true)
+  expect(b && c && c.x > b.x + b.width && Math.abs(c.y - b.y) < 5).toBe(true)
+
+  await button(page, 'Fit board').click()
+  await page.screenshot({ path: 'output/findings-layout.png' })
+
+  // Removing the options removes only that card.
+  await options.hover()
+  await options.getByRole('button', { name: `Remove found options for ${right}` }).click()
+  await page.getByRole('dialog').getByRole('button', { name: /^Remove/ }).click()
+  await expect(options).toHaveCount(0)
+  await expect(page.locator('.card-artifact')).toHaveCount(2)
 })
