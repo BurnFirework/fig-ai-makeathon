@@ -38,6 +38,7 @@ test('Explore streams seven workers and preserves a shared sourced plan through 
   await expect(shared).toHaveCount(1)
   await page.getByRole('button', { name: 'Fit board', exact: true }).click()
   await expect(shared.getByRole('link')).toHaveCount(2)
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
   await page.reload()
   await expect(shared).toHaveCount(1)
   await run()

@@ -1,4 +1,4 @@
-// pnpm desktop:package && node --import tsx tests/electron.smoke.mjs
+// pnpm desktop:package && pnpm test:desktop
 import { _electron, expect } from '@playwright/test'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -7,10 +7,15 @@ import { decodeWorkspace } from '../shared/workspace-format.ts'
 const directory = await mkdtemp(join(tmpdir(), 'unfold-desktop-smoke-'))
 const path = join(directory, 'Workspace.unfold')
 const libraryPath = join(directory, 'profile', 'workspaces', 'default.unfold')
-const executablePath = process.env.UNFOLD_SMOKE_EXECUTABLE || resolve('output/desktop/mac-arm64/Unfold.app/Contents/MacOS/Unfold')
+const packagedExecutable = process.platform === 'darwin'
+  ? `mac${process.arch === 'arm64' ? '-arm64' : ''}/Unfold.app/Contents/MacOS/Unfold`
+  : process.platform === 'win32' ? `win${process.arch === 'x64' ? '' : `-${process.arch}`}-unpacked/Unfold.exe` : `linux${process.arch === 'x64' ? '' : `-${process.arch}`}-unpacked/unfold`
+const executablePath = process.env.UNFOLD_SMOKE_EXECUTABLE || resolve('output/desktop', packagedExecutable)
+// Opt out only for this isolated test profile in containers without sandbox support.
+const args = process.env.UNFOLD_SMOKE_NO_SANDBOX === '1' ? ['--no-sandbox'] : []
 let app
 try {
-  app = await _electron.launch({ executablePath, cwd: directory, env: { ...process.env, UNFOLD_DESKTOP_USER_DATA: join(directory, 'profile'), UNFOLD_PROVIDER: 'demo' }, timeout: 30000 })
+  app = await _electron.launch({ executablePath, args, cwd: directory, env: { ...process.env, UNFOLD_DESKTOP_USER_DATA: join(directory, 'profile'), UNFOLD_PROVIDER: 'demo' }, timeout: 30000 })
   const page = await app.firstWindow()
   const blockedAssets = []
   page.on('console', message => { if (/violates.*(?:img-src|font-src)/i.test(message.text())) blockedAssets.push(message.text()) })
@@ -92,7 +97,7 @@ try {
   }
   await page.screenshot({ path: resolve('output/desktop/smoke.png') })
   await app.close(); app = undefined
-  app = await _electron.launch({ executablePath, cwd: directory, env: { ...process.env, UNFOLD_DESKTOP_USER_DATA: join(directory, 'profile'), UNFOLD_PROVIDER: 'demo' } })
+  app = await _electron.launch({ executablePath, args, cwd: directory, env: { ...process.env, UNFOLD_DESKTOP_USER_DATA: join(directory, 'profile'), UNFOLD_PROVIDER: 'demo' } })
   const reopened = await app.firstWindow()
   await expect(reopened.getByRole('status').filter({ hasText: 'Saved on this device' })).toBeVisible()
   await expect(reopened.locator('.card-inspiration')).toHaveCount(2)
@@ -101,19 +106,19 @@ try {
   await expect(images).toHaveCount(2)
   if (!(await images.evaluateAll(nodes => nodes.every(image => image.complete && image.naturalWidth > 0)))) throw new Error('Saved desktop images failed to decode')
   if (decodeWorkspace(new Uint8Array(await readFile(libraryPath))).catalog.boards.length !== 4) throw new Error('Imported boards were not retained after restart')
-  console.log('PASS packaged macOS: local save, export/import, generated card and conversation, quit and reopen')
+  console.log('PASS packaged desktop: local save, export/import, generated card and conversation, quit and reopen')
   await app.close(); app = undefined
   const recoveryPath = join(directory, 'profile', 'workspaces', 'recovery.json')
   await writeFile(libraryPath, 'damaged library')
   await writeFile(recoveryPath, '{truncated')
-  app = await _electron.launch({ executablePath, cwd: directory, env: { ...process.env, UNFOLD_DESKTOP_USER_DATA: join(directory, 'profile'), UNFOLD_PROVIDER: 'demo' } })
+  app = await _electron.launch({ executablePath, args, cwd: directory, env: { ...process.env, UNFOLD_DESKTOP_USER_DATA: join(directory, 'profile'), UNFOLD_PROVIDER: 'demo' } })
   const recoveryPage = await app.firstWindow()
   await expect(recoveryPage.getByRole('alert')).toContainText('library and its recovery could not be read')
   await app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }) }, path)
   await recoveryPage.getByRole('button', { name: 'Restore backup…', exact: true }).click()
   await expect(recoveryPage.locator('.card-inspiration')).toHaveCount(2)
   await expect(recoveryPage.getByRole('status').filter({ hasText: 'Saved on this device' })).toBeVisible()
-  console.log('PASS packaged macOS: damaged library offers backup restore without silently replacing saved boards')
+  console.log('PASS packaged desktop: damaged library offers backup restore without silently replacing saved boards')
 } catch (error) {
   const page = app?.windows()[0]
   if (page && !page.isClosed()) {

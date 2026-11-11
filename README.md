@@ -74,7 +74,7 @@ Static web builds can run preview conversations locally. Live AI requires the de
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for ownership, save/recovery semantics, T3 Code source references, and accepted limits.
 
-## Run the macOS desktop app
+## Run the desktop app (macOS or Linux)
 
 ```sh
 pnpm desktop:dev
@@ -83,7 +83,7 @@ pnpm desktop:package
 
 Web and desktop builds share the temporary public trial key in `client/tldraw-license.ts`, which expires on **2027-02-17**. Replace it before expiry, or set `VITE_TLDRAW_LICENSE_KEY=your-key` in `.env.local` before building to override it. The same key covers the legacy browser-board migration canvases. A replacement key must cover the desktop origin `unfold://app` and any hosted web domain. See [tldraw license setup](https://tldraw.dev/sdk-features/license-key). The desktop smoke check waits beyond tldraw's five-second license gate so an initial paint cannot hide a licensing failure.
 
-The first desktop run or packaging build downloads the Electron runtime and requires an internet connection. The local packaged app is written to `output/desktop/mac-arm64/Unfold.app` on Apple Silicon. The initial packaging script creates an unsigned local app; signing/notarization for public distribution is not configured. Development settings/recovery use a separate profile from the packaged app. No Vite server or project-local Node installation is required to run the packaged app. Install/sign in to Claude Code or Codex separately for live AI.
+The first desktop run or packaging build downloads the Electron runtime and requires an internet connection. Packaging targets the current operating system and architecture: `output/desktop/mac-arm64/Unfold.app` on Apple Silicon, `output/desktop/mac/Unfold.app` on Intel macOS, and `output/desktop/linux-unpacked/unfold` on x64 Linux. The initial packaging script creates an unsigned local app; signing/notarization for public distribution is not configured. Development settings/recovery use a separate profile from the packaged app. No Vite server or project-local Node installation is required to run the packaged app. Linux needs a graphical session and Electron's system libraries; NixOS must supply those libraries in its runtime environment. Install/sign in to Claude Code or Codex separately for live AI.
 
 ## Agents and source evidence
 
@@ -119,7 +119,7 @@ pnpm build
 pnpm start
 ```
 
-Platform regressions: `pnpm test:web` runs Chromium and WebKit migration/export/import checks; `pnpm desktop:package && pnpm test:desktop` checks the packaged macOS app in an isolated profile. Add `UNFOLD_SMOKE_LIVE=1` to the desktop test command for one synthetic signed-in Codex request. Node tests register their cases before awaiting them and use `--test-force-exit` because importing tldraw retains a scheduler MessagePort. Failed tests still exit nonzero.
+Platform regressions: `pnpm test:web` runs Chromium and WebKit checks; `pnpm desktop:package && pnpm test:desktop` checks the current platform's packaged app in an isolated profile. Chromium uses installed Google Chrome by default; to use another Chromium binary, run `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(command -v chromium)" pnpm test:web --project=chromium`. WebKit requires Playwright's browser installation and its system dependencies. Add `UNFOLD_SMOKE_LIVE=1` to the desktop test command for one synthetic signed-in Codex request. `UNFOLD_SMOKE_EXECUTABLE` overrides the packaged executable; `UNFOLD_SMOKE_NO_SANDBOX=1` disables Chromium's sandbox only for the isolated desktop smoke in containers that require it. Normal desktop launches retain their sandbox. Node tests register their cases before awaiting them and use `--test-force-exit` because importing tldraw retains a scheduler MessagePort. Failed tests still exit nonzero.
 
 TypeScript checks are selected from `~/Code/tutor-platform/tsconfig.base.json` and its typed ESLint configuration. Unfold enforces strict indexed access, exact optional properties, type-only imports, checked external values, safe assertions, handled promises and exhaustive switches across `.ts` and `.tsx`, including starter-derived code. The adapted `local/array-emptiness` rule requires `isEmpty` / `isNotEmpty` from `shared/arrays.ts` for array emptiness checks, including JSX conditions; numeric counts and string lengths remain allowed. Only the helper implementation is exempt. Svelte, application-specific and formatting rules are not imported. The owning configurations are `tsconfig.json` and `eslint.config.js`.
 
@@ -197,3 +197,11 @@ Live CLI calls were not repeated for this UI/context change. Earlier Codex verif
 - Native/controller tests cover automatic saves, legacy migration without altering source files, both recovery choices, failed migration retry, corrupt data and safe restoration, external changes, stale sessions, failed writes, and edits remaining exportable after a failed close.
 - The packaged macOS smoke passes automatic save, menu-only import/export, preservation of imported backup files, quit/reopen without a location picker, stored image decoding, and startup restoration after damaged library/recovery files.
 - One Chromium smoke passes legacy board/image migration, reload, conversation preservation, web Export, absence of web Import, and fresh-image persistence. Windows/Linux, WebKit, and live AI were not repeated for this storage/menu change.
+
+## Linux verification — November 11, 2026
+
+- On NixOS x64 with Node 22.20.0 and pnpm 10.33.1: type checking, lint, 52 lint-rule tests, 98 application tests, and production web/desktop builds pass.
+- All 15 non-live Chromium browser tests pass using the system Chromium executable. They cover board edits, conversations, automatic collaboration and decisions, Explore approval/retry/dismissal, seven-worker progress and shared-plan persistence, research-failure recovery, legacy migration/images/export, unsaved-change protection, damaged storage, and stale tabs. The shared-plan test now waits for the save indicator before reloading; its focused check also passed three consecutive runs.
+- Packaging now selects the host platform instead of always targeting macOS. The packaged Linux app passes the isolated desktop smoke: automatic saves, two-board image archive, additive import without changing the backup, generated card/conversation, local preview agent process, quit/reopen, and restoration after damaged library/recovery files. The test used a graphical session, supplied Electron libraries, and the explicit test-only sandbox opt-out required by this container.
+- Manual testing in the visible Linux Chromium browser exercised preview conversations, note creation, reload persistence, Explore's missing-credentials error/retry controls, and the 390px focused chat layout without document overflow. No page errors were reported. An automated WCAG A/AA scan of the board reported no violations; contrast checks remained incomplete because of overlapping canvas layers.
+- Live Claude/Codex and external event/job search were not verified: neither CLI was signed in, and the search runtime had no provider keys. The opt-in live browser test was skipped. Playwright's WebKit download succeeded, but its Ubuntu fallback could not launch with the system libraries available on this NixOS machine. Windows and macOS were not rerun in this environment.

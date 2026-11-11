@@ -4,7 +4,7 @@ export default defineConfig({
   testDir: '.', testMatch: '**/*.browser.spec.ts', outputDir: '../output/browser-tests',
   use: { baseURL: 'http://127.0.0.1:43130', actionTimeout: 15000 },
   projects: [
-    { name: 'chromium', use: { browserName: 'chromium', channel: 'chrome' } },
+    { name: 'chromium', use: { browserName: 'chromium', ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } } : { channel: 'chrome' }) } },
     { name: 'webkit', use: { browserName: 'webkit' } },
   ],
   timeout: 45000, workers: 1, reporter: 'list',
