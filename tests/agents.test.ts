@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chatContext, currentRevisions, decisionOf, memoryDependencies } from '../shared/chats'
+import { cardConditions, chatContext, currentRevisions, decisionOf, memoryDependencies } from '../shared/chats'
 import { invalidatedBy, type NodeRecord } from '../shared/context'
 import { type AgentRuntime, type Finding, LIMITS, LeadStepSchema, runCoordinator } from '../shared/coordinator'
 import { applyAgentMemory, applyDrafts, chatMemory, classifyMessage, interpretMessage, mergeMemory, questionFor } from '../shared/memory'
@@ -319,6 +319,22 @@ cases.push(test('a chat on an outcome builds beyond it instead of repeating it',
   const next = await run(request('branch', [answered], { outcome }), demoRuntime(0))
   assert.equal(next.result.proposal.kind, 'action')
   assert.notEqual(next.result.proposal.title, outcome.title)
+}))
+
+
+cases.push(test('a note made in a step’s chat keeps the conditions agreed above it for Explore', () => {
+  // Regression, November 11, 2026: a note had no conversation of its own, so Explore searched for it with no city
+  // and returned meetups in Berlin and Bangkok for a user in San Francisco.
+  const start = say({ ...newChat('c1', ['a']), messages: [ask('q1', 'Which city should I search in?')] }, 'u1', 'San Francisco', 'q1')
+  const step: NodeRecord = { id: 's', node: NodeSchema.parse({ ...base, branchId: 'a', type: 'action', title: 'Join a free SF sketch meetup', description: '', sources: [], completed: false, reflection: '', origin: { nodeId: 'a', chatId: 'c1', messageId: 'u1' } }) }
+  const stepChat: Chat = { ...newChat('c2', ['a']), sourceIds: ['s'], cardIds: ['s', 'n'] }
+  const note: NodeRecord = { id: 'n', node: NodeSchema.parse({ ...base, branchId: 'a', type: 'artifact', content: { kind: 'note', title: 'Warm-up sketches before the meetup', description: 'Scribble loops.' }, origin: { nodeId: 's', chatId: 'c2', messageId: 'm' } }) }
+  const records = [root('a', 'Explore a creative practice', [start, stepChat]), step, note]
+  const own = cardConditions(records, 's')
+  const derived = cardConditions(records, 'n')
+  assert.ok(own.conditions.some(text => /San Francisco/.test(text)), JSON.stringify(own.conditions))
+  assert.deepEqual(derived, own)
+  assert.deepEqual(cardConditions([note], 'n'), { conditions: [], memory: [] })
 }))
 
 await Promise.all(cases)

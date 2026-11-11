@@ -6,7 +6,7 @@ import { type AgentResult, type Chat, type ChatMemory, type ChatMessage, type Ha
 import { LINK_DELAY_MS, lastScan, pairChat, pairIsSettled, pairKey, pairOwner, pairSignature, pairsToScan } from '../shared/links'
 import { invalidatedBy } from '../shared/context'
 import { branchFrom, type BranchEdge } from '../shared/branch'
-import { canPublish, chatContext, contextThreads, currentRevisions, decisionOf, foldLegacyMessages, lineage, memoryDependencies, nodeTitle } from '../shared/chats'
+import { canPublish, cardConditions, chatContext, contextThreads, currentRevisions, decisionOf, foldLegacyMessages, lineage, memoryDependencies, nodeTitle } from '../shared/chats'
 import { applyAgentMemory, applyDrafts, chatMemory, classifyMessage, confirmAssumption, interpretMessage, questionFor, withdrawEntry } from '../shared/memory'
 import { buildWebTopic, ExploreRequestSchema, mergeFindings, searchScope, toWebTopic, type ExploreTopic } from '../shared/explore'
 import { actions, saveNow, uiState, type ExploreCandidate, type ExploreRun, type UnfoldActions } from './actions'
@@ -525,9 +525,8 @@ export function setupUnfold(editor: Editor) {
       if (node.stale || node.type === 'findings' || node.type === 'question' || node.type === 'answer' || node.branchId.startsWith('explore-shared:') || (node.type === 'action' && node.completed) || (node.type === 'opportunity' && node.status !== 'accepted')) return []
       const title = nodeTitle(node).trim().slice(0, 240)
       if (!title || title === 'Something I want to explore') return []
-      const thread = conversationsFor(editor, id).filter(chat => chat.sourceIds.includes(id)).at(-1)
-      const conditions = thread ? [...new Set(thread.branchIds.flatMap(branch => chatContext(all, id, thread, branch, threads).confirmed))] : []
-      const dependencies = [...lineage(all, id).map(record => ({ id: record.id, revision: record.node.revision })), ...(thread ? memoryDependencies(all, id, thread, threads) : [])]
+      const { conditions, memory } = cardConditions(all, id, threads)
+      const dependencies = [...lineage(all, id).map(record => ({ id: record.id, revision: record.node.revision })), ...memory]
       const seen = all.find(record => record.node.type === 'findings' && record.node.topic.sourceId === id)?.node
       const links = node.type === 'action' || node.type === 'opportunity' ? (node.sources ?? []).map(source => source.url) : []
       // A saved search is reused while its card and conversation are unchanged, so earlier edits to the scope survive.

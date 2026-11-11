@@ -101,6 +101,27 @@ export function chatContext(records: NodeRecord[], sourceId: string, chat: Chat,
 }
 
 /** Memory revisions of every conversation a request reads, so changed conditions block late answers. */
+/**
+ * The conversation whose conditions apply to a card: its own, or else the nearest earlier card's. A note or step an
+ * answer made has no conversation of its own, but the city, time and budget agreed above it still hold for it.
+ */
+export function conditionThread(records: NodeRecord[], cardId: string, conversations: readonly Chat[] = embeddedChats(records)): { nodeId: string; chat: Chat } | undefined {
+  for (const record of lineage(records, cardId).reverse()) {
+    const chat = conversations.filter(item => item.sourceIds.includes(record.id)).at(-1)
+    if (chat) return { nodeId: record.id, chat }
+  }
+  return undefined
+}
+/** A card's confirmed conditions and the conversation memories they come from, so a changed condition is noticed. */
+export function cardConditions(records: NodeRecord[], cardId: string, conversations: readonly Chat[] = embeddedChats(records)): { conditions: string[]; memory: { id: string; revision: number }[] } {
+  const found = conditionThread(records, cardId, conversations)
+  if (!found) return { conditions: [], memory: [] }
+  return {
+    conditions: [...new Set(found.chat.branchIds.flatMap(branch => chatContext(records, found.nodeId, found.chat, branch, conversations).confirmed))],
+    memory: memoryDependencies(records, found.nodeId, found.chat, conversations),
+  }
+}
+
 export function memoryDependencies(records: NodeRecord[], sourceId: string, chat: Chat, conversations: readonly Chat[] = embeddedChats(records)): { id: string; revision: number }[] {
   const threads = chat.branchIds.flatMap(branchId => contextThreads(records, sourceId, chat, branchId, conversations))
   const ids = [...new Map(threads.map(thread => [thread.chat.id, thread.chat])).values()]
