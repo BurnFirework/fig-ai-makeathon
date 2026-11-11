@@ -17,7 +17,7 @@ export function parseAgentRequest(value: unknown) {
 
 export async function runRuntime(request: RuntimeRequest, config: CliConfig, signal: AbortSignal, emit: (event: AgentEvent) => void) {
   const event: AgentEvent = request.operation === 'explore'
-    ? { type: 'explore-result', result: await runExplore(request, signal, emit) }
+    ? { type: 'explore-result', result: await runExplore(request, signal, emit, config) }
     : { type: 'result', result: await runAgents(request, config, signal, emit) }
   signal.throwIfAborted()
   emit(event)

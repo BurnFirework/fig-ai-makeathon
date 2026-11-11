@@ -60,7 +60,8 @@ export function fitBoard(editor: Editor) {
   if (!bounds) return
   const screen = editor.getViewportScreenBounds()
   const state = uiState.get(editor)
-  const width = screen.w > 850 && state.activeChat && state.chatView === 'board' ? screen.w - 440 : screen.w
+  const sidebar = state.activeChat && state.chatView === 'board' ? 440 : state.explore ? 344 : 0
+  const width = screen.w > 850 ? screen.w - sidebar : screen.w
   const zoom = Math.min(1, (width - 120) / bounds.w, (screen.h - 200) / bounds.h)
   editor.setCamera({ x: -bounds.center.x + width / (2 * zoom), y: -bounds.center.y + screen.h / (2 * zoom), z: zoom })
 }
@@ -506,7 +507,7 @@ export function setupUnfold(editor: Editor) {
       return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
     }
     return nodes(editor).flatMap(({ id, props: { node } }): ExploreCandidate[] => {
-      if (node.stale || node.type === 'findings' || node.type === 'question' || node.type === 'answer' || (node.type === 'action' && node.completed) || (node.type === 'opportunity' && node.status !== 'accepted')) return []
+      if (node.stale || node.type === 'findings' || node.type === 'question' || node.type === 'answer' || node.branchId.startsWith('explore-shared:') || (node.type === 'action' && node.completed) || (node.type === 'opportunity' && node.status !== 'accepted')) return []
       const title = nodeTitle(node).trim().slice(0, 240)
       if (!title || title === 'Something I want to explore') return []
       const thread = conversationsFor(editor, id).filter(chat => chat.sourceIds.includes(id)).at(-1)
@@ -542,14 +543,23 @@ export function setupUnfold(editor: Editor) {
     if (isEmpty(approved)) return changed.map(topic => outdated(topic.sourceId))
     const controller = new AbortController()
     exploreRun = controller
+    uiState.update(editor, state => ({ ...state, explore: { running: true, workers: [], updatedIds: [] } }))
     try {
       const result = await requestExplore({ ...parsed.data, topics: approved }, controller.signal, event => {
         if (event.type === 'activity') { activity(event.role, event.message); onProgress(event.message) }
+        if (event.type === 'explore-worker') uiState.update(editor, state => {
+          if (!state.explore) return state
+          const workers = state.explore.workers.filter(worker => worker.id !== event.worker.id)
+          const index = state.explore.workers.findIndex(worker => worker.id === event.worker.id)
+          workers.splice(index < 0 ? workers.length : index, 0, event.worker)
+          return { ...state, explore: { ...state.explore, workers } }
+        })
       })
       controller.signal.throwIfAborted()
       if (editor.getIsReadonly()) throw new Error('This board became read-only. Run the search again when you can edit it.')
       const latest = revisions()
       const outcomes = changed.map(topic => outdated(topic.sourceId))
+      const updatedIds: TLShapeId[] = []
       const pending: { topic: ExploreTopic; report: Extract<typeof result.reports[number], { status: 'complete' }> }[] = []
       for (const topic of approved) {
         const report = result.reports.find(report => report.sourceId === topic.sourceId)
@@ -569,16 +579,48 @@ export function setupUnfold(editor: Editor) {
             const findings = mergeFindings(before?.findings ?? [], report.findings.filter(finding => finding.state !== 'closed' || before?.findings.some(old => old.id === finding.id)), retain)
             const visible = findings.filter(finding => !before?.dismissed.includes(finding.id))
             const count = visible.filter(finding => finding.state === 'new' || finding.state === 'changed').length
-            if (group && before) update(editor, group.id, () => ({ ...before, topic, findings, checkedAt: report.checkedAt, revision: before.revision + 1, dependsOn: topic.dependencies, stale: false }))
-            else if (isNotEmpty(findings)) addNode({ ...baseNode(source.props.node.branchId, 'research'), type: 'findings', topic, findings, dismissed: [], checkedAt: report.checkedAt, dependsOn: topic.dependencies }, [source.id], new Map([[source.id, 'reference']]))
+            if (group && before) {
+              update(editor, group.id, () => ({ ...before, topic, findings, checkedAt: report.checkedAt, revision: before.revision + 1, dependsOn: topic.dependencies, stale: false }))
+              invalidate(group.id)
+              updatedIds.push(group.id)
+            } else if (isNotEmpty(findings)) updatedIds.push(addNode({ ...baseNode(source.props.node.branchId, 'research'), type: 'findings', topic, findings, dismissed: [], checkedAt: report.checkedAt, dependsOn: topic.dependencies }, [source.id], new Map([[source.id, 'reference']])))
             outcomes.push({ sourceId: topic.sourceId, message: count ? `${count} new or changed ${count === 1 ? 'finding' : 'findings'} on the canvas.` : isNotEmpty(report.findings) ? 'No new matches.' : 'No verified matches on this run.', retry: false })
+          }
+          const shared = result.shared
+          if (shared) {
+            const sourceIds = new Set(shared.items.map(item => item.sourceId))
+            const topics = pending.filter(item => sourceIds.has(item.topic.sourceId)).map(item => item.topic)
+            const parents = nodes(editor).filter(shape => shape.props.node.type === 'findings' && sourceIds.has(shape.props.node.topic.sourceId))
+            const eligible = shared.items.every(item => parents.some(parent => parent.props.node.type === 'findings'
+              && parent.props.node.topic.sourceId === item.sourceId && !parent.props.node.dismissed.includes(item.finding.id)
+              && parent.props.node.findings.some(finding => finding.id === item.finding.id && finding.state !== 'closed')))
+            if (eligible && topics.length === sourceIds.size && parents.length === sourceIds.size) {
+              const branchId = `explore-shared:${[...sourceIds].sort().join('|')}`
+              const existing = nodes(editor).find(shape => shape.props.node.branchId === branchId && shape.props.node.type === 'action')
+              const content = {
+                title: shared.title, summary: shared.summary, description: '',
+                sources: shared.items.map(item => ({ id: item.finding.id, title: item.finding.title, url: item.finding.source })),
+                steps: shared.items.map(item => `Review ${item.finding.title}`.slice(0, 200)),
+                dependsOn: [...new Map([...topics.flatMap(topic => topic.dependencies), ...parents.map(parent => ({ id: parent.id, revision: parent.props.node.revision }))].map(dependency => [dependency.id, dependency])).values()],
+              }
+              if (existing) {
+                if (existing.props.node.type === 'action' && !existing.props.node.completed) {
+                  update(editor, existing.id, node => node.type === 'action' ? { ...node, ...content, doneSteps: JSON.stringify(node.steps) === JSON.stringify(content.steps) ? node.doneSteps : [], revision: node.revision + 1, stale: false } : node)
+                  updatedIds.push(existing.id)
+                }
+              } else updatedIds.push(addNode({ ...baseNode(branchId, 'connection'), type: 'action', ...content, completed: false, reflection: '' }, parents.map(parent => parent.id), new Map(parents.map(parent => [parent.id, 'reference']))))
+            }
           }
         })
         editor.markHistoryStoppingPoint('Explore findings applied')
       }
+      uiState.update(editor, state => ({ ...state, explore: state.explore ? { ...state.explore, updatedIds } : null }))
       return outcomes
     } finally {
       if (exploreRun === controller) exploreRun = undefined
+      uiState.update(editor, state => ({ ...state, explore: state.explore ? {
+        ...state.explore, running: false, workers: state.explore.workers.map(worker => worker.status === 'running' || worker.status === 'queued' ? { ...worker, status: 'skipped', message: controller.signal.aborted ? 'Search stopped' : 'Search ended before this task finished' } : worker),
+      } : null }))
     }
   }
 
@@ -590,7 +632,10 @@ export function setupUnfold(editor: Editor) {
       const node = nodeAt(editor, id)?.props.node
       if (editor.getIsReadonly() || node?.type !== 'findings' || node.dismissed.includes(findingId) || node.dismissed.length >= 500) return
       editor.markHistoryStoppingPoint('dismiss finding')
-      update(editor, id, current => current.type === 'findings' ? { ...current, dismissed: [...current.dismissed, findingId] } : current)
+      editor.run(() => {
+        update(editor, id, current => current.type === 'findings' ? { ...current, dismissed: [...current.dismissed, findingId], revision: current.revision + 1 } : current)
+        invalidate(id)
+      })
     },
     applyBoardEdits(edits) {
       try { return applyBoardEdits(edits) } catch (error) { fail(error instanceof Error ? error.message : 'The board edit failed.'); return [] }

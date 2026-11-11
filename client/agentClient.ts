@@ -33,10 +33,10 @@ export async function selectAgentProvider(value: string): Promise<AgentConfig> {
   if (!config.ok) throw new Error('Provider configuration is unavailable.')
   return AgentConfigSchema.parse(await config.json())
 }
-type Progress = Extract<AgentEvent, { type: 'activity' | 'handoff' }>
+type Progress = Extract<AgentEvent, { type: 'activity' | 'handoff' | 'explore-worker' }>
 type Completion = Extract<AgentEvent, { type: 'result' | 'explore-result' }>
-export async function requestAgent(request: AgentRequest, signal: AbortSignal, onEvent: (event: Progress) => void): Promise<AgentResult> {
-  const completion = await runRequest(request, signal, onEvent)
+export async function requestAgent(request: AgentRequest, signal: AbortSignal, onEvent: (event: Exclude<Progress, { type: 'explore-worker' }>) => void): Promise<AgentResult> {
+  const completion = await runRequest(request, signal, event => { if (event.type !== 'explore-worker') onEvent(event) })
   if (completion.type !== 'result') throw new Error('Unexpected agent response.')
   return completion.result
 }
@@ -55,7 +55,7 @@ async function runRequest(request: RuntimeRequest, signal: AbortSignal, onEvent:
       const parsed = AgentEventEnvelopeSchema.safeParse(value)
       if (!parsed.success || parsed.data.requestId !== request.requestId) return
       const event = parsed.data.event
-      if (event.type === 'activity' || event.type === 'handoff') onEvent(event)
+      if (event.type === 'activity' || event.type === 'handoff' || event.type === 'explore-worker') onEvent(event)
       else if (event.type === 'result' || event.type === 'explore-result') {
         if (event.result.requestId === request.requestId) finish(undefined, event)
       }
@@ -74,7 +74,7 @@ async function runRequest(request: RuntimeRequest, signal: AbortSignal, onEvent:
   if (localPreview) {
     if (request.operation === 'explore') throw new Error('Explore board needs the desktop app or local helper with provider keys.')
     onEvent({ type: 'activity', role: 'coordinator', message: 'Preview agents only. No live model or web search is being used.' })
-    return { type: 'result', result: await runCoordinator(request, demoRuntime(200), signal, event => { if (event.type === 'activity' || event.type === 'handoff') onEvent(event) }) }
+    return { type: 'result', result: await runCoordinator(request, demoRuntime(200), signal, event => { if (event.type === 'activity' || event.type === 'handoff' || event.type === 'explore-worker') onEvent(event) }) }
   }
   const response = await fetch('/api/agent', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) })
   if (!response.ok) throw new Error(`Agent request failed (${response.status}). Please retry.`)
@@ -88,7 +88,7 @@ async function runRequest(request: RuntimeRequest, signal: AbortSignal, onEvent:
     if (!parsed.success) throw new Error('The agents returned a reply Unfold could not read. Nothing was added; please retry.')
     const event = parsed.data
     if (event.type === 'error') throw new Error(event.message)
-    if (event.type === 'activity' || event.type === 'handoff') onEvent(event)
+    if (event.type === 'activity' || event.type === 'handoff' || event.type === 'explore-worker') onEvent(event)
     if (event.type === 'result' || event.type === 'explore-result') result = event
   }
   try {

@@ -1,4 +1,5 @@
 import { ExploreBoard } from './components/explore-board'
+import { ExploreActivity } from './components/explore-activity'
 import { isEmpty, isNotEmpty } from '../shared/arrays'
 import { WorkspaceContext, type WorkspaceController } from './workspace'
 import { WorkspaceBootstrap } from './workspace-bootstrap'
@@ -72,6 +73,7 @@ function Chrome() {
     {isEmpty(cards) && <div className="board-heading" aria-hidden="true"><div className="chapter-label"><span className="dot"/> A SPACE FOR WHAT’S NEXT</div><h1>Let your possibilities <em>unfold</em>.</h1><p><span className="ribbon">Start with something that moves you. Find a small way forward.</span></p></div>}
     {isEmpty(cards) && <div className="empty-state"><div className="empty-mark" aria-hidden="true"><ImagePlus size={30} strokeWidth={1.25}/></div><h1>A little space for your ideas.</h1><p>Add an image that means something to you.<br/>See where it takes you.</p><Button size="lg" onClick={() => input.current?.click()}><ImagePlus size={17}/> Add inspiration</Button><Button variant="link" size="sm" onClick={() => { api?.samples().catch((error: unknown) => reportFailure(editor, error)) }}>Explore a sample board <ArrowRight size={14}/></Button></div>}
     <ChatPanel/>
+    <ExploreActivity/>
     <RemoveDialog/>
     <Toaster offset={state.activeChat && state.chatView === 'board' ? { right: 456, bottom: 24 } : { right: 24, bottom: 24 }}/>
     {isNotEmpty(cards) && <div className="bottom-toolbar" role="toolbar" aria-label="Canvas tools">

@@ -119,7 +119,7 @@ export function ExploreBoard() {
               {!running && !error && !finished && isNotEmpty(rows) && <span><strong>{selected.length}</strong> {selected.length === 1 ? 'interest' : 'interests'} selected</span>}
             </div>
             <div className="explore-actions">
-              {running ? <Button type="button" variant="outline" onClick={() => api?.stopExplore()}>Stop searches</Button> : finished ? <>
+              {running ? <><Button type="button" variant="ghost" onClick={() => api?.stopExplore()}>Stop searches</Button><DialogClose render={<Button type="button"/>}>Watch on board</DialogClose></> : finished ? <>
                 <DialogClose render={<Button type="button" variant={failed.size ? 'ghost' : 'default'}/>}>Back to board</DialogClose>
                 {failed.size > 0 && <Button type="button" onClick={() => { run(rows.filter(row => failed.has(row.topic.sourceId)).map(row => row.topic)).catch(() => {}) }}>Retry failed</Button>}
               </> : <>

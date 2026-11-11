@@ -1,4 +1,4 @@
-import { ExploreFindingSchema, ExploreResultSchema, ExploreTopicSchema } from './explore'
+import { ExploreFindingSchema, ExploreResultSchema, ExploreTopicSchema, ExploreWorkerSchema } from './explore'
 import { z } from 'zod'
 import { BoardContextSchema, BoardEditsSchema, CardContentSchema } from './board-edits'
 
@@ -148,6 +148,7 @@ export const ResultSchema = z.object({
 })
 export type AgentResult = z.infer<typeof ResultSchema>
 export const EventSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('explore-worker'), worker: ExploreWorkerSchema }),
   z.object({ type: z.literal('activity'), role: ActivitySchema.shape.role, message: z.string() }),
   z.object({ type: z.literal('handoff'), handoff: HandoffSchema }),
   z.object({ type: z.literal('result'), result: ResultSchema }),

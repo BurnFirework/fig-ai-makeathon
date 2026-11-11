@@ -135,10 +135,14 @@ function UnfoldCard({ shape, node }: NodeComponentProps<UnfoldNode>) {
   const count = chats.length
   const busy = chats.some(chat => state.jobs[chat.id]?.status === 'running')
   const active = state.activeChat?.nodeId === shape.id
+  const workers = state.explore?.workers.filter(worker => worker.sourceId === shape.id) ?? []
+  const runningWorker = workers.find(worker => worker.status === 'running')
+  const updated = state.explore?.updatedIds.includes(shape.id) === true
+  const sharedPlan = node.type === 'action' && node.branchId.startsWith('explore-shared:')
   const step = useValue('step number', () => node.type === 'action' ? lineage(nodes(editor).map(item => ({ id: item.id, node: item.props.node })), shape.id).filter(record => record.node.type === 'action').length : 0, [editor, shape.id, node.type])
   if (node.type === 'findings') {
     const findings = node.findings.filter(finding => !node.dismissed.includes(finding.id))
-    return <article className={`unfold-card card-findings ${selected ? 'is-selected' : ''}`}>
+    return <article className={`unfold-card card-findings ${selected ? 'is-selected' : ''} ${updated ? 'explore-updated' : ''}`}>
       <header className="card-header"><span className="card-eyebrow">Explore board · {node.topic.kind === 'events' ? 'Events' : 'Jobs'}</span></header>
       <div className="card-content findings-body card-interactive" onPointerDown={event => editor.markEventAsHandled(event)} onKeyDown={event => event.stopPropagation()} onWheel={event => { if (node.expanded) editor.markEventAsHandled(event) }}>
         <div className="findings-meta"><strong>{findings.length} {findings.length === 1 ? 'finding' : 'findings'}</strong><small>Checked {new Date(node.checkedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</small></div>
@@ -154,8 +158,9 @@ function UnfoldCard({ shape, node }: NodeComponentProps<UnfoldNode>) {
       </div>
     </article>
   }
-  const label = node.type === 'inspiration' ? 'Inspiration' : node.type === 'opportunity' ? 'Shared direction' : node.type === 'action' ? `Step ${Math.max(1, step)}` : node.type === 'artifact' ? node.content.kind === 'moodboard' ? 'Moodboard' : 'Note' : 'Earlier exploration'
-  return <article className={`unfold-card card-${node.type} ${active ? 'chat-is-open' : ''} ${selected ? 'is-selected' : ''} ${hovered ? 'is-hovered' : ''} ${busy ? 'is-busy' : ''} ${node.stale ? 'is-stale' : ''}`}>
+  const label = sharedPlan ? 'Shared plan · Explore board' : node.type === 'inspiration' ? 'Inspiration' : node.type === 'opportunity' ? 'Shared direction' : node.type === 'action' ? `Step ${Math.max(1, step)}` : node.type === 'artifact' ? node.content.kind === 'moodboard' ? 'Moodboard' : 'Note' : 'Earlier exploration'
+  return <article className={`unfold-card card-${node.type} ${active ? 'chat-is-open' : ''} ${selected ? 'is-selected' : ''} ${hovered ? 'is-hovered' : ''} ${busy ? 'is-busy' : ''} ${node.stale ? 'is-stale' : ''} ${sharedPlan ? 'card-explore-shared' : ''} ${updated ? 'explore-updated' : ''}`}>
+    {runningWorker && <div className="explore-source-status"><LoaderCircle size={13} className="spin"/><span>{runningWorker.label}</span></div>}
     {node.type === 'inspiration' && <Tape/>}
     {node.type === 'inspiration' ? <div className="inspiration-image" title="Drag to move · double-click to explore" onDoubleClick={event => { editor.markEventAsHandled(event); api?.openChat(shape.id) }}>{src ? <img src={src} alt={node.goal} draggable={false}/> : <div className="image-placeholder"><Sparkles/></div>}<Blossom className="card-sticker" size={22}/></div> : <header className="card-header"><span className="card-eyebrow">{label}</span></header>}
     <div className="card-interactive" onPointerDown={event => editor.markEventAsHandled(event)} onKeyDown={event => event.stopPropagation()}>

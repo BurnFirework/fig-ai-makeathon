@@ -48,6 +48,8 @@ Older question and answer cards are folded into an **Earlier exploration** chat.
 
 Open **Explore board** to review suggested event and job searches for the current board. Edit the queries, dates, cities, ticket budget, or US remote filter, then choose **Start search**. Unfold searches Ticketmaster and JSearch, checks venue and employer pages through Parallel, and adds sourced findings next to the relevant cards. Refreshes reuse those groups. Dismissals travel with the board.
 
+With a live AI provider selected, each interest has a search planner, evidence reviewer, and shortlist agent. A shared-plan agent combines verified options from multiple interests, giving a two-interest run seven agents. Choose **Watch on board** to follow their progress beside the canvas, then **Show updates** to focus the resulting cards. The shared plan links back to both finding groups. Preview mode labels its simplified processing explicitly.
+
 For local web development, set `COMPOSIO_API_KEY` and `TICKETMASTER_API_KEY` in the ignored `.env` file, then restart the helper. For Electron, launch from a shell that exports those variables. Ticketmaster uses your Discovery key and JSearch uses the Composio project's enabled Instant balance. Each approved job interest requests one page. Parallel uses its public MCP endpoint. The static preview shows the board UI, while live searches require the local runtime.
 
 ## Data storage

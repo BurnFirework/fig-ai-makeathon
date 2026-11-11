@@ -1,6 +1,6 @@
 import { Editor, EditorAtom, type TLShapeId } from 'tldraw'
 import type { Handoff } from '../shared/schema'
-import type { ExploreTopic } from '../shared/explore'
+import type { ExploreTopic, ExploreWorker } from '../shared/explore'
 import type { BoardEdit } from '../shared/board-edits'
 
 export interface Activity { id: string; role: string; message: string; time: number; handoff?: Handoff }
@@ -12,8 +12,9 @@ export interface UiState {
   activeChat: { nodeId: TLShapeId; chatId: string } | null;
   /** Shapes the user asked to remove; the confirmation dialog is open while this is set. */
   removing: TLShapeId[] | null;
+  explore: { running: boolean; workers: ExploreWorker[]; updatedIds: TLShapeId[] } | null;
 }
-export const uiState = new EditorAtom<UiState>('unfold-ui', () => ({ mode: 'demo', provider: 'Preview', activity: [], panel: false, jobs: {}, saved: true, activeChat: null, chatView: 'focus', removing: null }))
+export const uiState = new EditorAtom<UiState>('unfold-ui', () => ({ mode: 'demo', provider: 'Preview', activity: [], panel: false, jobs: {}, saved: true, activeChat: null, chatView: 'focus', removing: null, explore: null }))
 export interface ExploreCandidate { topic: ExploreTopic; suggested: boolean; reason: string; conditions: string[] }
 export interface ExploreOutcome { sourceId: string; message: string; retry: boolean }
 

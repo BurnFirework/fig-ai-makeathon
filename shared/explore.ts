@@ -26,7 +26,19 @@ export const ExploreReportSchema = z.discriminatedUnion('status', [
   z.object({ sourceId: label, status: z.literal('failed'), message: label }),
 ])
 export type ExploreReport = z.infer<typeof ExploreReportSchema>
-export const ExploreResultSchema = z.object({ requestId: label, reports: z.array(ExploreReportSchema).max(4) })
+export const ExploreWorkerSchema = z.object({
+  id: label, sourceId: label.optional(), label, message: z.string().max(500),
+  stage: z.enum(['discovery', 'verification', 'shortlist', 'synthesis']),
+  status: z.enum(['queued', 'running', 'complete', 'failed', 'skipped']),
+})
+export type ExploreWorker = z.infer<typeof ExploreWorkerSchema>
+export const ExploreSharedSchema = z.object({
+  title: label, summary: z.string().min(1).max(300),
+  items: z.array(z.object({ sourceId: label, finding: ExploreFindingSchema })).min(2).max(4),
+  checkedAt: z.number(),
+})
+export type ExploreShared = z.infer<typeof ExploreSharedSchema>
+export const ExploreResultSchema = z.object({ requestId: label, reports: z.array(ExploreReportSchema).max(4), shared: ExploreSharedSchema.optional() })
 export type ExploreResult = z.infer<typeof ExploreResultSchema>
 
 export function searchScope(topic: ExploreTopic): string {
