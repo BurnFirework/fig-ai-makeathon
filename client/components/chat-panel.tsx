@@ -180,6 +180,22 @@ function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice }: {
     if (composing) api?.decide(sourceId, chatId, message.id, composing, note)
     setComposing(null); setNote('')
   }
+  const step = message.proposal.kind === 'action'
+  const compose = composing && <div className="decision-compose"><Textarea aria-label={composing === 'refine' ? 'What should change?' : 'Why not? (optional)'} placeholder={composing === 'refine' ? (step ? 'What should change? For example: on Sunday instead, or under $30' : 'What should change? For example: keep it under $30, on weekends') : 'Why not? (optional)'} value={note} maxLength={600} autoFocus onChange={event => setNote(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit() } if (event.key === 'Escape') { event.stopPropagation(); setComposing(null) } }}/>
+    <div className="decision-actions"><Button size="sm" disabled={busy || (composing === 'refine' && !note.trim())} onClick={submit}>{composing === 'refine' ? 'Ask for a revision' : step ? 'Not this' : 'Decline'}</Button><Button variant="ghost" size="sm" onClick={() => { setComposing(null); setNote('') }}>Cancel</Button></div></div>
+  // A later message that revises this step replaces it.
+  const revisedBy = chat.messages.find(item => item.role === 'assistant' && item.revises === message.id)
+  // A revision of a step that is already on the canvas updates that card.
+  const replacesCard = (() => {
+    let current: ChatMessage | undefined = message
+    for (let depth = 0; depth < 12 && current?.role === 'assistant' && current.revises; depth++) {
+      const earlierId: string = current.revises
+      current = chat.messages.find(item => item.id === earlierId)
+      const outcomeId = current?.role === 'assistant' ? current.outcomeId : undefined
+      if (outcomeId && nodes(editor).some(shape => shape.id === outcomeId)) return true
+    }
+    return false
+  })()
   return <div id={`message-${message.id}`} className="chat-message assistant-message"><span className="message-label">Unfold</span>
     {message.trace && isNotEmpty(message.trace) && <details className="agent-trace"><summary>How the agents got here · {message.trace.length} step{message.trace.length === 1 ? '' : 's'}</summary><ol>{message.trace.map((handoff, index) => <HandoffLine key={index} handoff={handoff}/>)}</ol></details>}
     {proposal.kind === 'question' && (isLatest && !stale ? <div className="question-card">
@@ -194,13 +210,24 @@ function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice }: {
     {proposal.kind === 'research' && <p>{proposal.brief}</p>}
     {proposal.kind === 'reply' && <><p>{proposal.text}</p>{outcomes.map(card => <Button key={card.id} variant="outline" size="sm" onClick={() => { uiState.update(editor, state => ({ ...state, chatView: 'board' })); editor.select(card.id); fitBoard(editor) }}>{nodeTitle(card.props.node)}<ArrowRight size={13}/></Button>)}</>}
     {proposal.kind === 'none' && <div className="chat-none"><div className="outcome-label">No useful overlap</div><p>{proposal.reason}</p><small className="message-purpose">Nothing was added. Agents look again when either goal changes.</small></div>}
-    {(proposal.kind === 'opportunity' || proposal.kind === 'action') && <div className={`chat-outcome ${decision ? `decision-${decision}` : ''}`}><div className="outcome-label">{proposal.kind === 'opportunity' ? (revisedFrom ? 'Shared direction · revised' : 'Shared direction') : 'Next step'}</div><h3>{proposal.title}</h3>
+    {(proposal.kind === 'opportunity' || proposal.kind === 'action') && <div className={`chat-outcome ${decision ? `decision-${decision}` : ''}`}><div className="outcome-label">{proposal.kind === 'opportunity' ? (revisedFrom ? 'Shared direction · revised' : 'Shared direction') : revisedFrom ? 'Next step · revised' : 'Next step'}</div><h3>{proposal.title}</h3>
       {proposal.kind === 'action' ? <ActionSummary action={proposal}/> : <p>{proposal.description}</p>}
       {proposal.kind === 'opportunity' && <div className="outcome-benefits"><p>{proposal.benefitA}</p><p>{proposal.benefitB}</p></div>}
       {proposal.kind === 'opportunity' && proposal.openPoints && isNotEmpty(proposal.openPoints) && <ul className="open-points" aria-label="Still open">{proposal.openPoints.map(point => <li key={point}>{point}</li>)}</ul>}
       {proposal.kind === 'opportunity' && proposal.sources && isNotEmpty(proposal.sources) && <div className="source-chips">{proposal.sources.map(source => <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer" title={source.title}>{domainOf(source.url)}<ExternalLink size={11}/></a>)}</div>}
       {stale && decision === undefined && <div className="outcome-stale" role="note">Your conditions or sources changed since this was proposed. Continue the chat for an updated version.</div>}
-      {proposal.kind === 'action' && (canPublish(message) ? <Button size="sm" disabled={stale} onClick={() => api?.publish(sourceId, chatId, message.id)}><Plus size={14}/> Add to canvas</Button> : outcome ? <Button variant="outline" size="sm" onClick={viewCard}><Check size={14}/> View on canvas</Button> : <span className="outcome-removed">Outcome removed from canvas</span>)}
+      {proposal.kind === 'action' && <div className="decision-area">
+        {revisedBy && !outcome ? <span className="decision-status">Replaced by the revised step below</span>
+          : revisedBy && decision === 'refine' && !composing ? <><span className="decision-status">Revised below: {message.decision?.note}</span><div className="decision-actions"><Button variant="outline" size="sm" onClick={viewCard}><Check size={14}/> View on canvas</Button></div></>
+          : decision === 'declined' ? <><span className="decision-status declined">Not for you{message.decision?.note ? `: ${message.decision.note}` : ''} · agents won’t suggest it again</span><div className="decision-actions"><Button variant="ghost" size="sm" disabled={busy} onClick={() => api?.decide(sourceId, chatId, message.id, 'reopen')}><Undo2 size={13}/> Reconsider</Button></div></>
+          : composing ? compose
+          : <>{decision === 'refine' && <span className="decision-status">You asked for changes: {message.decision?.note}</span>}
+            <div className="decision-actions">
+              {canPublish(message) ? <Button size="sm" disabled={stale} onClick={() => api?.publish(sourceId, chatId, message.id)}>{replacesCard ? <><RotateCcw size={13}/> Update card on canvas</> : <><Plus size={14}/> Add to canvas</>}</Button> : outcome ? <Button variant="outline" size="sm" onClick={viewCard}><Check size={14}/> View on canvas</Button> : <span className="outcome-removed">Outcome removed from canvas</span>}
+              {decision !== 'refine' && !revisedBy && (canPublish(message) || outcome) && <Button variant="outline" size="sm" disabled={busy} onClick={() => setComposing('refine')}><Pencil size={13}/> Refine</Button>}
+              {canPublish(message) && decision !== 'refine' && <Button variant="ghost" size="sm" disabled={busy} onClick={() => setComposing('decline')}><X size={14}/> Not this</Button>}
+            </div></>}
+      </div>}
       {proposal.kind === 'opportunity' && <div className="decision-area">
         {decision === undefined && !composing && <><span className="decision-status">{stale ? 'Needs an update before you decide' : 'Waiting for your decision'}</span><div className="decision-actions">
           <Button size="sm" disabled={busy || stale} onClick={() => api?.decide(sourceId, chatId, message.id, 'accept')}><Check size={14}/> Accept</Button>
@@ -214,8 +241,7 @@ function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice }: {
         {decision === 'declined' && <><span className="decision-status declined">Declined{message.decision?.note ? `: ${message.decision.note}` : ''} · agents won’t develop it</span><div className="decision-actions"><Button variant="ghost" size="sm" disabled={busy} onClick={() => api?.decide(sourceId, chatId, message.id, 'reopen')}><Undo2 size={13}/> Reconsider</Button></div></>}
         {decision === 'refine' && <span className="decision-status">You asked for changes: {message.decision?.note}</span>}
         {decision === 'superseded' && <span className="decision-status">Replaced by a revised version you accepted</span>}
-        {composing && <div className="decision-compose"><Textarea aria-label={composing === 'refine' ? 'What should change?' : 'Why not? (optional)'} placeholder={composing === 'refine' ? 'What should change? For example: keep it under $30, on weekends' : 'Why not? (optional)'} value={note} maxLength={600} autoFocus onChange={event => setNote(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit() } if (event.key === 'Escape') { event.stopPropagation(); setComposing(null) } }}/>
-          <div className="decision-actions"><Button size="sm" disabled={busy || (composing === 'refine' && !note.trim())} onClick={submit}>{composing === 'refine' ? 'Ask for a revision' : 'Decline'}</Button><Button variant="ghost" size="sm" onClick={() => { setComposing(null); setNote('') }}>Cancel</Button></div></div>}
+        {compose}
       </div>}
     </div>}
   </div>

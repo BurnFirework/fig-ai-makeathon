@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { chatContext, currentRevisions, decisionOf, memoryDependencies } from '../shared/chats'
@@ -272,6 +273,26 @@ cases.push(test('agent memory needs a user message as its basis; otherwise it st
   assert.equal(place.by, 'agent')
   assert.deepEqual(next.entries.filter(entry => entry.status === 'active' && entry.key === 'budget').map(entry => entry.text), ['Budget: up to $90'])
   assert.equal(next.revision, chatMemory(start).revision + 1)
+}))
+
+cases.push(test('refining a next step revises that step with its sources instead of proposing a different one', async () => {
+  const focus = { kind: 'refine' as const, title: 'Try a beginner charcoal class', description: 'A two-hour Saturday class in SF.', note: 'On Sunday instead', steps: ['Open the studio page', 'Book a seat'], sources: found.sources }
+  // The branch agent repeats the title on purpose: a revision replaces the step the user asked to change.
+  const runtime = scripted({ lead: input => Promise.resolve({ next: 'propose', action: { title: input.focus?.title ?? 'x', summary: 'The same class, on Sunday.', steps: ['Open the studio page', 'Pick the Sunday session'], description: '', sources: found.sources } }) })
+  const prior = { ...branch('Explore a creative practice'), previousSuggestions: ['Try a beginner charcoal class'] }
+  const { result, events } = await run(request('branch', [prior], { focus, note: focus.note }), runtime)
+  assert.deepEqual(result.proposal.kind === 'action' ? [result.proposal.kind, result.proposal.title] : [result.proposal.kind], ['action', 'Try a beginner charcoal class'])
+  // The agent gets the step to revise and its earlier sources.
+  const input = z.object({ focus: z.object({ note: z.string() }), evidence: z.object({ sources: z.array(z.unknown()) }) }).parse(runtime.log[0]?.input)
+  assert.equal(input.focus.note, 'On Sunday instead')
+  assert.deepEqual(input.evidence.sources, found.sources)
+  assert.ok(events.some(event => event.type === 'handoff' && event.handoff.task === 'revise' && /On Sunday instead/.test(event.handoff.summary)))
+  // Without a refine request, repeating a step already suggested still pauses for a different one.
+  const repeat = await run(request('branch', [prior]), scripted({ lead: input => Promise.resolve(input.evidence ? { next: 'propose', action: { title: 'Try a beginner charcoal class', summary: 'x', steps: ['a', 'b'], description: '', sources: found.sources } } : { next: 'research', brief: 'charcoal class', mustMatch: [] }), research: () => Promise.resolve(found) }))
+  assert.equal(repeat.result.proposal.kind, 'question')
+  // The preview agents revise too, keeping the steps and sources.
+  const preview = await run(request('branch', [prior], { focus, note: focus.note }), demoRuntime(0))
+  assert.equal(preview.result.proposal.kind === 'action' ? preview.result.proposal.title : preview.result.proposal.kind, 'Try a beginner charcoal class')
 }))
 
 cases.push(test('an invalid agent reply is retried once with the problem, then fails with a friendly message', async () => {

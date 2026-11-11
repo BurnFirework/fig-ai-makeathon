@@ -121,11 +121,12 @@ export function liveRuntime(config: CliConfig): AgentRuntime {
     mode: 'live',
     lead(input, signal, budget) {
       const evidenceUrls = input.evidence?.sources.map(source => source.url) ?? []
-      const guidance = input.evidence
+      const revision = input.focus ? `The user asked to change this proposed next step: ${json({ title: input.focus.title, summary: input.focus.description, steps: input.focus.steps ?? [] })}. Their comment: ${json(input.focus.note)}. Propose a revised version of this same step: follow the comment and keep everything they did not ask to change, including its title when it still fits and its sources when they still support it. This revision may repeat the step's title. If the comment needs an option these sources do not support (for example a lower price or another day), request a narrower search${input.allowed.includes('research') ? '' : ' (no searches are left, so ask instead)'}; if the comment is unclear, ask one short question. ` : ''
+      const guidance = revision + (input.evidence
         ? `Evaluate this research result before choosing: ${json(input.evidence)}. Propose an action only if it satisfies the active conditions and is supported by these sources. If it does not fit, do not force an action: ask the user what could change, or request a narrower search${input.allowed.includes('research') ? '' : ' (no searches are left, so ask instead)'}.`
         : input.operation === 'research' ? `The user accepted a shared direction${input.outcome ? ` ${json({ title: input.outcome.title, description: input.outcome.description })}` : ''} and wants a real first step for it: request research now unless an essential condition is missing. Follow the conditions in memory, including decisions made while connecting the goals.`
         : input.outcome ? `The user is continuing from this outcome already on their board: ${json(input.outcome)}. Help with what comes after it — ask what happened or what is in the way, or research a follow-up that builds on it. Never propose the same step again.`
-          : 'At first clarify the user’s intended goal from the image. Thereafter ask only missing essential conditions, and request research once enough is known (normally after 2–3 answers). Do not repeat earlier questions.'
+          : 'At first clarify the user’s intended goal from the image. Thereafter ask only missing essential conditions, and request research once enough is known (normally after 2–3 answers). Do not repeat earlier questions.')
       const prompt = `${principles}
 Role: ${input.role === 'branch' ? 'branch agent for one goal' : 'shared agent for two connected goals'}. Choose your next task. Allowed "next" values now: ${input.allowed.join(', ')}.
 - "ask": one necessary question for the user.

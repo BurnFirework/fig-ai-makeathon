@@ -125,7 +125,9 @@ export const MemoryUpdateSchema = z.object({
   from: z.string().max(120).optional(), replaces: z.string().max(160).optional(),
 })
 export type MemoryUpdate = z.infer<typeof MemoryUpdateSchema>
-export const FocusSchema = z.object({ kind: z.literal('refine'), title: z.string().max(200), description: z.string().max(2000), note: z.string().max(2000) })
+/** The user asked to change one proposal. A next step also carries its steps and sources, so its revision can keep them. */
+export const FocusSchema = z.object({ kind: z.literal('refine'), title: z.string().max(200), description: z.string().max(2000), note: z.string().max(2000),
+  steps: z.array(z.string().max(200)).max(4).optional(), sources: z.array(SourceSchema).max(6).optional() })
 export const RequestSchema = z.object({
   requestId: z.string().min(1).max(120), operation: z.enum(['branch', 'connect', 'research']),
   board: BoardContextSchema.optional(),

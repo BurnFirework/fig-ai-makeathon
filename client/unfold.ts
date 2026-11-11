@@ -341,7 +341,14 @@ export function setupUnfold(editor: Editor) {
       const tail = chat.messages.at(-1)
       const latest = tail?.role === 'user' ? tail : undefined
       const revised = latest?.role === 'user' && latest.stance === 'refine' ? chat.messages.find(message => message.id === latest.replyTo) : undefined
-      const focus = revised?.role === 'assistant' && revised.proposal.kind === 'opportunity' && latest?.role === 'user' ? { kind: 'refine' as const, title: revised.proposal.title, description: revised.proposal.description.slice(0, 2000), note: latest.text } : undefined
+      const asked = revised?.role === 'assistant' ? revised.proposal : undefined
+      // A next step is revised with its own steps and sources; a shared direction with its description.
+      const focus = latest?.role === 'user' && (asked?.kind === 'opportunity' || asked?.kind === 'action') ? {
+        kind: 'refine' as const, title: asked.title.slice(0, 200), note: latest.text,
+        ...(asked.kind === 'action'
+          ? { description: (asked.summary || asked.description).slice(0, 2000), ...(asked.steps && isNotEmpty(asked.steps) ? { steps: asked.steps.slice(0, 4).map(step => step.slice(0, 200)) } : {}), ...(isNotEmpty(asked.sources) ? { sources: asked.sources.slice(0, 6) } : {}) }
+          : { description: asked.description.slice(0, 2000) }),
+      } : undefined
       const sourceNode = source.props.node
       const outcome = sourceNode.type === 'action' || sourceNode.type === 'opportunity' ? { title: sourceNode.title.slice(0, 200), description: sourceNode.description.slice(0, 2000), ...(sourceNode.type === 'opportunity' && sourceNode.sources && isNotEmpty(sourceNode.sources) ? { sources: sourceNode.sources } : {}) } : undefined
       const priorBriefs = briefsOf(chat)
@@ -496,6 +503,18 @@ export function setupUnfold(editor: Editor) {
     }
   }
   const conversationCardsForRetry = (chat: Chat | undefined) => chat ? conversationCards(chat).flatMap(id => { const card = cardId(id); return card ? [card] : [] })[0] : undefined
+  /** The canvas card of an earlier version of this step, following the chain of revisions. */
+  function revisedCard(chat: Chat, message: ChatMessage): NodeShape | undefined {
+    let current: ChatMessage | undefined = message
+    for (let depth = 0; depth < 12 && current?.role === 'assistant' && current.revises; depth++) {
+      const earlierId: string = current.revises
+      current = chat.messages.find(item => item.id === earlierId)
+      const outcomeId = current?.role === 'assistant' ? current.outcomeId : undefined
+      const card = outcomeId ? nodes(editor).find(shape => shape.id === outcomeId && shape.props.node.type === 'action') : undefined
+      if (card) return card
+    }
+    return undefined
+  }
   function exploreCandidates(): ExploreCandidate[] {
     const all = records()
     const selected = new Set(editor.getSelectedShapeIds())
@@ -693,8 +712,31 @@ export function setupUnfold(editor: Editor) {
     decide(id, chatId, messageId, decision, note = '') {
       const chat = chatAt(id, chatId)
       const message = chat?.messages.find(item => item.id === messageId)
-      if (!chat || message?.role !== 'assistant' || message.proposal.kind !== 'opportunity' || uiState.get(editor).jobs[chatId]?.status === 'running') return
+      if (!chat || message?.role !== 'assistant' || uiState.get(editor).jobs[chatId]?.status === 'running') return
       const proposal = message.proposal
+      // A next step can be refined or turned down; adding it to the canvas is its acceptance.
+      if (proposal.kind === 'action') {
+        const reason = note.trim().slice(0, 600)
+        const mark = (status?: 'declined' | 'refine') => editChat(id, chatId, current => ({ ...current, messages: current.messages.map(item => {
+          if (item.id !== messageId || item.role !== 'assistant') return item
+          if (!status) { const { decision: _removed, ...rest } = item; return rest }
+          return { ...item, decision: { status, note: reason, at: Date.now() } }
+        }) }))
+        if (decision === 'reopen') { editor.markHistoryStoppingPoint('reconsider step'); mark(); activity('you', `Reconsidering “${proposal.title}”.`); return }
+        if (decision === 'decline') {
+          editor.markHistoryStoppingPoint('decline step'); mark('declined')
+          activity('you', `Turned down “${proposal.title}”${reason ? `: ${reason}` : ''}. Agents will not suggest it again without saying what changed.`)
+          notice('Noted. Agents won’t suggest this step again.')
+          return
+        }
+        if (decision === 'refine' && reason) {
+          editor.markHistoryStoppingPoint('refine step'); mark('refine')
+          activity('you', `Asked to change “${proposal.title}”: ${reason}`)
+          api.send(id, chatId, reason, messageId, 'refine')
+        }
+        return
+      }
+      if (proposal.kind !== 'opportunity') return
       const reason = note.trim().slice(0, 600)
       const setDecision = (status: 'accepted' | 'declined' | 'refine', extra: { outcomeId?: string } = {}) => editChat(id, chatId, current => ({ ...current, messages: current.messages.map(item => {
         if (item.role !== 'assistant') return item
@@ -789,7 +831,13 @@ export function setupUnfold(editor: Editor) {
         let outcomeId: TLShapeId
         if (proposal.kind === 'action') {
           const { kind: _kind, ...action } = proposal
-          outcomeId = addNode({ ...common, ...action, type: 'action', completed: false, reflection: '' }, parents)
+          // A revision replaces the card of the step it revises, so the canvas keeps one card for it.
+          const earlier = revisedCard(chat, message)
+          if (earlier) {
+            outcomeId = earlier.id
+            invalidate(earlier.id)
+            update(editor, earlier.id, node => node.type === 'action' ? { ...node, ...action, completed: false, doneSteps: [], stale: false, revision: node.revision + 1, dependsOn: message.dependsOn, origin: { nodeId: id, chatId, messageId } } : node)
+          } else outcomeId = addNode({ ...common, ...action, type: 'action', completed: false, reflection: '' }, parents)
         }
         else return
         editChat(id, chatId, current => ({ ...current, messages: current.messages.map(item => item.id === messageId ? { ...item, outcomeId } : item) }))

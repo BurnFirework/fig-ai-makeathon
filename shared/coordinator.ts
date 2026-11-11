@@ -96,6 +96,8 @@ export interface LeadInput {
   /** The conversation continues from this outcome; agents build beyond it instead of repeating it. */
   outcome?: { title: string; description: string } | undefined
   board?: AgentRequest['board']
+  /** The user asked to change this next step; the agent revises it instead of proposing a different one. */
+  focus?: AgentRequest['focus']
 }
 export interface ConnectionInput {
   phase: 'draft' | 'decide'; branches: BranchContext[]; note: string; focus?: AgentRequest['focus']
@@ -207,12 +209,18 @@ export async function runCoordinator(request: AgentRequest, runtime: AgentRuntim
       evidence = { status: 'found', summary: `Sources found while connecting the goals for “${request.outcome.title}”.`, sources: carried, limits: 'Found before you accepted the direction; check dates and prices on the page.' }
       hand({ from: 'coordinator', to: role, toLabel: roleLabel, task: 'research', outcome: 'found', summary: `Passed on ${plural(carried.length, 'source')} from the accepted shared direction: ${carried.map(source => source.title).slice(0, 2).join('; ')}.` })
     }
+    // A step the user asked to change keeps its sources, so the revision can build on what was already found.
+    const revising = request.focus
+    if (revising) {
+      if (revising.sources && isNotEmpty(revising.sources)) evidence ??= { status: 'found', summary: `Sources behind “${revising.title}”: ${revising.description}`.slice(0, 600), sources: revising.sources, limits: 'Found for the earlier version; check whether they still fit your comment.' }
+      hand({ from: 'coordinator', to: role, toLabel: roleLabel, task: 'revise', outcome: 'requested', summary: `Revise “${clip(revising.title, 80)}” with your comment: ${clip(revising.note, 160)}` })
+    }
     for (;;) {
       const allowed: LeadStep['next'][] = evidence ? (searches < limits.research ? ['propose', 'ask', 'research'] : ['propose', 'ask']) : ['ask', 'research']
       if (canRespond) allowed.push('respond')
       let step: LeadStep
       try {
-        step = await call((task, spend) => runtime.lead({ role, operation: request.operation, branches, note: request.note, image: evidence ? undefined : request.image, evidence, previousBriefs: briefs, allowed, outcome: request.outcome, board }, task, spend))
+        step = await call((task, spend) => runtime.lead({ role, operation: request.operation, branches, note: request.note, image: evidence ? undefined : request.image, evidence, previousBriefs: briefs, allowed, outcome: request.outcome, board, ...(revising ? { focus: revising } : {}) }, task, spend))
       } catch (error) { if (error instanceof OutOfBudget) return flexibleQuestion(evidence, searches); throw error }
       if (!allowed.includes(step.next)) return flexibleQuestion(evidence, searches)
       remember(step)
@@ -242,9 +250,10 @@ export async function runCoordinator(request: AgentRequest, runtime: AgentRuntim
           const cited = step.action.sources.flatMap(source => known.filter(item => sameUrl(item.url, source.url))).filter((source, index, all) => all.indexOf(source) === index)
           if (isEmpty(cited)) return flexibleQuestion(evidence, searches)
           // A step that is already on the board is not progress: pause and ask what would help next.
-          const done = [request.outcome?.title, ...branches.flatMap(branch => branch.previousSuggestions)].filter((title): title is string => Boolean(title)).find(title => normalize(title) === normalize(step.action.title))
+          // A revision may keep its title: it replaces the step the user asked to change.
+          const done = revising ? undefined : [request.outcome?.title, ...branches.flatMap(branch => branch.previousSuggestions)].filter((title): title is string => Boolean(title)).find(title => normalize(title) === normalize(step.action.title))
           if (done) return pause(`“${step.action.title}” is already part of this exploration, so it was not proposed again.`, `“${clip(done, 80)}” is already on your board. What would help most now?`, ['I did it — what comes next?', 'Something easier to start', 'A different kind of step'], 'Agents build on what you already have instead of repeating it.')
-          hand({ from: role, fromLabel: roleLabel, to: 'you', task: 'propose', outcome: 'proposed', summary: `Proposed “${step.action.title}” using ${plural(cited.length, 'cited source')} from the research.` })
+          hand({ from: role, fromLabel: roleLabel, to: 'you', task: 'propose', outcome: 'proposed', summary: revising ? `Revised “${step.action.title}” following your comment, citing ${plural(cited.length, 'source')}.` : `Proposed “${step.action.title}” using ${plural(cited.length, 'cited source')} from the research.` })
           return actionProposal(step.action, cited)
         }
       }

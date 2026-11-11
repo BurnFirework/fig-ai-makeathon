@@ -86,7 +86,7 @@ export function chatContext(records: NodeRecord[], sourceId: string, chat: Chat,
     if (message.role !== 'user') return []
     const question = messages.find(previous => previous.id === message.replyTo)
     const asked = question?.role === 'assistant' ? question.proposal : undefined
-    return [{ question: asked?.kind === 'question' ? asked.prompt : asked?.kind === 'opportunity' ? `Feedback on “${asked.title}”` : 'Your direction', answer: message.text, stance: message.stance ?? classifyMessage(message.text), messageId: message.id }]
+    return [{ question: asked?.kind === 'question' ? asked.prompt : asked?.kind === 'opportunity' || asked?.kind === 'action' ? `Feedback on “${asked.title}”` : 'Your direction', answer: message.text, stance: message.stance ?? classifyMessage(message.text), messageId: message.id }]
   })
   const view = mergeMemory(threads)
   const memory = view.active.slice(-120).map(item => ({ id: item.id, kind: item.kind, ...(item.key ? { key: item.key } : {}), text: item.text, ...(item.sources[0] ? { from: item.sources[0] } : {}) }))

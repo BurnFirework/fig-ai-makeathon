@@ -98,6 +98,11 @@ export function demoRuntime(delay = 250): AgentRuntime {
         if (first.answers.at(-1)?.question !== followUp) return { next: 'ask', question: { prompt: followUp, options: ['I tried it — what next?', 'Not yet, something is in the way', 'Show me a different idea'], purpose: 'Agents build on this step instead of repeating it.' } }
         return { next: 'research', brief: `A next step after “${input.outcome.title}”`, mustMatch: conditions.slice(0, 6) }
       }
+      // A preview revision keeps the step and its sources and says how it follows the comment.
+      if (input.focus && input.evidence?.status === 'found' && input.allowed.includes('propose')) {
+        const steps = input.focus.steps && input.focus.steps.length >= 2 ? input.focus.steps : ['Open the linked page', 'Check the details against your comment']
+        return { next: 'propose', action: { title: input.focus.title, summary: `Revised to follow your comment: “${input.focus.note.slice(0, 120)}”.`, steps, description: 'Example revision: no live search was performed in preview mode.', sources: input.evidence.sources.slice(0, 2) } }
+      }
       if (input.evidence?.status === 'found' && input.allowed.includes('propose')) {
         const source = input.evidence.sources[0]
         return { next: 'propose', action: { title: 'Find one beginner-friendly session', summary: `Pick one small session to try ${lower(first.goal)} for real.`, steps: ['Open the linked directory', isNotEmpty(conditions) ? `Filter by ${conditions.slice(0, 2).join(' and ')}` : 'Filter by date and price', 'Save one session that fits'], meta: { time: '20 min', cost: 'Free to browse', place: 'Online' }, description: 'Example step: no live search was performed in preview mode.', sources: source ? [source] : [] } }
