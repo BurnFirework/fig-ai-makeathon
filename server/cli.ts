@@ -20,7 +20,7 @@ function candidates(provider: 'claude' | 'codex') {
 /** Environment for CLI processes: subscription login stays with the CLI; don't silently choose API-key billing. */
 function cliEnv() {
   const env = { ...process.env }
-  for (const key of ['OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'CLAUDECODE']) delete env[key]
+  for (const key of ['OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'CLAUDECODE', 'COMPOSIO_API_KEY', 'TICKETMASTER_API_KEY']) delete env[key]
   return env
 }
 const loginCommand = (provider: 'claude' | 'codex') => provider === 'claude' ? 'claude auth login' : 'pnpm exec codex login'
@@ -28,7 +28,7 @@ async function probe(provider: 'claude' | 'codex'): Promise<{ config?: CliConfig
   for (const binary of candidates(provider)) {
     let version: string
     try {
-      version = (await exec(binary, ['--version'], { timeout: 7000, maxBuffer: 32_000 })).stdout.trim()
+      version = (await exec(binary, ['--version'], { timeout: 7000, maxBuffer: 32_000, env: cliEnv() })).stdout.trim()
     } catch { continue /* Try the next configured local binary. */ }
     // An installed CLI is not enough: a signed-out CLI fails every request, so check its own login status.
     const signedIn = await exec(binary, provider === 'claude' ? ['auth', 'status'] : ['login', 'status'], { timeout: 7000, maxBuffer: 32_000, env: cliEnv() }).then(() => true, () => false)

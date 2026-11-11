@@ -44,6 +44,12 @@ Use the board name menu to create, switch or rename mood boards. Each board keep
 
 Older question and answer cards are folded into an **Earlier exploration** chat. Embedded chats migrate into separate conversation records in the same local board document. Their messages, decisions, IDs and source references travel with backups. Editing a source marks dependent outcomes for review.
 
+## Explore board
+
+Open **Explore board** to review suggested event and job searches for the current board. Edit the queries, dates, cities, ticket budget, or US remote filter, then choose **Start search**. Unfold searches Ticketmaster and JSearch, checks venue and employer pages through Parallel, and adds sourced findings next to the relevant cards. Refreshes reuse those groups. Dismissals travel with the board.
+
+For local web development, set `COMPOSIO_API_KEY` and `TICKETMASTER_API_KEY` in the ignored `.env` file, then restart the helper. For Electron, launch from a shell that exports those variables. Ticketmaster uses your Discovery key and JSearch uses the Composio project's enabled Instant balance. Each approved job interest requests one page. Parallel uses its public MCP endpoint. The static preview shows the board UI, while live searches require the local runtime.
+
 ## Data storage
 
 The web and Electron desktop app share the same React/tldraw interface and board logic. Data stays on your device. There is no hosted board backend, account system, or automatic cloud sync.

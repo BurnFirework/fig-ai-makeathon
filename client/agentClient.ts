@@ -1,5 +1,6 @@
 import { type AgentEvent, type AgentRequest, type AgentResult, EventSchema } from '../shared/schema'
-import { AgentConfigSchema, AgentEventEnvelopeSchema, AgentFailureSchema, ProviderSchema, type AgentConfig } from '../shared/agent-contract'
+import type { ExploreRequest, ExploreResult } from '../shared/explore'
+import { AgentConfigSchema, type RuntimeRequest, AgentEventEnvelopeSchema, AgentFailureSchema, ProviderSchema, type AgentConfig } from '../shared/agent-contract'
 import { demoRuntime } from '../shared/preview'
 import { runCoordinator } from '../shared/coordinator'
 import { z } from 'zod'
@@ -32,18 +33,32 @@ export async function selectAgentProvider(value: string): Promise<AgentConfig> {
   if (!config.ok) throw new Error('Provider configuration is unavailable.')
   return AgentConfigSchema.parse(await config.json())
 }
-export async function requestAgent(request: AgentRequest, signal: AbortSignal, onEvent: (event: Extract<AgentEvent, { type: 'activity' | 'handoff' }>) => void): Promise<AgentResult> {
+type Progress = Extract<AgentEvent, { type: 'activity' | 'handoff' }>
+type Completion = Extract<AgentEvent, { type: 'result' | 'explore-result' }>
+export async function requestAgent(request: AgentRequest, signal: AbortSignal, onEvent: (event: Progress) => void): Promise<AgentResult> {
+  const completion = await runRequest(request, signal, onEvent)
+  if (completion.type !== 'result') throw new Error('Unexpected agent response.')
+  return completion.result
+}
+export async function requestExplore(request: ExploreRequest, signal: AbortSignal, onEvent: (event: Progress) => void): Promise<ExploreResult> {
+  const completion = await runRequest(request, signal, onEvent)
+  if (completion.type !== 'explore-result') throw new Error('Unexpected Explore response.')
+  return completion.result
+}
+async function runRequest(request: RuntimeRequest, signal: AbortSignal, onEvent: (event: Progress) => void): Promise<Completion> {
   signal.throwIfAborted()
   const bridge = typeof window === 'undefined' ? undefined : window.unfoldDesktop
-  if (bridge) return new Promise<AgentResult>((resolve, reject) => {
-    const finish = (error?: Error, result?: AgentResult) => { unsubscribe(); unsubscribeFailure(); signal.removeEventListener('abort', abort); clearTimeout(timer); if (error) reject(error); else if (result) resolve(result) }
+  if (bridge) return new Promise<Completion>((resolve, reject) => {
+    const finish = (error?: Error, result?: Completion) => { unsubscribe(); unsubscribeFailure(); signal.removeEventListener('abort', abort); clearTimeout(timer); if (error) reject(error); else if (result) resolve(result) }
     const abort = () => { bridge.agents.cancel(request.requestId).catch(() => {}); finish(new Error('Stopped.')) }
     const unsubscribe = bridge.agents.onEvent(value => {
       const parsed = AgentEventEnvelopeSchema.safeParse(value)
       if (!parsed.success || parsed.data.requestId !== request.requestId) return
       const event = parsed.data.event
       if (event.type === 'activity' || event.type === 'handoff') onEvent(event)
-      else if (event.type === 'result') finish(undefined, event.result)
+      else if (event.type === 'result' || event.type === 'explore-result') {
+        if (event.result.requestId === request.requestId) finish(undefined, event)
+      }
       else finish(new Error(event.message))
     })
     const unsubscribeFailure = bridge.agents.onFailure(value => {
@@ -57,14 +72,15 @@ export async function requestAgent(request: AgentRequest, signal: AbortSignal, o
   // A helper that was restarting when the page loaded may be back: reconnect instead of staying in preview.
   if (localPreview) await getAgentConfig()
   if (localPreview) {
+    if (request.operation === 'explore') throw new Error('Explore board needs the desktop app or local helper with provider keys.')
     onEvent({ type: 'activity', role: 'coordinator', message: 'Preview agents only. No live model or web search is being used.' })
-    return runCoordinator(request, demoRuntime(200), signal, event => { if (event.type === 'activity' || event.type === 'handoff') onEvent(event) })
+    return { type: 'result', result: await runCoordinator(request, demoRuntime(200), signal, event => { if (event.type === 'activity' || event.type === 'handoff') onEvent(event) }) }
   }
   const response = await fetch('/api/agent', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) })
   if (!response.ok) throw new Error(`Agent request failed (${response.status}). Please retry.`)
   if (!response.body) throw new Error('The agent returned an empty response.')
   const reader = response.body.getReader(); const decoder = new TextDecoder()
-  let buffer = ''; let result: AgentResult | undefined
+  let buffer = ''; let result: Completion | undefined
   const accept = (line: string) => {
     if (!line.trim()) return
     // A reply that does not match the contract is reported plainly, never as raw validation output.
@@ -73,7 +89,7 @@ export async function requestAgent(request: AgentRequest, signal: AbortSignal, o
     const event = parsed.data
     if (event.type === 'error') throw new Error(event.message)
     if (event.type === 'activity' || event.type === 'handoff') onEvent(event)
-    if (event.type === 'result') result = event.result
+    if (event.type === 'result' || event.type === 'explore-result') result = event
   }
   try {
     let chunk = await reader.read()
@@ -86,6 +102,6 @@ export async function requestAgent(request: AgentRequest, signal: AbortSignal, o
     buffer += decoder.decode(); accept(buffer)
   } finally { reader.releaseLock() }
   signal.throwIfAborted()
-  if (!result || result.requestId !== request.requestId) throw new Error('The agent response was incomplete. Please retry.')
+  if (!result || result.result.requestId !== request.requestId) throw new Error('The agent response was incomplete. Please retry.')
   return result
 }

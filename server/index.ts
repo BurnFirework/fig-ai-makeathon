@@ -1,8 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { existsSync, readFileSync } from 'node:fs'
 import { extname, resolve, sep } from 'node:path'
-import { parseAgentRequest } from './runtime'
-import { runAgents } from './agents'
+import { parseAgentRequest, runRuntime } from './runtime'
 import { discoverProviders, providerConfig, publicConfig, selectProvider } from './cli'
 import { z } from 'zod'
 
@@ -53,8 +52,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       const parsed = parseAgentRequest(JSON.parse(Buffer.concat(chunks).toString()))
       response.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store' })
       const emit = (event: unknown) => { if (!response.destroyed) response.write(JSON.stringify(event) + '\n') }
-      const result = await runAgents(parsed, providerConfig(), controller.signal, emit)
-      if (!controller.signal.aborted) emit({ type: 'result', result })
+      await runRuntime(parsed, providerConfig(), controller.signal, emit)
     } catch (error) {
       if (!response.headersSent) response.writeHead(400, { 'Content-Type': 'application/x-ndjson' })
       if (!response.destroyed) response.write(JSON.stringify({ type: 'error', message: controller.signal.aborted ? 'The request timed out or was stopped. Please retry.' : error instanceof Error ? error.message : 'Something went wrong. Please retry.' }) + '\n')

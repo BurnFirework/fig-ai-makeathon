@@ -1,3 +1,4 @@
+import { ExploreFindingSchema, ExploreResultSchema, ExploreTopicSchema } from './explore'
 import { z } from 'zod'
 import { BoardContextSchema, BoardEditsSchema, CardContentSchema } from './board-edits'
 
@@ -90,6 +91,8 @@ const base = {
   dependsOn: z.array(DependencySchema), agent: z.enum(['you', 'branch', 'research', 'connection']), createdAt: z.number(),
 }
 export const NodeSchema = z.discriminatedUnion('type', [
+  z.object({ ...base, type: z.literal('findings'), topic: ExploreTopicSchema, checkedAt: z.number(),
+    findings: z.array(ExploreFindingSchema).max(30), dismissed: z.array(z.string()).max(500), expanded: z.boolean().optional() }),
   z.object({ ...base, type: z.literal('artifact'), content: CardContentSchema }),
   z.object({ ...base, type: z.literal('inspiration'), assetId: z.string(), goal: z.string().max(600), started: z.boolean(), links: z.array(LinkScanSchema).max(40).optional() }),
   z.object({ ...base, type: z.literal('question'), prompt: z.string(), options: z.array(z.string()).min(2).max(4), purpose: z.string() }),
@@ -148,6 +151,7 @@ export const EventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('activity'), role: ActivitySchema.shape.role, message: z.string() }),
   z.object({ type: z.literal('handoff'), handoff: HandoffSchema }),
   z.object({ type: z.literal('result'), result: ResultSchema }),
+  z.object({ type: z.literal('explore-result'), result: ExploreResultSchema }),
   z.object({ type: z.literal('error'), message: z.string() }),
 ])
 export type AgentEvent = z.infer<typeof EventSchema>

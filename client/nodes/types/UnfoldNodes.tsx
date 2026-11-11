@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { T, useEditor, useValue } from 'tldraw'
 import { ArrowRight, Check, ChevronDown, Clock, ExternalLink, LoaderCircle, MapPin, MessageCircle, MessageSquarePlus, Sparkles, Trash2, Wallet } from 'lucide-react'
 import { isUnfoldNode, type UnfoldNode } from '../../../shared/schema'
-import { isNotEmpty } from '../../../shared/arrays'
+import { isEmpty, isNotEmpty } from '../../../shared/arrays'
 import { lineage, nodeTitle } from '../../../shared/chats'
 import { actions, uiState } from '../../actions'
 import { Button } from '../../components/ui/button'
@@ -28,6 +28,10 @@ export class UnfoldNodeDefinition extends NodeDefinition<UnfoldNode> {
   getDefault() { return defaultInspiration() }
   getBodyWidthPx(_shape: NodeShape, _node: UnfoldNode) { return NODE_WIDTH_PX }
   getBodyHeightPx(_shape: NodeShape, node: UnfoldNode) {
+    if (node.type === 'findings') {
+      const count = node.findings.filter(finding => !node.dismissed.includes(finding.id)).length
+      return (count ? (node.expanded ? 475 : 70 + Math.min(count, 2) * 138) : 140) + (node.stale ? 24 : 0)
+    }
     if (node.type === 'action') return node.fit ?? actionHeight(node, node.expanded === true)
     if (node.type === 'artifact') return 120 + Math.min(140, lines(node.content.description, 40) * 20) + (node.content.kind === 'moodboard' ? Math.ceil(node.content.items.length / 2) * 110 : 0) + (node.stale ? 26 : 0)
     if (node.type !== 'inspiration') return 320
@@ -132,6 +136,24 @@ function UnfoldCard({ shape, node }: NodeComponentProps<UnfoldNode>) {
   const busy = chats.some(chat => state.jobs[chat.id]?.status === 'running')
   const active = state.activeChat?.nodeId === shape.id
   const step = useValue('step number', () => node.type === 'action' ? lineage(nodes(editor).map(item => ({ id: item.id, node: item.props.node })), shape.id).filter(record => record.node.type === 'action').length : 0, [editor, shape.id, node.type])
+  if (node.type === 'findings') {
+    const findings = node.findings.filter(finding => !node.dismissed.includes(finding.id))
+    return <article className={`unfold-card card-findings ${selected ? 'is-selected' : ''}`}>
+      <header className="card-header"><span className="card-eyebrow">Explore board · {node.topic.kind === 'events' ? 'Events' : 'Jobs'}</span></header>
+      <div className="card-content findings-body card-interactive" onPointerDown={event => editor.markEventAsHandled(event)} onKeyDown={event => event.stopPropagation()} onWheel={event => { if (node.expanded) editor.markEventAsHandled(event) }}>
+        <div className="findings-meta"><strong>{findings.length} {findings.length === 1 ? 'finding' : 'findings'}</strong><small>Checked {new Date(node.checkedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</small></div>
+        {node.stale && <div className="stale-banner">Interest changed · search again</div>}
+        {findings.slice(0, node.expanded ? undefined : 2).map(finding => <div key={finding.id} className="finding-row">
+          <div className="finding-heading"><a href={finding.url} target="_blank" rel="noopener noreferrer">{finding.title}<ExternalLink size={12}/></a><button type="button" className="finding-dismiss" aria-label={`Dismiss ${finding.title}`} onClick={() => api?.dismissFinding(shape.id, finding.id)}><Trash2 size={13}/></button></div>
+          <small>{finding.subtitle}</small>
+          <div className="finding-facts">{finding.when && <span>{finding.when}</span>}{finding.price && <span>{finding.price}</span>}{finding.state !== 'seen' && <span className="finding-state">{finding.state}</span>}</div>
+          <p>{finding.why} <a href={finding.source} target="_blank" rel="noopener noreferrer">Source</a></p>
+        </div>)}
+        {isEmpty(findings) && <p>All findings dismissed.</p>}
+        {findings.length > 2 && <button type="button" className="details-toggle" aria-expanded={node.expanded === true} onClick={() => editor.run(() => editor.updateShape<NodeShape>({ id: shape.id, type: 'node', props: { node: { ...node, expanded: !node.expanded } } }), { history: 'ignore' })}>{node.expanded ? 'Show less' : `Show all ${findings.length}`}<ChevronDown size={12}/></button>}
+      </div>
+    </article>
+  }
   const label = node.type === 'inspiration' ? 'Inspiration' : node.type === 'opportunity' ? 'Shared direction' : node.type === 'action' ? `Step ${Math.max(1, step)}` : node.type === 'artifact' ? node.content.kind === 'moodboard' ? 'Moodboard' : 'Note' : 'Earlier exploration'
   return <article className={`unfold-card card-${node.type} ${active ? 'chat-is-open' : ''} ${selected ? 'is-selected' : ''} ${hovered ? 'is-hovered' : ''} ${busy ? 'is-busy' : ''} ${node.stale ? 'is-stale' : ''}`}>
     {node.type === 'inspiration' && <Tape/>}

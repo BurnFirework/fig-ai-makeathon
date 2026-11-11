@@ -9,6 +9,7 @@ export function nodeTitle(node: UnfoldNode): string {
     case 'question': return node.prompt
     case 'answer': return node.text
     case 'opportunity': case 'action': return node.title
+    case 'findings': return `Findings · ${node.topic.title}`
     case 'artifact': return node.content.title
   }
 }

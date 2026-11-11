@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { DesktopFiles } from '../shared/desktop-contract'
 import { WorkspaceSchema } from '../shared/workspace-format'
 import { AgentConfigSchema, AgentEventEnvelopeSchema, AgentFailureSchema } from '../shared/agent-contract'
-import type { AgentRequest } from '../shared/schema'
+import type { RuntimeRequest } from '../shared/agent-contract'
 
 const session = z.object({ workspace: WorkspaceSchema.nullable(), session: z.string(), notice: z.string().nullable() })
 const ack = z.object({ session: z.string(), revision: z.number(), savedAt: z.number() })
@@ -29,7 +29,7 @@ contextBridge.exposeInMainWorld('unfoldDesktop', {
   agents: {
     config: async () => AgentConfigSchema.parse(await invoke('agent:config')),
     select: async (provider: string) => AgentConfigSchema.parse(await invoke('agent:select', provider)),
-    run: async (request: AgentRequest) => { await invoke('agent:run', request) },
+    run: async (request: RuntimeRequest) => { await invoke('agent:run', request) },
     cancel: async (requestId: string) => { await invoke('agent:cancel', requestId) },
     onEvent: (listener: (payload: z.infer<typeof AgentEventEnvelopeSchema>) => void) => subscribe('agent:event', AgentEventEnvelopeSchema, listener),
     onFailure: (listener: (payload: z.infer<typeof AgentFailureSchema>) => void) => subscribe('agent:failure', AgentFailureSchema, listener),

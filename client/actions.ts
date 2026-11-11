@@ -1,5 +1,6 @@
 import { Editor, EditorAtom, type TLShapeId } from 'tldraw'
 import type { Handoff } from '../shared/schema'
+import type { ExploreTopic } from '../shared/explore'
 import type { BoardEdit } from '../shared/board-edits'
 
 export interface Activity { id: string; role: string; message: string; time: number; handoff?: Handoff }
@@ -13,7 +14,14 @@ export interface UiState {
   removing: TLShapeId[] | null;
 }
 export const uiState = new EditorAtom<UiState>('unfold-ui', () => ({ mode: 'demo', provider: 'Preview', activity: [], panel: false, jobs: {}, saved: true, activeChat: null, chatView: 'focus', removing: null }))
+export interface ExploreCandidate { topic: ExploreTopic; suggested: boolean; reason: string; conditions: string[] }
+export interface ExploreOutcome { sourceId: string; message: string; retry: boolean }
+
 export interface UnfoldActions {
+  exploreCandidates(): ExploreCandidate[]
+  exploreBoard(topics: ExploreTopic[], onProgress: (message: string) => void): Promise<ExploreOutcome[]>
+  stopExplore(): void
+  dismissFinding(id: TLShapeId, findingId: string): void
   applyBoardEdits(edits: readonly BoardEdit[]): TLShapeId[]
   startChat(id: TLShapeId): void
   openChat(id: TLShapeId, chatId?: string): void; newChat(id: TLShapeId): void; closeChat(): void;

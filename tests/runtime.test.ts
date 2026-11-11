@@ -12,6 +12,7 @@ cases.push(test('all transports reject ambiguous connections and unsupported ima
 }))
 cases.push(test('preview runs without a server or CLI module', () => {
   const request = parseAgentRequest({ requestId: 'p', operation: 'branch', branches: [branch], note: '' })
+  if (request.operation === 'explore') throw new Error('Unexpected Explore request')
   assert.equal(demoProposal(request).kind, 'question')
   assert.equal(demoProposal({ ...request, operation: 'research' }).kind, 'action')
 }))

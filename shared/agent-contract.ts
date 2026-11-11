@@ -1,5 +1,9 @@
 import { z } from 'zod'
 import { EventSchema, RequestSchema } from './schema'
+import { ExploreRequestSchema } from './explore'
+
+export const RuntimeRequestSchema = z.union([RequestSchema, ExploreRequestSchema])
+export type RuntimeRequest = z.infer<typeof RuntimeRequestSchema>
 
 export const ProviderSchema = z.enum(['claude', 'codex', 'demo'])
 export const AgentConfigSchema = z.object({
@@ -10,7 +14,7 @@ export type AgentConfig = z.infer<typeof AgentConfigSchema>
 export const AgentMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('config'), id: z.string() }),
   z.object({ type: z.literal('select'), id: z.string(), provider: ProviderSchema }),
-  z.object({ type: z.literal('run'), id: z.string(), request: RequestSchema }),
+  z.object({ type: z.literal('run'), id: z.string(), request: RuntimeRequestSchema }),
   z.object({ type: z.literal('cancel'), id: z.string() }),
   z.object({ type: z.literal('stop') }),
 ])

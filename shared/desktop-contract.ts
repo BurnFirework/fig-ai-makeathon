@@ -19,7 +19,7 @@ export interface DesktopFiles {
 export interface DesktopAgents {
   config(): Promise<import('./agent-contract').AgentConfig>
   select(provider: string): Promise<import('./agent-contract').AgentConfig>
-  run(request: import('./schema').AgentRequest): Promise<void>
+  run(request: import('./agent-contract').RuntimeRequest): Promise<void>
   cancel(requestId: string): Promise<void>
   onEvent(listener: (payload: { requestId: string; event: import('./schema').AgentEvent }) => void): () => void
   onFailure(listener: (payload: { requestId: string; message: string }) => void): () => void

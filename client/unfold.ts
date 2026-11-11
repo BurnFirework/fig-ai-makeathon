@@ -8,8 +8,9 @@ import { invalidatedBy } from '../shared/context'
 import { branchFrom, type BranchEdge } from '../shared/branch'
 import { canPublish, chatContext, contextThreads, currentRevisions, decisionOf, foldLegacyMessages, lineage, memoryDependencies, nodeTitle } from '../shared/chats'
 import { applyAgentMemory, applyDrafts, chatMemory, classifyMessage, confirmAssumption, interpretMessage, questionFor, withdrawEntry } from '../shared/memory'
-import { actions, uiState, type UnfoldActions } from './actions'
-import { requestAgent, getAgentConfig } from './agentClient'
+import { ExploreRequestSchema, mergeFindings, searchScope, type ExploreTopic } from '../shared/explore'
+import { actions, uiState, type ExploreCandidate, type ExploreOutcome, type UnfoldActions } from './actions'
+import { requestAgent, requestExplore, getAgentConfig } from './agentClient'
 import { createOrUpdateConnectionBinding, getConnectionBindings } from './connection/ConnectionBindingUtil'
 import { getNextConnectionIndex } from './connection/keepConnectionsAtBottom'
 import type { NodeShape } from './nodes/NodeShapeUtil'
@@ -120,6 +121,7 @@ function resultNote(result: AgentResult) {
 
 export function setupUnfold(editor: Editor) {
   const running = new Map<string, { requestId: string; controller: AbortController; sourceId: TLShapeId; lastMessageId: string | undefined; cardIds: string; dependencies: UnfoldNode['dependsOn'] }>()
+  let exploreRun: AbortController | undefined
   const retries = new Map<string, () => void>()
   const records = () => nodes(editor).map(shape => ({ id: shape.id, node: shape.props.node }))
   const chats = () => conversations(editor)
@@ -241,7 +243,7 @@ export function setupUnfold(editor: Editor) {
     const cards = nodes(editor).filter(shape => !turn || turn.availableIds.has(shape.id))
     const links = boardLinks(editor)
     const edits = validateBoardEdits(value, {
-      cards: cards.map(({ id, isLocked, props: { node } }) => ({ id, image: node.type === 'inspiration' && editor.getAssets().some(asset => asset.id === node.assetId && asset.type === 'image'), editable: !isLocked && node.type !== 'question' && node.type !== 'answer', acceptsDescription: node.type !== 'inspiration' })),
+      cards: cards.map(({ id, isLocked, props: { node } }) => ({ id, image: node.type === 'inspiration' && editor.getAssets().some(asset => asset.id === node.assetId && asset.type === 'image'), editable: !isLocked && node.type !== 'question' && node.type !== 'answer' && node.type !== 'findings', acceptsDescription: node.type !== 'inspiration' })),
       conversationIds: turn ? [turn.chat.id] : chats().map(chat => chat.id), revisions: revisions(), links,
     }, turn?.dependencies)
     const ids = new Map<string, TLShapeId>(cards.map(shape => [shape.id, shape.id]))
@@ -493,7 +495,103 @@ export function setupUnfold(editor: Editor) {
     }
   }
   const conversationCardsForRetry = (chat: Chat | undefined) => chat ? conversationCards(chat).flatMap(id => { const card = cardId(id); return card ? [card] : [] })[0] : undefined
+  function exploreCandidates(): ExploreCandidate[] {
+    const all = records()
+    const selected = new Set(editor.getSelectedShapeIds())
+    const parents = new Set(boardLinks(editor).filter(link => link.relationship === 'develops').map(link => link.from))
+    const threads = chats()
+    const now = new Date()
+    const date = (days: number) => {
+      const value = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days)
+      return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+    }
+    return nodes(editor).flatMap(({ id, props: { node } }): ExploreCandidate[] => {
+      if (node.stale || node.type === 'findings' || node.type === 'question' || node.type === 'answer' || (node.type === 'action' && node.completed) || (node.type === 'opportunity' && node.status !== 'accepted')) return []
+      const title = nodeTitle(node).trim().slice(0, 240)
+      if (!title || title === 'Something I want to explore') return []
+      const thread = conversationsFor(editor, id).filter(chat => chat.sourceIds.includes(id)).at(-1)
+      const conditions = thread ? [...new Set(thread.branchIds.flatMap(branch => chatContext(all, id, thread, branch, threads).confirmed))] : []
+      const dependencies = [...lineage(all, id).map(record => ({ id: record.id, revision: record.node.revision })), ...(thread ? memoryDependencies(all, id, thread, threads) : [])]
+      const seen = all.find(record => record.node.type === 'findings' && record.node.topic.sourceId === id)?.node
+      const details = [title, ...conditions].join(' ')
+      const jobs = /\b(job|jobs|career|hiring|role|roles|work from home|job search|design engineer(?:ing)?|design technologist)\b/i.test(details)
+      const events = /\b(event|events|tickets|show|shows|concert|concerts|gig|gigs|jazz|workshop|workshops|festival)\b/i.test(details)
+      const common = { sourceId: id, title, dependencies }
+      const city = [...( /san francisco|bay area/i.test(details) ? ['San Francisco'] : []), ...(/oakland|bay area/i.test(details) ? ['Oakland'] : [])]
+      const budget = conditions.find(condition => /budget|under|up to|max/i.test(condition))?.match(/\$(\d+(?:\.\d+)?)/)?.[1]
+      const topic: ExploreTopic = seen?.type === 'findings' && revisionsMatch(seen.dependsOn, revisions())
+        ? { ...seen.topic, ...common }
+        : jobs
+          ? { ...common, kind: 'jobs', query: title.replace(/\b(?:find|search for|look for|remote|jobs|roles)\b/gi, '').replace(/\s+/g, ' ').trim() || title, remoteOnly: /\bremote\b|work from home/i.test(details) }
+          : { ...common, kind: 'events', query: /\bjazz\b/i.test(details) ? 'Jazz' : title, cities: city, start: date(0), end: date(30), ...(budget && Number(budget) > 0 ? { maxPrice: Number(budget) } : {}) }
+      const leaf = !parents.has(id)
+      return [{ topic, suggested: (leaf || selected.has(id)) && (events || jobs || seen?.type === 'findings'),
+        reason: selected.has(id) ? 'Selected card' : leaf && (events || jobs) ? 'Active interest' : events || jobs ? 'Related interest' : 'Choose a search', conditions }]
+    }).sort((a, b) => Number(b.suggested) - Number(a.suggested))
+  }
+
+  async function exploreBoard(topics: ExploreTopic[], onProgress: (message: string) => void): Promise<ExploreOutcome[]> {
+    if (exploreRun) throw new Error('An Explore board run is already active.')
+    if (editor.getIsReadonly()) throw new Error('This board is read-only.')
+    const parsed = ExploreRequestSchema.safeParse({ operation: 'explore', requestId: crypto.randomUUID(), topics })
+    if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? 'Check the search filters.')
+    const startRevisions = revisions()
+    const approved = parsed.data.topics.filter(topic => revisionsMatch(topic.dependencies, startRevisions))
+    const changed = parsed.data.topics.filter(topic => !approved.includes(topic))
+    const outdated = (sourceId: string): ExploreOutcome => ({ sourceId, message: 'This interest changed. Review the latest scope and try again.', retry: false })
+    if (isEmpty(approved)) return changed.map(topic => outdated(topic.sourceId))
+    const controller = new AbortController()
+    exploreRun = controller
+    try {
+      const result = await requestExplore({ ...parsed.data, topics: approved }, controller.signal, event => {
+        if (event.type === 'activity') { activity(event.role, event.message); onProgress(event.message) }
+      })
+      controller.signal.throwIfAborted()
+      if (editor.getIsReadonly()) throw new Error('This board became read-only. Run the search again when you can edit it.')
+      const latest = revisions()
+      const outcomes = changed.map(topic => outdated(topic.sourceId))
+      const pending: { topic: ExploreTopic; report: Extract<typeof result.reports[number], { status: 'complete' }> }[] = []
+      for (const topic of approved) {
+        const report = result.reports.find(report => report.sourceId === topic.sourceId)
+        if (!revisionsMatch(topic.dependencies, latest)) outcomes.push(outdated(topic.sourceId))
+        else if (report?.status !== 'complete') outcomes.push({ sourceId: topic.sourceId, message: report?.message ?? 'The search did not finish. Retry this interest.', retry: true })
+        else pending.push({ topic, report })
+      }
+      if (isNotEmpty(pending)) {
+        editor.markHistoryStoppingPoint('apply Explore findings')
+        editor.run(() => {
+          for (const { topic, report } of pending) {
+            const source = nodes(editor).find(shape => shape.id === topic.sourceId)
+            if (!source) { outcomes.push(outdated(topic.sourceId)); continue }
+            const group = nodes(editor).find(shape => shape.props.node.type === 'findings' && shape.props.node.topic.sourceId === topic.sourceId)
+            const before = group?.props.node.type === 'findings' ? group.props.node : undefined
+            const retain = before !== undefined && searchScope(before.topic) === searchScope(topic) && revisionsMatch(before.dependsOn, latest)
+            const findings = mergeFindings(before?.findings ?? [], report.findings.filter(finding => finding.state !== 'closed' || before?.findings.some(old => old.id === finding.id)), retain)
+            const visible = findings.filter(finding => !before?.dismissed.includes(finding.id))
+            const count = visible.filter(finding => finding.state === 'new' || finding.state === 'changed').length
+            if (group && before) update(editor, group.id, () => ({ ...before, topic, findings, checkedAt: report.checkedAt, revision: before.revision + 1, dependsOn: topic.dependencies, stale: false }))
+            else if (isNotEmpty(findings)) addNode({ ...baseNode(source.props.node.branchId, 'research'), type: 'findings', topic, findings, dismissed: [], checkedAt: report.checkedAt, dependsOn: topic.dependencies }, [source.id], new Map([[source.id, 'reference']]))
+            outcomes.push({ sourceId: topic.sourceId, message: count ? `${count} new or changed ${count === 1 ? 'finding' : 'findings'} on the canvas.` : isNotEmpty(report.findings) ? 'No new matches.' : 'No verified matches on this run.', retry: false })
+          }
+        })
+        editor.markHistoryStoppingPoint('Explore findings applied')
+      }
+      return outcomes
+    } finally {
+      if (exploreRun === controller) exploreRun = undefined
+    }
+  }
+
   const api: UnfoldActions = {
+    exploreCandidates,
+    exploreBoard,
+    stopExplore() { exploreRun?.abort() },
+    dismissFinding(id, findingId) {
+      const node = nodeAt(editor, id)?.props.node
+      if (editor.getIsReadonly() || node?.type !== 'findings' || node.dismissed.includes(findingId) || node.dismissed.length >= 500) return
+      editor.markHistoryStoppingPoint('dismiss finding')
+      update(editor, id, current => current.type === 'findings' ? { ...current, dismissed: [...current.dismissed, findingId] } : current)
+    },
     applyBoardEdits(edits) {
       try { return applyBoardEdits(edits) } catch (error) { fail(error instanceof Error ? error.message : 'The board edit failed.'); return [] }
     },
@@ -794,5 +892,5 @@ export function setupUnfold(editor: Editor) {
 
   }, { scope: 'document' })
   // Switching boards or workspaces tears this down: nothing scheduled or running may write into the next board.
-  return () => { disposed = true; clearTimeout(linkTimer); linkQueue.length = 0; for (const [key] of linkJobs) stopLinkJob(key); for (const [id] of running) cancel(id); unlisten(); actions.delete(editor) }
+  return () => { disposed = true; exploreRun?.abort(); clearTimeout(linkTimer); linkQueue.length = 0; for (const [key] of linkJobs) stopLinkJob(key); for (const [id] of running) cancel(id); unlisten(); actions.delete(editor) }
 }

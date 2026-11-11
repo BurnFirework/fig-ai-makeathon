@@ -26,7 +26,8 @@ export function createAgentHost(window: BrowserWindow) {
       const env = { ...process.env }
       if (process.platform === 'darwin') {
         try {
-          const result = await promisify(execFile)(process.env.SHELL || '/bin/zsh', ['-ilc', 'printf "%s" "$PATH"'], { timeout: 5000, maxBuffer: 64_000 })
+          const { COMPOSIO_API_KEY: _composio, TICKETMASTER_API_KEY: _ticketmaster, ...shellEnv } = env
+          const result = await promisify(execFile)(process.env.SHELL || '/bin/zsh', ['-ilc', 'printf "%s" "$PATH"'], { timeout: 5000, maxBuffer: 64_000, env: shellEnv })
           env.PATH = result.stdout.trim()
         } catch { /* Known executable directories remain available if shell discovery fails. */ }
       }
@@ -49,7 +50,7 @@ export function createAgentHost(window: BrowserWindow) {
           } else if (message.type === 'event') {
             if (!active.has(message.id)) return
             if (!window.isDestroyed()) window.webContents.send('agent:event', { requestId: message.id, event: message.event })
-            if (message.event.type === 'result' || message.event.type === 'error') active.delete(message.id)
+            if (message.event.type === 'result' || message.event.type === 'explore-result' || message.event.type === 'error') active.delete(message.id)
           } else {
             const waiter = pending.get(message.id)
             if (waiter) { clearTimeout(waiter.timer); waiter.reject(new Error(message.message)); pending.delete(message.id) }

@@ -1,7 +1,6 @@
 import { AgentMessageSchema } from '../shared/agent-contract'
-import { runAgents } from '../server/agents'
 import { discoverProviders, publicConfig, selectProvider, providerConfig } from '../server/cli'
-import { parseAgentRequest } from '../server/runtime'
+import { parseAgentRequest, runRuntime } from '../server/runtime'
 
 const port = process.parentPort
 const running = new Map<string, AbortController>()
@@ -28,9 +27,7 @@ port.on('message', ({ data }: { data: unknown }) => {
     const timer = setTimeout(() => controller.abort(), 500_000)
     try {
       const request = parseAgentRequest(message.request)
-      const result = await runAgents(request, providerConfig(), controller.signal, event => port.postMessage({ type: 'event', id: message.id, event }))
-      controller.signal.throwIfAborted()
-      port.postMessage({ type: 'event', id: message.id, event: { type: 'result', result } })
+      await runRuntime(request, providerConfig(), controller.signal, event => port.postMessage({ type: 'event', id: message.id, event }))
     } finally { clearTimeout(timer); running.delete(message.id); if (isStopping() && !running.size) process.exit(0) }
   }
   execute().catch((error: unknown) => {
