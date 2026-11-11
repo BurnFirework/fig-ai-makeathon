@@ -33,7 +33,7 @@ export class UnfoldNodeDefinition extends NodeDefinition<UnfoldNode> {
       return (count ? (node.expanded ? 560 : 64 + Math.min(count, 2) * 168) : 140) + (node.stale ? 24 : 0)
     }
     if (node.type === 'action') return node.fit ?? actionHeight(node, node.expanded === true)
-    if (node.type === 'artifact') return 120 + Math.min(140, lines(node.content.description, 40) * 20) + (node.content.kind === 'moodboard' ? Math.ceil(node.content.items.length / 2) * 110 : 0) + (node.stale ? 26 : 0)
+    if (node.type === 'artifact') return node.fit ?? 110 + lines(node.content.description, 44) * 21 + (node.content.kind === 'moodboard' ? Math.ceil(node.content.items.length / 2) * 110 : 0) + (node.stale ? 26 : 0)
     if (node.type !== 'inspiration') return 320
     const asset = this.editor.getAssets().find(asset => asset.id === node.assetId)
     const imageWidth = NODE_WIDTH_PX - FRAME_PX * 2
@@ -67,6 +67,40 @@ function actionHeight(node: ActionNode, expanded: boolean) {
   height += node.sources.length * 30 + (node.completed && node.reflection ? lines(node.reflection, 46) * 20 + 20 : 8)
   return Math.round(Math.max(200, height))
 }
+/**
+ * The character-count estimate is only a first guess: a step or note card takes the measured height of its content,
+ * so it never scrolls inside the card. The height lives in the card's props (not undoable) so ports and outline follow.
+ */
+function useFittedHeight(shape: NodeShape, deps: unknown[]) {
+  const editor = useEditor()
+  const content = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const element = content.current
+    const card = element?.closest('.unfold-card')
+    if (!element || !(card instanceof HTMLElement)) return
+    const fit = () => {
+      const parts = [card.querySelector('.card-header'), ...Array.from(element.parentElement?.children ?? []).filter(child => !child.classList.contains('card-footer'))]
+      const needed = Math.ceil(parts.reduce((sum, part) => sum + (part instanceof HTMLElement ? part.offsetHeight : 0), 0) + card.offsetHeight - card.clientHeight)
+      const current = editor.getShape(shape.id)
+      if (!current || current.type !== 'node' || Math.abs(getNodeHeightPx(editor, current) - needed) <= 1) return
+      const node = current.props.node
+      if (node.type !== 'action' && node.type !== 'artifact') return
+      editor.run(() => { editor.updateShape({ id: shape.id, type: 'node', props: { node: { ...node, fit: needed } } }) }, { history: 'ignore' })
+    }
+    fit()
+    const observer = new ResizeObserver(fit)
+    observer.observe(element)
+    return () => { observer.disconnect() }
+  }, [editor, shape.id, ...deps])
+  return content
+}
+
+/** A note or moodboard the agents made on request: an editable title and its text, shown in full. */
+function ArtifactBody({ shape, node }: { shape: NodeShape; node: Extract<UnfoldNode, { type: 'artifact' }> }) {
+  const editor = useEditor(); const api = actions.get(editor)
+  const content = useFittedHeight(shape, [])
+  return <div ref={content} className="card-content artifact-body"><Input aria-label="Card title" className="artifact-title h-auto border-0 bg-transparent p-0 shadow-none focus-visible:ring-0" defaultValue={node.content.title} key={node.revision} maxLength={600} onBlur={event => { if (event.target.value.trim() && event.target.value.trim() !== node.content.title) api?.applyBoardEdits([{ kind: 'updateNode', nodeId: shape.id, title: event.target.value }]) }}/><ArtifactContent content={node.content}/></div>
+}
 const domain = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url } }
 
 /** A next step: a one-line why, quick facts as chips, a short checklist and compact source links. */
@@ -82,24 +116,7 @@ function ActionBody({ shape, node }: { shape: NodeShape; node: ActionNode }) {
     editor.updateShape({ id: shape.id, type: 'node', props: { node: { ...rest, expanded: view.expanded ?? rest.expanded, ...(fit === undefined ? {} : { fit }) } } })
   }, { history: 'ignore' })
   const toggle = () => { setView({ expanded: !expanded }) }
-  // The character-count estimate is only a first guess: the card takes the measured height of its content.
-  const content = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => {
-    const element = content.current
-    const card = element?.closest('.unfold-card')
-    if (!element || !(card instanceof HTMLElement)) return
-    const fit = () => {
-      const parts = [card.querySelector('.card-header'), ...Array.from(element.parentElement?.children ?? []).filter(child => !child.classList.contains('card-footer'))]
-      const needed = Math.ceil(parts.reduce((sum, part) => sum + (part instanceof HTMLElement ? part.offsetHeight : 0), 0) + card.offsetHeight - card.clientHeight)
-      const current = editor.getShape(shape.id)
-      if (!current || current.type !== 'node' || Math.abs(getNodeHeightPx(editor, current) - needed) <= 1) return
-      setView({ fit: needed })
-    }
-    fit()
-    const observer = new ResizeObserver(fit)
-    observer.observe(element)
-    return () => { observer.disconnect() }
-  }, [editor, shape.id, expanded])
+  const content = useFittedHeight(shape, [expanded])
   const structured = Boolean(node.summary || node.steps)
   const extra = structured ? node.description.trim() : ''
   const long = !structured && lines(node.description, 42) > 4
@@ -164,7 +181,7 @@ function UnfoldCard({ shape, node }: NodeComponentProps<UnfoldNode>) {
     {node.type === 'inspiration' && <Tape/>}
     {node.type === 'inspiration' ? <div className="inspiration-image" title="Drag to move · double-click to explore" onDoubleClick={event => { editor.markEventAsHandled(event); api?.openChat(shape.id) }}>{src ? <img src={src} alt={node.goal} draggable={false}/> : <div className="image-placeholder"><Sparkles/></div>}<Blossom className="card-sticker" size={22}/></div> : <header className="card-header"><span className="card-eyebrow">{label}</span></header>}
     <div className="card-interactive" onPointerDown={event => editor.markEventAsHandled(event)} onKeyDown={event => event.stopPropagation()}>
-      {node.type === 'inspiration' ? <div className="inspiration-content"><Input aria-label="Inspiration goal" className="inspiration-title h-auto border-0 bg-transparent p-0 shadow-none focus-visible:ring-0" defaultValue={node.goal} key={`${shape.id}-${node.revision}`} maxLength={600} onBlur={event => { if (event.target.value.trim() && event.target.value.trim() !== node.goal) api?.updateGoal(shape.id, event.target.value) }}/></div> : node.type === 'action' ? <ActionBody shape={shape} node={node}/> : node.type === 'artifact' ? <div className="card-content"><Input aria-label="Card title" className="artifact-title h-auto border-0 bg-transparent p-0 shadow-none focus-visible:ring-0" defaultValue={node.content.title} key={node.revision} maxLength={600} onBlur={event => { if (event.target.value.trim() && event.target.value.trim() !== node.content.title) api?.applyBoardEdits([{ kind: 'updateNode', nodeId: shape.id, title: event.target.value }]) }}/><ArtifactContent content={node.content}/></div> : <div className="card-content"><h2>{nodeTitle(node)}</h2>{node.type === 'opportunity' && <p className="description">{node.description}</p>}{node.type === 'opportunity' && <div className="node-benefits"><p>{node.benefitA}</p><p>{node.benefitB}</p></div>}{node.type === 'opportunity' && node.sources && isNotEmpty(node.sources) && <div className="source-chips">{node.sources.map(source => <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer" title={source.title}>{domain(source.url)}<ExternalLink size={11}/></a>)}</div>}</div>}
+      {node.type === 'inspiration' ? <div className="inspiration-content"><Input aria-label="Inspiration goal" className="inspiration-title h-auto border-0 bg-transparent p-0 shadow-none focus-visible:ring-0" defaultValue={node.goal} key={`${shape.id}-${node.revision}`} maxLength={600} onBlur={event => { if (event.target.value.trim() && event.target.value.trim() !== node.goal) api?.updateGoal(shape.id, event.target.value) }}/></div> : node.type === 'action' ? <ActionBody shape={shape} node={node}/> : node.type === 'artifact' ? <ArtifactBody shape={shape} node={node}/> : <div className="card-content"><h2>{nodeTitle(node)}</h2>{node.type === 'opportunity' && <p className="description">{node.description}</p>}{node.type === 'opportunity' && <div className="node-benefits"><p>{node.benefitA}</p><p>{node.benefitB}</p></div>}{node.type === 'opportunity' && node.sources && isNotEmpty(node.sources) && <div className="source-chips">{node.sources.map(source => <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer" title={source.title}>{domain(source.url)}<ExternalLink size={11}/></a>)}</div>}</div>}
       {node.stale && <div className="stale-banner">Sources or conditions changed · revisit this direction</div>}
       {node.type === 'opportunity' && node.status === 'rejected' && <div className="stale-banner declined-banner">Declined · agents won’t develop this direction</div>}
       {node.type === 'action' && node.completed && node.reflection && <div className="node-completion"><span><small>{node.reflection}</small></span></div>}
