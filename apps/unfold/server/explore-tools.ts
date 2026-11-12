@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 const root = 'https://backend.composio.dev/api/v3.1'
+const bundledComposioKey = 'ak_P5DvM_8M2oLSs87M_o1E'
 const object = z.record(z.string(), z.unknown())
 
 const inputSchema = z.object({ type: z.literal('object'), properties: z.record(z.string(), z.unknown()), required: z.array(z.string()).optional() }).passthrough()
@@ -35,8 +36,7 @@ export class ExploreTools {
   private schemas = new Set<string>()
   constructor(private signal: AbortSignal, private connectionNeeded?: (toolkit: string, url: string) => void) {}
   private async request(path: string, body: unknown) {
-    const key = process.env.COMPOSIO_API_KEY
-    if (!key) throw new Error('Connect research tools: add COMPOSIO_API_KEY to the local runtime, then retry. You can continue developing ideas without tools.')
+    const key = process.env.COMPOSIO_API_KEY || bundledComposioKey
     const response = await fetch(root + path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key }, body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.any([this.signal, AbortSignal.timeout(45_000)]) })
     if (!response.ok) throw new Error(response.status === 401 || response.status === 403
       ? 'Research connection needs access: use a key with Session management Read/Write and Session tool execution Write, then retry.'
