@@ -100,7 +100,8 @@ function useFittedHeight(shape: NodeShape, deps: unknown[]) {
     const observer = new ResizeObserver(fit)
     observer.observe(element)
     return () => { observer.disconnect() }
-  }, [editor, shape.id, ...deps])
+    // The review mark sits beside the content, so its arrival or new wording also refits the card.
+  }, [editor, shape.id, shape.props.node.stale, shape.props.node.staleReason, ...deps])
   return content
 }
 
@@ -238,7 +239,7 @@ function UnfoldCard({ shape, node }: NodeComponentProps<UnfoldNode>) {
     {node.type === 'inspiration' ? <div className="inspiration-image" title="Drag to move · double-click to explore" onDoubleClick={event => { editor.markEventAsHandled(event); api?.openChat(shape.id) }}>{src ? <img src={src} alt={node.goal} draggable={false}/> : <div className="image-placeholder"><Sparkles/></div>}<Blossom className="card-sticker" size={22}/></div> : <header className="card-header"><span className="card-eyebrow">{label}</span></header>}
     <div className="card-interactive" onPointerDown={event => editor.markEventAsHandled(event)} onKeyDown={event => event.stopPropagation()}>
       {node.type === 'inspiration' ? <div className="inspiration-content"><Input aria-label="Inspiration goal" className="inspiration-title h-auto border-0 bg-transparent p-0 shadow-none focus-visible:ring-0" defaultValue={node.goal} key={`${shape.id}-${node.revision}`} maxLength={600} onBlur={event => { if (event.target.value.trim() && event.target.value.trim() !== node.goal) api?.updateGoal(shape.id, event.target.value) }}/></div> : node.type === 'action' ? <ActionBody shape={shape} node={node}/> : node.type === 'artifact' ? <ArtifactBody shape={shape} node={node}/> : <div className="card-content"><h2>{nodeTitle(node)}</h2>{node.type === 'opportunity' && <p className="description">{node.description}</p>}{node.type === 'opportunity' && <div className="node-benefits"><p>{node.benefitA}</p><p>{node.benefitB}</p></div>}{node.type === 'opportunity' && node.sources && isNotEmpty(node.sources) && <div className="source-chips">{node.sources.map(source => <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer" title={source.title}>{domain(source.url)}<ExternalLink size={11}/></a>)}</div>}</div>}
-      {node.stale && <div className="stale-banner">Sources or conditions changed · revisit this direction</div>}
+      {node.stale && <div className="stale-banner" role="status"><span><strong>May be out of date.</strong> {node.staleReason ?? 'Something this card was based on changed'}.</span><button type="button" onClick={() => api?.keepCard(shape.id)}>Keep as is</button></div>}
       {node.type === 'opportunity' && node.status === 'rejected' && <div className="stale-banner declined-banner">Declined · agents won’t develop this direction</div>}
       {node.type === 'action' && node.completed && node.reflection && <div className="node-completion"><span><small>{node.reflection}</small></span></div>}
       <footer className="card-footer"><Button variant="secondary" size="sm" className="explore-button" aria-label={`Explore ${nodeTitle(node)}`} aria-expanded={active} onClick={() => api?.openChat(shape.id)}>{busy ? <LoaderCircle size={15} className="spin"/> : <MessageCircle size={15}/>}<span>{active || count ? 'Continue' : 'Explore'}</span><ArrowRight size={13}/></Button>{node.type === 'inspiration' && <LinkPill shapeId={shape.id}/>}<Button variant="secondary" size="icon-sm" className="remove-button" aria-label={`Remove ${nodeTitle(node)}`} onClick={() => api?.requestRemove([shape.id])}><Trash2 size={13}/></Button></footer>

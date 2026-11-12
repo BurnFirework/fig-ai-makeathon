@@ -8,7 +8,7 @@ import { LINK_DELAY_MS, lastScan, pairChat, pairIsSettled, pairKey, pairOwner, p
 import { invalidatedBy } from '../shared/context'
 import { branchFrom, type BranchEdge } from '../shared/branch'
 import { canPublish, cardConditions, chatContext, contextThreads, currentRevisions, decisionOf, foldLegacyMessages, lineage, memoryDependencies, nodeTitle } from '../shared/chats'
-import { applyAgentMemory, applyDrafts, chatMemory, classifyMessage, confirmAssumption, interpretMessage, questionFor, withdrawEntry } from '../shared/memory'
+import { applyAgentMemory, applyDrafts, chatMemory, classifyMessage, confirmAssumption, interpretMessage, questionFor, revisedConditions, withdrawEntry } from '../shared/memory'
 import { buildWebTopic, ExploreRequestSchema, mergeFindings, searchScope, toWebTopic, type ExploreTopic } from '../shared/explore'
 import { actions, saveNow, uiState, type ExploreCandidate, type ExploreRun, type UnfoldActions } from './actions'
 import { requestAgent, requestExplore, getAgentConfig } from './agentClient'
@@ -210,18 +210,23 @@ export function setupUnfold(editor: Editor) {
     const latest = new Map(all.map(source => [source.url, source]))
     return [...latest.values()].slice(-6)
   }
-  const invalidate = (id: string) => {
+  /** Marks cards built on `id` for review, saying what changed so the mark can be read and kept or acted on. */
+  const invalidate = (id: string, reason: string) => {
     const affected = invalidatedBy(records(), id)
-    for (const shape of nodes(editor)) if (affected.has(shape.id)) update(editor, shape.id, node => ({ ...node, stale: true, revision: node.revision + 1 }))
+    for (const shape of nodes(editor)) if (affected.has(shape.id)) update(editor, shape.id, node => ({ ...node, stale: true, staleReason: reason.slice(0, 240), revision: node.revision + 1 }))
     for (const [jobId, job] of running) if (job.dependencies.some(dependency => dependency.id === id || affected.has(dependency.id))) cancelOutdated(jobId)
   }
-  /** Saves a conversation's memory; a change to confirmed conditions marks dependent results for review. */
+  /**
+   * Saves a conversation's memory. Only a confirmed condition that was replaced or withdrawn marks results for
+   * review; a new message or a new condition does not, since nothing those results were based on became untrue.
+   */
   const saveMemory = (id: TLShapeId, chatId: string, memory: ChatMemory) => {
     const before = chatAt(id, chatId)
     if (!before) return
-    const changed = memory.revision !== chatMemory(before).revision
+    const revised = revisedConditions(chatMemory(before), memory)
     editChat(id, chatId, current => ({ ...current, memory }))
-    if (changed) invalidate(memoryKey(chatId))
+    const [first] = revised
+    if (first) invalidate(memoryKey(chatId), revised.length > 1 ? 'Several conditions in the chat changed' : first.after ? `“${first.before}” changed to “${first.after}”` : `“${first.before}” no longer applies`)
   }
   /**
    * Places a new card. Found options sit beside the card they were searched for when there is room; any other card goes under its
@@ -285,7 +290,7 @@ export function setupUnfold(editor: Editor) {
           if (!before) continue
           const description = before.type === 'artifact' ? before.content.description : before.type === 'action' || before.type === 'opportunity' ? before.description : undefined
           if (nodeTitle(before) === edit.title && (edit.description === undefined || edit.description === description)) continue
-          invalidate(id)
+          invalidate(id, `“${nodeTitle(before)}” was edited`)
           update(editor, id, node => {
             const revision = node.revision + 1
             if (node.type === 'inspiration') return { ...node, goal: edit.title, revision }
@@ -648,7 +653,7 @@ export function setupUnfold(editor: Editor) {
             let id: TLShapeId
             if (group && before) {
               update(editor, group.id, () => ({ ...before, topic, findings, checkedAt: report.checkedAt, revision: before.revision + 1, dependsOn: topic.dependencies, stale: false }))
-              invalidate(group.id)
+              invalidate(group.id, `Found options for “${nodeTitle(source.props.node)}” changed`)
               id = group.id
             } else id = addNode({ ...baseNode(source.props.node.branchId, 'research'), type: 'findings', topic, findings, dismissed: [], checkedAt: report.checkedAt, dependsOn: topic.dependencies }, [source.id], new Map([[source.id, 'reference']]))
             if (fresh) updatedIds.push(id)
@@ -689,8 +694,14 @@ export function setupUnfold(editor: Editor) {
       editor.markHistoryStoppingPoint('dismiss finding')
       editor.run(() => {
         update(editor, id, current => current.type === 'findings' ? { ...current, dismissed: [...current.dismissed, findingId], revision: current.revision + 1 } : current)
-        invalidate(id)
+        invalidate(id, 'An option was removed from found options')
       })
+    },
+    keepCard(id) {
+      const node = nodeAt(editor, id)?.props.node
+      if (editor.getIsReadonly() || !node?.stale) return
+      editor.markHistoryStoppingPoint('keep card')
+      update(editor, id, ({ staleReason: _reason, ...current }) => ({ ...current, stale: false }))
     },
     applyBoardEdits(edits) {
       try { return applyBoardEdits(edits) } catch (error) { fail(error instanceof Error ? error.message : 'The board edit failed.'); return [] }
@@ -803,7 +814,7 @@ export function setupUnfold(editor: Editor) {
         if (existing) {
           outcomeId = existing.id
           // A revised direction replaces the card's content, so work built on the earlier version needs review.
-          if (existing.props.node.origin?.messageId !== messageId) invalidate(existing.id)
+          if (existing.props.node.origin?.messageId !== messageId) invalidate(existing.id, `“${nodeTitle(existing.props.node)}” was revised`)
           update(editor, existing.id, node => node.type === 'opportunity' ? { ...node, ...content, status: 'accepted', stale: false, revision: node.revision + 1, dependsOn: message.dependsOn, origin: { nodeId: id, chatId, messageId } } : node)
         } else {
           const source = nodeAt(editor, id)
@@ -875,7 +886,7 @@ export function setupUnfold(editor: Editor) {
           const earlier = revisedCard(chat, message)
           if (earlier) {
             outcomeId = earlier.id
-            invalidate(earlier.id)
+            invalidate(earlier.id, `“${nodeTitle(earlier.props.node)}” was revised`)
             update(editor, earlier.id, node => node.type === 'action' ? { ...node, ...action, completed: false, doneSteps: [], stale: false, revision: node.revision + 1, dependsOn: message.dependsOn, origin: { nodeId: id, chatId, messageId } } : node)
             const linked = new Set(boardLinks(editor).filter(item => item.to === earlier.id).map(item => item.from))
             for (const parent of parents) if (!linked.has(parent)) link(editor, parent, earlier.id, 'input')
@@ -966,7 +977,7 @@ export function setupUnfold(editor: Editor) {
       const photos = cards.filter(cardId => nodeAt(editor, cardId)?.props.node.type === 'inspiration')
       editor.markHistoryStoppingPoint('remove cards')
       editor.run(() => {
-        for (const removedId of cards) invalidate(removedId)
+        for (const removedId of cards) { const removedNode = nodeAt(editor, removedId)?.props.node; if (removedNode) invalidate(removedId, `“${nodeTitle(removedNode)}” was removed`) }
         editor.deleteShapes([...removed, ...lines.map(shape => shape.id)])
       })
       const asked = ids.filter(askedId => cards.includes(askedId))

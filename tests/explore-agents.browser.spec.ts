@@ -63,4 +63,8 @@ test('a shared step for one option serving two ideas stays single, survives relo
   await panel.getByRole('button', { name: 'Add to board' }).click()
   await expect(shared).toHaveCount(1)
   await expect(shared).toHaveClass(/is-stale/)
+  // The mark says what changed, and the user can keep the card as it is.
+  await expect(shared.getByRole('status')).toContainText(/Found options for “.*” changed/)
+  await shared.getByRole('button', { name: 'Keep as is' }).click()
+  await expect(shared).not.toHaveClass(/is-stale/)
 })

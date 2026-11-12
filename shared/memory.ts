@@ -132,6 +132,21 @@ export function applyDrafts(memory: ChatMemory, drafts: MemoryDraft[], sources: 
   return { revision: memory.revision + (changed ? 1 : 0), entries: entries.slice(-300) }
 }
 
+/**
+ * Confirmed conditions that stopped holding between two memory states: replaced by a new value or withdrawn.
+ * A new condition alone does not count, because cards made before it were not based on anything now untrue.
+ */
+export function revisedConditions(before: ChatMemory, after: ChatMemory): { before: string; after?: string }[] {
+  const now = new Map(after.entries.map(entry => [entry.id, entry]))
+  return before.entries.flatMap(entry => {
+    if (entry.status !== 'active' || (entry.kind !== 'intent' && entry.kind !== 'constraint')) return []
+    const current = now.get(entry.id)
+    if (!current || current.status === 'active') return []
+    const replacement = current.replacedBy ? now.get(current.replacedBy) : undefined
+    return [{ before: entry.text, ...(replacement ? { after: replacement.text } : {}) }]
+  })
+}
+
 /** Saved chats from before memory existed get the same interpretation, with stable ids. */
 export function chatMemory(chat: Pick<Chat, 'memory' | 'messages'>): ChatMemory {
   if (chat.memory) return repairMemory(chat.memory)

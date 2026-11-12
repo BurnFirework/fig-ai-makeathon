@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { cardConditions, chatContext, currentRevisions, decisionOf, memoryDependencies } from '../shared/chats'
 import { invalidatedBy, type NodeRecord } from '../shared/context'
 import { type AgentRuntime, type Finding, LIMITS, LeadStepSchema, runCoordinator } from '../shared/coordinator'
-import { applyAgentMemory, applyDrafts, chatMemory, classifyMessage, interpretMessage, mergeMemory, questionFor } from '../shared/memory'
+import { applyAgentMemory, applyDrafts, chatMemory, classifyMessage, interpretMessage, mergeMemory, questionFor, revisedConditions, withdrawEntry } from '../shared/memory'
 import { demoRuntime } from '../shared/preview'
 import { type AgentEvent, type AgentRequest, type BranchContext, type Chat, type ChatMessage, ChatSchema, NodeSchema, memoryKey, revisionsMatch } from '../shared/schema'
 import { parseWithRetry } from '../server/agents'
@@ -335,6 +335,23 @@ cases.push(test('a note made in a step’s chat keeps the conditions agreed abov
   assert.ok(own.conditions.some(text => /San Francisco/.test(text)), JSON.stringify(own.conditions))
   assert.deepEqual(derived, own)
   assert.deepEqual(cardConditions([note], 'n'), { conditions: [], memory: [] })
+}))
+
+
+cases.push(test('only a replaced or withdrawn condition counts as a change that makes earlier cards out of date', () => {
+  let index = 0
+  const id = () => `e${index++}`
+  const start = applyDrafts({ revision: 0, entries: [] }, [{ kind: 'constraint', key: 'time', text: 'Saturday' }], ['m1'], 'you', 1, id)
+  // A new request or a new condition raises the revision but leaves earlier conditions true.
+  const added = applyDrafts(start, [{ kind: 'intent', text: 'Find the next step' }, { kind: 'constraint', key: 'budget', text: 'Free' }], ['m2'], 'you', 2, id)
+  assert.ok(added.revision > start.revision)
+  assert.deepEqual(revisedConditions(start, added), [])
+  // Replacing a condition and withdrawing one both count, with what each became.
+  const replaced = applyDrafts(added, [{ kind: 'constraint', key: 'time', text: 'Sunday' }], ['m3'], 'you', 3, id)
+  assert.deepEqual(revisedConditions(added, replaced), [{ before: 'Saturday', after: 'Sunday' }])
+  const budget = added.entries.find(entry => entry.text === 'Free')
+  assert.ok(budget)
+  assert.deepEqual(revisedConditions(added, withdrawEntry(added, budget.id)), [{ before: 'Free' }])
 }))
 
 await Promise.all(cases)
