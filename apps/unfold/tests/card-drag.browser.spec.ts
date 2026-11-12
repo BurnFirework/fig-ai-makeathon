@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict'
 import { expect, test, type Page, type Route } from '@playwright/test'
 import { ExploreRequestSchema, type ExploreRequest, type ExploreReport } from '../shared/explore'
 import { runCoordinator } from '../shared/coordinator'
@@ -10,12 +9,6 @@ const pottery = 'Try a Saturday pottery wheel class'
 const jobs = 'Remote design engineering roles'
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true })
 const results = (page: Page) => page.getByRole('complementary', { name: 'Explore results' })
-
-async function only(page: Page, names: string[]) {
-  const dialog = page.getByRole('dialog', { name: 'Explore board' })
-  const selected = await dialog.getByRole('checkbox', { checked: true }).evaluateAll(inputs => inputs.map(input => input.getAttribute('aria-label')))
-  for (const name of selected) if (name && !names.includes(name)) await dialog.getByRole('checkbox', { name, exact: true }).click()
-}
 
 type Reply = (request: ExploreRequest) => { reports: ExploreReport[]; shared?: unknown } | 'error' | 'hold'
 async function stub(page: Page, reply: Reply) {
@@ -44,8 +37,6 @@ const found = (sourceId: string, id: string, title: string) => ({ sourceId, stat
   id, title, subtitle: 'claystudio.example · San Francisco', when: 'Saturdays, 2:30pm–4:30pm', price: '$89', availability: 'schedule' as const,
   why: 'The organizer’s page confirms San Francisco, Saturday.', url: `https://example.com/${id}`, source: `https://example.com/${id}`, state: 'new' as const, checkedAt: Date.now(),
 }] })
-const none = (sourceId: string) => ({ sourceId, status: 'complete' as const, outcome: 'incomplete' as const, checkedAt: Date.now(), findings: [], note: '2 pages looked right, but none confirmed Saturday.' })
-const titleOf = (request: ExploreRequest, sourceId: string) => request.topics.find(topic => topic.sourceId === sourceId)?.title
 
 async function board(page: Page) {
   await page.goto('/')
@@ -111,4 +102,61 @@ test('a card moves when dragged by its text or title; a click on the title edits
   await page.getByRole('button', { name: 'Fit board', exact: true }).click()
   await findings.getByRole('button', { name: /^Dismiss / }).first().click()
   await expect(findings).toContainText('All findings dismissed.')
+})
+
+test('notes and steps move from their text; titles, checkboxes, evidence and links keep their own press', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await stub(page, request => {
+    const reports = request.topics.map((topic, index) => ({
+      ...found(topic.sourceId, 'web:shared-wheel', 'Intro to the Wheel'),
+      ...(index === 0 ? { developments: [{ id: 'idea-1', kind: 'idea' as const, title: 'Sketch the wheel class first', text: 'Draw the studio before the class to warm up your hands.', sources: [{ title: 'Studio page', url: 'https://example.com/web:shared-wheel', quote: 'Beginners welcome every Saturday.' }] }] } : {}),
+    }))
+    return { reports, shared: { title: 'Take the wheel class together', summary: 'One class serves both ideas.', checkedAt: Date.now(), items: reports.map(report => ({ sourceId: report.sourceId, finding: report.findings[0] })) } }
+  })
+  await board(page)
+  await page.getByRole('button', { name: 'Explore board', exact: true }).click()
+  await page.getByRole('button', { name: 'Find options', exact: true }).click()
+  await expect(results(page).getByRole('status')).toHaveText(/added to your board/)
+  await results(page).getByRole('region', { name: 'Suggested shared step' }).getByRole('button', { name: 'Add to board' }).click()
+  await page.getByRole('button', { name: 'Close Explore results' }).click()
+  await page.getByRole('button', { name: 'Fit board', exact: true }).click()
+
+  // A suggested note: its title field drags the card, a click edits it, and Enter saves the new title.
+  const note = page.locator('.card-artifact', { hasText: 'Draw the studio' })
+  const title = note.getByRole('textbox', { name: 'Card title' })
+  const field = await title.boundingBox(), before = await note.boundingBox()
+  if (!field || !before) throw new Error('The suggested note is missing.')
+  await drag(page, { x: field.x + 40, y: field.y + field.height / 2 }, { x: 0, y: -90 })
+  const after = await note.boundingBox()
+  expect(after && Math.abs(after.y - before.y + 90) < 12 && Math.abs(after.x - before.x) < 12, JSON.stringify({ before, after })).toBe(true)
+  await expect(title).not.toBeFocused()
+  await title.click()
+  await expect(title).toBeFocused()
+  await page.keyboard.type(' today')
+  await page.keyboard.press('Enter')
+  await expect(title).toHaveValue('Sketch the wheel class first today')
+
+  // Source evidence opens on a press, and a press on its link does not move the card.
+  const placed = await note.boundingBox()
+  await note.locator('summary', { hasText: 'Source evidence' }).click()
+  await expect(note.locator('details')).toHaveAttribute('open')
+  const link = await note.getByRole('link', { name: /Studio page/ }).boundingBox()
+  if (!link || !placed) throw new Error('The evidence link is missing.')
+  await page.context().route('https://example.com/**', route => route.fulfill({ body: 'ok' }))
+  await drag(page, { x: link.x + 10, y: link.y + link.height / 2 }, { x: 60, y: 60 })
+  const still = await note.boundingBox()
+  expect(still && Math.abs(still.x - placed.x) < 2 && Math.abs(still.y - placed.y) < 2, JSON.stringify({ placed, still })).toBe(true)
+
+  // The shared plan: a step's checkbox toggles without moving it, and its text drags it.
+  const plan = page.locator('.card-explore-shared')
+  const box1 = await plan.boundingBox()
+  await plan.getByRole('checkbox').first().click()
+  await expect(plan.getByRole('checkbox').first()).toHaveAttribute('aria-checked', 'true')
+  const box2 = await plan.boundingBox()
+  expect(box1 && box2 && Math.abs(box1.x - box2.x) < 2 && Math.abs(box1.y - box2.y) < 2).toBe(true)
+  const step = await plan.locator('.action-steps li span').first().boundingBox()
+  if (!step || !box2) throw new Error('The plan step is missing.')
+  await drag(page, { x: step.x + 10, y: step.y + step.height / 2 }, { x: 70, y: 40 })
+  const box3 = await plan.boundingBox()
+  expect(box3 && Math.abs(box3.x - box2.x - 70) < 12 && Math.abs(box3.y - box2.y - 40) < 12, JSON.stringify({ box2, box3 })).toBe(true)
 })

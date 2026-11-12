@@ -26,9 +26,14 @@ export function cardPointerDown(editor: Editor) {
     if (field === document.activeElement || event.button !== 0 || editor.getIsReadonly()) { editor.markEventAsHandled(event); return }
     // Keep the browser from focusing the field on press, so the canvas can drag the card; a click focuses it after.
     event.preventDefault()
-    const { clientX: x, clientY: y } = event
-    window.addEventListener('pointerup', end => {
-      if (Math.hypot(end.clientX - x, end.clientY - y) < CLICK_SLOP_PX) setTimeout(() => focusField(field), 0)
-    }, { once: true, capture: true })
+    const { clientX: x, clientY: y, pointerId } = event
+    const finish = (end: PointerEvent) => {
+      if (end.pointerId !== pointerId) return
+      window.removeEventListener('pointerup', finish, true)
+      window.removeEventListener('pointercancel', finish, true)
+      if (end.type === 'pointerup' && Math.hypot(end.clientX - x, end.clientY - y) < CLICK_SLOP_PX) setTimeout(() => focusField(field), 0)
+    }
+    window.addEventListener('pointerup', finish, true)
+    window.addEventListener('pointercancel', finish, true)
   }
 }
