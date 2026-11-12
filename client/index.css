@@ -595,6 +595,9 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .finding-state { padding: 1px 7px; border-radius: 999px; background: var(--accent-500); color: #fff; font-size: 10.5px; font-weight: 650; letter-spacing: .2px; text-transform: capitalize; }
 .finding-state.is-closed { background: var(--secondary); color: var(--cocoa-soft); }
 .finding-facts { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Dates and venues can run long: the chip grows with its text instead of letting it spill past a fixed height. */
+.finding-facts .meta-chip { height: auto; min-height: 24px; max-width: 100%; align-items: flex-start; padding: 4px 10px; border-radius: 10px; line-height: 1.4; }
+.finding-facts .meta-chip svg { flex: none; margin-top: 2px; }
 .finding-why { margin: 2px 0 0; color: var(--ink); font-size: 13px; line-height: 1.5; }
 .finding-check { margin: 0; color: var(--cocoa-soft); font-size: 11.5px; line-height: 1.45; }
 .finding-check a { color: inherit; text-decoration: underline; text-decoration-color: var(--accent-300); text-underline-offset: 2px; pointer-events: auto; }
@@ -624,6 +627,7 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .explore-result-actions { display: flex; gap: 8px; margin-top: 12px; }
 .explore-result-actions:empty { display: none; }
 .explore-result-actions button { border-radius: 999px; }
+.explore-work-panel > header .explore-stop { flex: none; border-radius: 999px; }
 .explore-shared { display: grid; gap: 4px; justify-items: start; margin-top: 14px; padding: 12px; border: 1px dashed var(--menu-edge); border-radius: 14px; background: #fffdf9; }
 .explore-shared small { color: var(--accent-600); font-size: 9.5px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; }
 .explore-shared strong { font-size: 14px; line-height: 1.35; font-weight: 650; }

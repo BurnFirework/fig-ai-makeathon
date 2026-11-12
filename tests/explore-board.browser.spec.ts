@@ -182,7 +182,8 @@ test('no confirmed options offers Edit search with the same scope; a failure off
   await button(page, 'Explore board').click()
   await button(page, 'Find options').click()
   await expect(results(page).getByRole('status')).toHaveText('Exploring your cards…')
-  await results(page).getByRole('button', { name: 'Stop' }).click()
+  // Stop sits on the same line as the running status.
+  await results(page).locator('header').getByRole('button', { name: 'Stop' }).click()
   await expect(results(page).getByRole('status')).toHaveText('Search stopped')
   await expect(button(page, 'Edit search')).toBeVisible()
 })

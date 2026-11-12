@@ -33,11 +33,12 @@ export function ExploreActivity() {
   return <aside className="explore-work-panel" aria-label="Explore results" onPointerDown={event => editor.markEventAsHandled(event)} onKeyDown={event => event.stopPropagation()}>
     <header>
       <div>{run.running ? <LoaderCircle className="spin" size={17}/> : <Sparkles size={17}/>}<strong className="explore-result-title" role="status">{result.title}</strong></div>
-      {!run.running && <Button variant="ghost" size="icon-xs" aria-label="Close Explore results" onClick={() => uiState.update(editor, state => ({ ...state, explore: null }))}><X size={14}/></Button>}
+      {run.running
+        ? <Button variant="outline" size="sm" className="explore-stop" onClick={() => api?.stopExplore()}>Stop</Button>
+        : <Button variant="ghost" size="icon-xs" aria-label="Close Explore results" onClick={() => uiState.update(editor, state => ({ ...state, explore: null }))}><X size={14}/></Button>}
     </header>
     {result.detail && <p className="explore-result-detail">{result.detail}</p>}
     <div className="explore-result-actions">
-      {run.running && <Button variant="outline" size="sm" onClick={() => api?.stopExplore()}>Stop</Button>}
       {result.action === 'show' && result.ids && <Button size="sm" onClick={() => show(result.ids ?? [])}>Show on board</Button>}
       {result.action === 'edit' && <Button size="sm" onClick={() => uiState.update(editor, state => ({ ...state, exploreDialog: { reuse: true } }))}>Edit search</Button>}
       {!run.running && isNotEmpty(run.failed) && result.action !== 'retry' && <Button variant="outline" size="sm" onClick={() => { api?.retryExplore().catch(() => {}) }}>Retry unfinished</Button>}
