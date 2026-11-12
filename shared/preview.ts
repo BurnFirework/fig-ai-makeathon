@@ -55,6 +55,14 @@ function previewBoardReply(board: BoardContext | undefined): Extract<LeadStep, {
   if (rename) return { next: 'respond', text: `I can rename the card to “${rename.slice(0, 160)}”.`, edits: [{ kind: 'updateNode', nodeId: focus.id, title: rename.slice(0, 160) }], usedNodeIds: [focus.id] }
   const named = board.cards.filter(card => card.id !== focus.id && request.toLowerCase().includes(card.title.toLowerCase()))
   if (/^link (?:this card|this) to /iu.test(request) && named[0]) return { next: 'respond', text: `I can link this card to “${named[0].title}”.`, edits: [{ kind: 'connectNodes', from: named[0].id, to: focus.id, relationship: 'reference' }], usedNodeIds: [focus.id, named[0].id] }
+  // A comment on a suggested note returns the same note revised, as live agents do.
+  const [, noteTitle, comment] = /^Change the suggested note “(.+?)”: (.+)$/su.exec(request) ?? []
+  if (noteTitle && comment) {
+    const prefix = `Suggested note “${noteTitle}”: `
+    const earlier = board.messages.flatMap(message => message.role === 'assistant' ? message.text.split('\n') : []).reverse().find(line => line.startsWith(prefix))
+    const before = earlier?.slice(prefix.length) ?? ''
+    return { next: 'respond', text: `Here is the note revised: ${comment.slice(0, 120)}.`, usedNodeIds: [focus.id], edits: [{ kind: 'createNode', content: { kind: 'note', title: noteTitle.slice(0, 160), description: `${before}\n\nRevised: ${comment}`.trim().slice(0, 1200) }, links: [{ nodeId: focus.id, relationship: 'develops' }] }] }
+  }
   if (!/\b(?:make|create|build|add|draft)\b/iu.test(request)) return undefined
   if (/\bmood ?board\b/iu.test(request)) {
     const candidates = [...new Map([focus, ...named, ...board.cards.filter(card => board.attachedIds.includes(card.id))].filter(card => card.image).map(card => [card.id, card])).values()].slice(0, 4)

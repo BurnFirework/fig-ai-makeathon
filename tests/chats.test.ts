@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { canPublish, chatContext, foldLegacyMessages, lineage } from '../shared/chats'
+import { canPublish, chatContext, foldLegacyMessages, lineage, suggestedTitle } from '../shared/chats'
 import { type NodeRecord } from '../shared/context'
 import { ChatSchema, NodeSchema, type Chat, type ChatMessage, type UnfoldNode } from '../shared/schema'
 
@@ -88,6 +88,16 @@ cases.push(test('legacy orphan messages are left intact and saved chats round-tr
   const saved = root('a', [chat('saved', 'Local only')])
   assert.deepEqual(NodeSchema.parse(JSON.parse(JSON.stringify(saved.node))), saved.node)
   assert.equal(ChatSchema.safeParse({ ...chat('invalid', ''), sourceIds: [] }).success, false)
+}))
+
+cases.push(test('a suggested note turned down is remembered with its reason, also from boards saved before the reason existed', () => {
+  const note = (id: string, extra: Partial<Extract<ChatMessage, { role: 'assistant' }>>): ChatMessage => ({ id, role: 'assistant', proposal: { kind: 'reply', text: 'Here is a note you can add.' }, dependsOn: [], proposedEdits: [{ kind: 'createNode', content: { kind: 'note', title: id === 'n1' ? 'Sketchbook stick' : 'Warm light', description: 'Tips' }, links: [] }], ...extra })
+  const declined = note('n1', { decision: { status: 'declined', note: 'I already have one', at: 1 } })
+  const messages = [declined, note('n2', { editsDeclined: true })]
+  assert.equal(suggestedTitle(declined), 'Note “Sketchbook stick”')
+  const thread: Chat = { id: 'c', title: 'c', sourceIds: ['a'], branchIds: ['a'], operation: 'branch', messages, createdAt: 0 }
+  const context = chatContext([root('a', [thread])], 'a', thread, 'a')
+  assert.deepEqual(context.declined, [{ idea: 'Note “Sketchbook stick”', reason: 'I already have one' }, { idea: 'Note “Warm light”', reason: '' }])
 }))
 
 await Promise.all(cases)

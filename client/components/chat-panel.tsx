@@ -1,11 +1,11 @@
 import { isEmpty, isNotEmpty } from '../../shared/arrays'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { type TLShapeId, useEditor, useValue } from 'tldraw'
 import { ArrowRight, Check, ChevronDown, ExternalLink, HelpCircle, LayoutPanelLeft, Link2, LoaderCircle, Maximize2, MessageCircle, Pencil, Plus, RotateCcw, Sparkles, Square, Undo2, X } from 'lucide-react'
 import { canPublish, currentRevisions, decisionOf, nodeTitle } from '../../shared/chats'
 import { chatMemory } from '../../shared/memory'
 import type { NodeShape } from '../nodes/NodeShapeUtil'
-import { type Chat, type ChatMessage, type Conflict, type Handoff, type Proposal, revisionsMatch } from '../../shared/schema'
+import { type Chat, type ChatMessage, type Conflict, type Decision, type Handoff, type Proposal, revisionsMatch } from '../../shared/schema'
 import type { BoardEdit } from '../../shared/board-edits'
 import { isAnswerOption } from '../../shared/coordinator'
 import { actions, uiState } from '../actions'
@@ -148,12 +148,15 @@ function UserNotes({ message, chat }: { message: Extract<ChatMessage, { role: 'u
  * Board changes an answer suggests, shown before anything happens on the canvas: the user adds them or sets them
  * aside. Agents never change the board on their own.
  */
-function ProposedEdits({ edits, declined, stale, busy, onAdd, onSkip }: { edits: readonly BoardEdit[]; declined: boolean; stale: boolean; busy: boolean; onAdd: () => void; onSkip: (skip: boolean) => void }) {
+function ProposedEdits({ edits, decision, note, replaced, stale, busy, onAdd, onDecide }: { edits: readonly BoardEdit[]; decision: Decision['status'] | undefined; note: string | undefined; replaced: boolean; stale: boolean; busy: boolean; onAdd: () => void; onDecide: (decision: 'decline' | 'refine' | 'reopen', note?: string) => void }) {
   const editor = useEditor()
   const titles = useValue('cards named in suggested edits', () => new Map(nodes(editor).map(shape => [shape.id as string, nodeTitle(shape.props.node)])), [editor])
   const name = (id: string) => `“${titles.get(id) ?? 'a removed card'}”`
   const onlyNew = edits.every(edit => edit.kind === 'createNode')
-  return <div role="group" className={`proposed-edits ${declined ? 'is-declined' : ''}`} aria-label="Suggested for your canvas">
+  // A link or an attachment has nothing to word differently; a card's content or a new name does.
+  const canRefine = edits.some(edit => edit.kind === 'createNode' || edit.kind === 'updateNode')
+  const noun = edits.some(edit => edit.kind === 'createNode' && edit.content.kind === 'moodboard') ? 'moodboard' : onlyNew ? 'note' : 'change'
+  return <div role="group" className={`proposed-edits ${decision === 'declined' || replaced ? 'is-declined' : ''}`} aria-label="Suggested for your canvas">
     <div className="outcome-label">{onlyNew ? 'Suggested for your canvas' : 'Suggested changes'}</div>
     <ul>{edits.map((edit, index) => <li key={index}>{
       edit.kind === 'createNode' ? <><span className="proposed-kind">{edit.content.kind === 'moodboard' ? 'Moodboard' : 'Note'}</span><strong>{edit.content.title}</strong>{edit.content.description && <p>{edit.content.description}</p>}{edit.content.kind === 'moodboard' && <small>Uses {edit.content.items.map(item => name(item.nodeId)).join(', ')}</small>}</>
@@ -162,11 +165,36 @@ function ProposedEdits({ edits, declined, stale, busy, onAdd, onSkip }: { edits:
             : <span>Add {name(edit.nodeId)} to this conversation</span>
     }</li>)}</ul>
     <div className="decision-area">
-      {declined ? <><span className="decision-status declined">Not added to your canvas</span><div className="decision-actions"><Button variant="ghost" size="sm" disabled={busy} onClick={() => onSkip(false)}><Undo2 size={13}/> Reconsider</Button></div></>
-        : <>{stale && <span className="decision-status">Your board or conditions changed since this was suggested. Ask again for an updated version.</span>}
-          <div className="decision-actions"><Button size="sm" disabled={busy || stale} onClick={onAdd}>{onlyNew ? <><Plus size={14}/> Add to canvas</> : <><Check size={14}/> Apply changes</>}</Button><Button variant="ghost" size="sm" disabled={busy} onClick={() => onSkip(true)}><X size={14}/> Not this</Button></div></>}
+      {replaced ? <span className="decision-status">Replaced by the revised {noun} below</span>
+        : decision === 'refine' ? <span className="decision-status">You asked for changes: {note}</span>
+        : <SuggestionDecision busy={busy} declined={decision === 'declined'} declinedNote={note} canRefine={canRefine} canDecline refineHint={noun === 'change' ? 'What should change? For example: a shorter name' : `What should change? For example: shorter, or add what to bring`}
+          status={stale && <span className="decision-status">Your board or conditions changed since this was suggested. Ask again for an updated version.</span>}
+          primary={<Button size="sm" disabled={busy || stale} onClick={onAdd}>{onlyNew ? <><Plus size={14}/> Add to canvas</> : <><Check size={14}/> Apply changes</>}</Button>} onDecide={onDecide}/>}
     </div>
   </div>
+}
+
+/**
+ * The one way to decide on something the agents suggest: add it, ask for a change in your own words, or turn it down
+ * with an optional reason the agents remember. Next steps and suggested notes share it, so it works the same everywhere.
+ */
+function SuggestionDecision({ busy, declined, declinedNote, primary, status, canRefine, canDecline, refineHint, onDecide }: { busy: boolean; declined: boolean; declinedNote?: string | undefined; primary: ReactNode; status?: ReactNode; canRefine: boolean; canDecline: boolean; refineHint: string; onDecide: (decision: 'decline' | 'refine' | 'reopen', note?: string) => void }) {
+  const [composing, setComposing] = useState<'decline' | 'refine' | null>(null)
+  const [note, setNote] = useState('')
+  const close = () => { setComposing(null); setNote('') }
+  const submit = () => {
+    if (!composing || (composing === 'refine' && !note.trim())) return
+    onDecide(composing, note)
+    close()
+  }
+  if (declined) return <><span className="decision-status declined">Not for you{declinedNote ? `: ${declinedNote}` : ''} · agents won’t suggest it again</span><div className="decision-actions"><Button variant="ghost" size="sm" disabled={busy} onClick={() => onDecide('reopen')}><Undo2 size={13}/> Reconsider</Button></div></>
+  if (composing) return <div className="decision-compose"><Textarea aria-label={composing === 'refine' ? 'What should change?' : 'Why not? (optional)'} placeholder={composing === 'refine' ? refineHint : 'Why not? (optional)'} value={note} maxLength={600} autoFocus onChange={event => setNote(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit() } if (event.key === 'Escape') { event.stopPropagation(); close() } }}/>
+    <div className="decision-actions"><Button size="sm" disabled={busy || (composing === 'refine' && !note.trim())} onClick={submit}>{composing === 'refine' ? 'Ask for a revision' : 'Not this'}</Button><Button variant="ghost" size="sm" onClick={close}>Cancel</Button></div></div>
+  return <>{status}<div className="decision-actions">
+    {primary}
+    {canRefine && <Button variant="outline" size="sm" disabled={busy} onClick={() => setComposing('refine')}><Pencil size={13}/> Refine</Button>}
+    {canDecline && <Button variant="ghost" size="sm" disabled={busy} onClick={() => setComposing('decline')}><X size={14}/> Not this</Button>}
+  </div></>
 }
 
 /**
@@ -250,8 +278,8 @@ function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice, onF
     </div> : <><p>{proposal.prompt}</p>{proposal.conflict && <ConflictDetails conflict={proposal.conflict}/>}{proposal.purpose && <small className="message-purpose">{proposal.purpose}</small>}</>)}
     {proposal.kind === 'research' && <p>{proposal.brief}</p>}
     {proposal.kind === 'reply' && <><p>{proposal.text}</p>{outcomes.map(card => <Button key={card.id} variant="outline" size="sm" onClick={() => { uiState.update(editor, state => ({ ...state, chatView: 'board' })); editor.select(card.id); fitBoard(editor) }}>{nodeTitle(card.props.node)}<ArrowRight size={13}/></Button>)}
-      {message.proposedEdits && <ProposedEdits edits={message.proposedEdits} declined={message.editsDeclined === true} stale={stale} busy={busy} onAdd={() => api?.addProposedEdits(sourceId, chatId, message.id)} onSkip={skip => api?.skipProposedEdits(sourceId, chatId, message.id, skip)}/>}
-      {isLatest && !stale && chat.messages.at(-1)?.id === message.id && (!message.proposedEdits || message.editsDeclined) && <div className="chat-choices follow-ups" role="group" aria-label="What next">{followUpsFor(proposal, { fromStep, madeCard: isNotEmpty(outcomes) }).map(option => <button key={option} type="button" className="choice" disabled={busy} onClick={() => onFollowUp(option)}><span>{option}</span><ArrowRight size={13}/></button>)}</div>}</>}
+      {message.proposedEdits && <ProposedEdits edits={message.proposedEdits} decision={decision} note={message.decision?.note} replaced={revisedBy !== undefined} stale={stale} busy={busy} onAdd={() => api?.addProposedEdits(sourceId, chatId, message.id)} onDecide={(choice, text) => api?.decide(sourceId, chatId, message.id, choice, text)}/>}
+      {isLatest && !stale && chat.messages.at(-1)?.id === message.id && (!message.proposedEdits || decision === 'declined') && <div className="chat-choices follow-ups" role="group" aria-label="What next">{followUpsFor(proposal, { fromStep, madeCard: isNotEmpty(outcomes) }).map(option => <button key={option} type="button" className="choice" disabled={busy} onClick={() => onFollowUp(option)}><span>{option}</span><ArrowRight size={13}/></button>)}</div>}</>}
     {proposal.kind === 'none' && <div className="chat-none"><div className="outcome-label">No useful overlap</div><p>{proposal.reason}</p><small className="message-purpose">Nothing was added. Agents look again when either goal changes.</small></div>}
     {(proposal.kind === 'opportunity' || proposal.kind === 'action') && <div className={`chat-outcome ${decision ? `decision-${decision}` : ''}`}><div className="outcome-label">{proposal.kind === 'opportunity' ? (revisedFrom ? 'Shared direction · revised' : 'Shared direction') : revisedFrom ? 'Next step · revised' : 'Next step'}</div><h3>{proposal.title}</h3>
       {proposal.kind === 'action' ? <ActionSummary action={proposal}/> : <p>{proposal.description}</p>}
@@ -262,14 +290,11 @@ function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice, onF
       {proposal.kind === 'action' && <div className="decision-area">
         {revisedBy && !outcome ? <span className="decision-status">Replaced by the revised step below</span>
           : revisedBy && decision === 'refine' && !composing ? <><span className="decision-status">Revised below: {message.decision?.note}</span><div className="decision-actions"><Button variant="outline" size="sm" onClick={viewCard}><Check size={14}/> View on canvas</Button></div></>
-          : decision === 'declined' ? <><span className="decision-status declined">Not for you{message.decision?.note ? `: ${message.decision.note}` : ''} · agents won’t suggest it again</span><div className="decision-actions"><Button variant="ghost" size="sm" disabled={busy} onClick={() => api?.decide(sourceId, chatId, message.id, 'reopen')}><Undo2 size={13}/> Reconsider</Button></div></>
-          : composing ? compose
-          : <>{decision === 'refine' && <span className="decision-status">You asked for changes: {message.decision?.note}</span>}
-            <div className="decision-actions">
-              {canPublish(message) ? <Button size="sm" disabled={stale} onClick={() => api?.publish(sourceId, chatId, message.id)}>{replacesCard ? <><RotateCcw size={13}/> Update card on canvas</> : <><Plus size={14}/> Add to canvas</>}</Button> : outcome ? <Button variant="outline" size="sm" onClick={viewCard}><Check size={14}/> View on canvas</Button> : <span className="outcome-removed">Outcome removed from canvas</span>}
-              {decision !== 'refine' && !revisedBy && (canPublish(message) || outcome) && <Button variant="outline" size="sm" disabled={busy} onClick={() => setComposing('refine')}><Pencil size={13}/> Refine</Button>}
-              {canPublish(message) && decision !== 'refine' && <Button variant="ghost" size="sm" disabled={busy} onClick={() => setComposing('decline')}><X size={14}/> Not this</Button>}
-            </div></>}
+          : <SuggestionDecision busy={busy} declined={decision === 'declined'} declinedNote={message.decision?.note} refineHint="What should change? For example: on Sunday instead, or under $30"
+            canRefine={decision !== 'refine' && !revisedBy && (canPublish(message) || outcome !== undefined)} canDecline={canPublish(message) && decision !== 'refine'}
+            status={decision === 'refine' && <span className="decision-status">You asked for changes: {message.decision?.note}</span>}
+            primary={canPublish(message) ? <Button size="sm" disabled={stale} onClick={() => api?.publish(sourceId, chatId, message.id)}>{replacesCard ? <><RotateCcw size={13}/> Update card on canvas</> : <><Plus size={14}/> Add to canvas</>}</Button> : outcome ? <Button variant="outline" size="sm" onClick={viewCard}><Check size={14}/> View on canvas</Button> : <span className="outcome-removed">Outcome removed from canvas</span>}
+            onDecide={(choice, text) => api?.decide(sourceId, chatId, message.id, choice, text)}/>}
       </div>}
       {proposal.kind === 'opportunity' && <div className="decision-area">
         {decision === undefined && !composing && <><span className="decision-status">{stale ? 'Needs an update before you decide' : 'Waiting for your decision'}</span><div className="decision-actions">

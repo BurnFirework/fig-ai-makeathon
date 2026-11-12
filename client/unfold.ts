@@ -7,7 +7,7 @@ import { type AgentResult, type Chat, type ChatMemory, type ChatMessage, type Ha
 import { LINK_DELAY_MS, lastScan, pairChat, pairIsSettled, pairKey, pairOwner, pairSignature, pairsToScan } from '../shared/links'
 import { invalidatedBy } from '../shared/context'
 import { branchFrom, type BranchEdge } from '../shared/branch'
-import { canPublish, cardConditions, chatContext, contextThreads, currentRevisions, decisionOf, foldLegacyMessages, lineage, memoryDependencies, nodeTitle } from '../shared/chats'
+import { canPublish, cardConditions, chatContext, contextThreads, currentRevisions, decisionOf, foldLegacyMessages, lineage, memoryDependencies, nodeTitle, suggestedTitle } from '../shared/chats'
 import { applyAgentMemory, applyDrafts, chatMemory, classifyMessage, confirmAssumption, interpretMessage, questionFor, revisedConditions, withdrawEntry } from '../shared/memory'
 import { buildWebTopic, ExploreRequestSchema, mergeFindings, searchScope, toWebTopic, type ExploreTopic } from '../shared/explore'
 import { actions, saveNow, uiState, type ExploreCandidate, type ExploreRun, type UnfoldActions } from './actions'
@@ -39,9 +39,17 @@ export function getBoardContext(editor: Editor, chat: Chat, focusId: TLShapeId):
   const links = boardLinks(editor)
   const nearby = links.flatMap(link => attachedIds.includes(link.from) ? [link.to] : attachedIds.includes(link.to) ? [link.from] : [])
   const recent = chat.messages.slice(-16).map((message): BoardContext['messages'][number] => {
-    if (message.role === 'user') return { role: message.role, text: message.text }
+    if (message.role === 'user') {
+      // A comment on a suggested card says which one it changes, so the agents can return a revised version of it.
+      const revised = message.stance === 'refine' ? chat.messages.find(item => item.id === message.replyTo) : undefined
+      const suggested = revised && suggestedTitle(revised)
+      return { role: message.role, text: (suggested ? `Change the suggested ${suggested.charAt(0).toLowerCase()}${suggested.slice(1)}: ${message.text}` : message.text).slice(0, 2000) }
+    }
     const proposal = message.proposal
-    return { role: message.role, text: proposal.kind === 'question' ? proposal.prompt : proposal.kind === 'reply' ? proposal.text : proposal.kind === 'research' ? proposal.brief : proposal.kind === 'none' ? proposal.reason : `${proposal.title}. ${proposal.description}`.slice(0, 2000) }
+    // The agents see what they suggested for the canvas, not only the sentence that offered it.
+    const suggestions = (message.proposedEdits ?? []).flatMap(edit => edit.kind === 'createNode' ? [`Suggested ${edit.content.kind} “${edit.content.title}”: ${edit.content.description}`] : edit.kind === 'updateNode' ? [`Suggested renaming to “${edit.title}”`] : [])
+    const text = proposal.kind === 'question' ? proposal.prompt : proposal.kind === 'reply' ? [proposal.text, ...suggestions].join('\n') : proposal.kind === 'research' ? proposal.brief : proposal.kind === 'none' ? proposal.reason : `${proposal.title}. ${proposal.description}`
+    return { role: message.role, text: text.slice(0, 2000) }
   })
   const words = new Set((recent.filter(message => message.role === 'user').map(message => message.text).join(' ').toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []))
   const matches = cards.filter(shape => (nodeTitle(shape.props.node).toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []).some(word => words.has(word)))
@@ -405,7 +413,7 @@ export function setupUnfold(editor: Editor) {
       if (isNotEmpty(result.edits)) validateBoardEdits(result.edits, editContext(availableIds, chatId), inputs)
       running.delete(chatId)
       if (memory !== chatMemory(current)) saveMemory(sourceId, chatId, memory)
-      editChat(sourceId, chatId, thread => ({ ...thread, messages: [...thread.messages, { id: messageId, role: 'assistant', proposal: result.proposal, dependsOn: finalDependencies, ...(isNotEmpty(result.edits) ? { proposedEdits: result.edits } : {}), ...(isNotEmpty(result.handoffs) ? { trace: result.handoffs } : {}), ...(isNotEmpty(result.searches) ? { searches: result.searches } : {}), ...(focus && revised ? { revises: revised.id } : {}) }] }))
+      editChat(sourceId, chatId, thread => ({ ...thread, messages: [...thread.messages, { id: messageId, role: 'assistant', proposal: result.proposal, dependsOn: finalDependencies, ...(isNotEmpty(result.edits) ? { proposedEdits: result.edits } : {}), ...(isNotEmpty(result.handoffs) ? { trace: result.handoffs } : {}), ...(isNotEmpty(result.searches) ? { searches: result.searches } : {}), ...(revised && (focus || (revised.role === 'assistant' && revised.proposedEdits && isNotEmpty(result.edits))) ? { revises: revised.id } : {}) }] }))
       if (result.mode !== uiState.get(editor).mode) {
         uiState.update(editor, state => ({ ...state, mode: result.mode }))
         getAgentConfig().then(config => uiState.update(editor, state => ({ ...state, ...config }))).catch(() => {})
@@ -734,6 +742,30 @@ export function setupUnfold(editor: Editor) {
       const message = chat?.messages.find(item => item.id === messageId)
       if (!chat || message?.role !== 'assistant' || uiState.get(editor).jobs[chatId]?.status === 'running') return
       const proposal = message.proposal
+      // A suggestion for the canvas is decided like a next step: changed with a comment or turned down with a reason.
+      const suggested = suggestedTitle(message)
+      if (proposal.kind === 'reply' && message.proposedEdits) {
+        const reason = note.trim().slice(0, 600)
+        const mark = (status?: 'declined' | 'refine') => editChat(id, chatId, current => ({ ...current, messages: current.messages.map(item => {
+          if (item.id !== messageId || item.role !== 'assistant') return item
+          const { decision: _removed, editsDeclined: _declined, ...rest } = item
+          return status ? { ...rest, decision: { status, note: reason, at: Date.now() } } : rest
+        }) }))
+        const what = suggested ?? 'This suggestion'
+        if (decision === 'reopen') { editor.markHistoryStoppingPoint('reconsider suggestion'); mark(); activity('you', `Reconsidering ${what}.`); return }
+        if (decision === 'decline') {
+          editor.markHistoryStoppingPoint('decline suggestion'); mark('declined')
+          activity('you', `Turned down ${what}${reason ? `: ${reason}` : ''}. Agents will not suggest it again without saying what changed.`)
+          notice('Noted. Agents won’t suggest this again.')
+          return
+        }
+        if (decision === 'refine' && reason) {
+          editor.markHistoryStoppingPoint('refine suggestion'); mark('refine')
+          activity('you', `Asked to change ${what}: ${reason}`)
+          api.send(id, chatId, reason, messageId, 'refine')
+        }
+        return
+      }
       // A next step can be refined or turned down; adding it to the canvas is its acceptance.
       if (proposal.kind === 'action') {
         const reason = note.trim().slice(0, 600)
@@ -849,13 +881,6 @@ export function setupUnfold(editor: Editor) {
           }) })) })
         if (created[0]) { editor.select(...created); fitBoard(editor) }
       } catch (error) { notice(error instanceof Error ? error.message : 'The board changed since this was suggested. Ask again for an updated version.') }
-    },
-    skipProposedEdits(id, chatId, messageId, skip) {
-      editChat(id, chatId, thread => ({ ...thread, messages: thread.messages.map(item => {
-        if (item.id !== messageId || item.role !== 'assistant') return item
-        const { editsDeclined: _declined, ...rest } = item
-        return skip ? { ...rest, editsDeclined: true } : rest
-      }) }))
     },
     publish(id, chatId, messageId) {
       const chat = chatAt(id, chatId)

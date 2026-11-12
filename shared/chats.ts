@@ -62,7 +62,16 @@ const visibleMessages = (thread: ContextThread) => thread.through ? thread.chat.
 /** The user's decision on a proposal. Older saved boards recorded acceptance only by adding a card. */
 export function decisionOf(message: ChatMessage): Decision['status'] | undefined {
   if (message.role !== 'assistant') return undefined
-  return message.decision?.status ?? (message.outcomeId && message.proposal.kind === 'opportunity' ? 'accepted' : undefined)
+  // Boards saved before suggested cards had a decision kept only whether they were set aside.
+  return message.decision?.status ?? (message.outcomeId && message.proposal.kind === 'opportunity' ? 'accepted' : message.editsDeclined ? 'declined' : undefined)
+}
+
+/** What a suggestion for the canvas is called when the user turns it down or asks to change it. */
+export function suggestedTitle(message: ChatMessage): string | undefined {
+  if (message.role !== 'assistant' || !message.proposedEdits) return undefined
+  const created = message.proposedEdits.find(edit => edit.kind === 'createNode')
+  const renamed = message.proposedEdits.find(edit => edit.kind === 'updateNode')
+  return created?.kind === 'createNode' ? `${created.content.kind === 'moodboard' ? 'Moodboard' : 'Note'} “${created.content.title}”` : renamed?.kind === 'updateNode' ? `Renaming a card to “${renamed.title}”` : undefined
 }
 
 /** Ideas the user declined, from this lineage and from other conversations about the same pair of goals. */
@@ -70,7 +79,13 @@ export function declinedIdeas(records: NodeRecord[], threads: ContextThread[], c
   const pair = chat.branchIds.length === 2 ? [...chat.branchIds].sort().join('|') : undefined
   const related = pair ? conversations.filter(other => [...other.branchIds].sort().join('|') === pair) : []
   const messages = [...threads.flatMap(visibleMessages), ...related.flatMap(other => other.messages)]
-  const ideas = messages.flatMap(message => message.role === 'assistant' && message.decision?.status === 'declined' && (message.proposal.kind === 'opportunity' || message.proposal.kind === 'action') ? [{ idea: message.proposal.title, reason: message.decision.note }] : [])
+  const ideas = messages.flatMap(message => {
+    if (message.role !== 'assistant' || decisionOf(message) !== 'declined') return []
+    const reason = message.decision?.note ?? ''
+    if (message.proposal.kind === 'opportunity' || message.proposal.kind === 'action') return [{ idea: message.proposal.title, reason }]
+    const suggested = suggestedTitle(message)
+    return suggested ? [{ idea: suggested, reason }] : []
+  })
   return ideas.filter((idea, index) => ideas.findIndex(other => other.idea === idea.idea && other.reason === idea.reason) === index).slice(-40)
 }
 

@@ -58,7 +58,6 @@ export interface UnfoldActions {
   publish(id: TLShapeId, chatId: string, messageId: string): void;
   /** Applies the board changes an answer suggested, or sets them aside (and back) without touching the canvas. */
   addProposedEdits(id: TLShapeId, chatId: string, messageId: string): void;
-  skipProposedEdits(id: TLShapeId, chatId: string, messageId: string, skip: boolean): void;
   /** The user's decision on a shared proposal, separate from whether its card is on the canvas. */
   decide(id: TLShapeId, chatId: string, messageId: string, decision: 'accept' | 'decline' | 'refine' | 'reopen', note?: string): void;
   forgetMemory(id: TLShapeId, chatId: string, entryId: string): void;
