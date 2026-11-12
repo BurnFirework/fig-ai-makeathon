@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict'
 import { expect, test, type Page, type Route } from '@playwright/test'
 import { ExploreRequestSchema, type ExploreRequest, type ExploreReport } from '../shared/explore'
 import { runCoordinator } from '../shared/coordinator'
@@ -9,6 +10,12 @@ const pottery = 'Try a Saturday pottery wheel class'
 const jobs = 'Remote design engineering roles'
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true })
 const results = (page: Page) => page.getByRole('complementary', { name: 'Explore results' })
+
+async function only(page: Page, names: string[]) {
+  const dialog = page.getByRole('dialog', { name: 'Explore board' })
+  const selected = await dialog.getByRole('checkbox', { checked: true }).evaluateAll(inputs => inputs.map(input => input.getAttribute('aria-label')))
+  for (const name of selected) if (name && !names.includes(name)) await dialog.getByRole('checkbox', { name, exact: true }).click()
+}
 
 type Reply = (request: ExploreRequest) => { reports: ExploreReport[]; shared?: unknown } | 'error' | 'hold'
 async function stub(page: Page, reply: Reply) {
@@ -61,7 +68,7 @@ async function selectCard(page: Page, title: string) {
   await page.mouse.click(bounds.x, bounds.y)
 }
 
-test('a selected idea is searched with its scope; confirmed options, Show on board and a shared step survive reloads', async ({ page }) => {
+test('all ideas default to selected and retain their scope; confirmed options, Show on board and a shared step survive reloads', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   const requests = await stub(page, request => {
     const reports = request.topics.map(topic => topic.title === pottery ? found(topic.sourceId, 'web:claystudio', 'Intro to the Wheel')
@@ -73,27 +80,25 @@ test('a selected idea is searched with its scope; confirmed options, Show on boa
   await selectCard(page, pottery)
   await button(page, 'Explore board').click()
   const dialog = page.getByRole('dialog', { name: 'Explore board' })
-  await expect(dialog.getByRole('checkbox', { name: pottery })).toBeChecked()
-  await expect(dialog.getByRole('checkbox', { name: jobs })).toHaveCount(0)
+  await expect(dialog.getByRole('checkbox', { name: pottery, exact: true })).toBeChecked()
+  await expect(dialog.getByRole('checkbox', { name: jobs, exact: true })).toBeChecked()
   await expect(dialog).not.toContainText('Search type')
   await expect(dialog).not.toContainText('Ticketmaster')
-  await expect(dialog.locator('.explore-scope-line')).toHaveText('Pottery wheel class · Saturday')
+  await expect(dialog.locator('.explore-scope-line').first()).toHaveText('Pottery wheel class · Saturday')
   await button(page, `Edit search for ${pottery}`).click()
   await dialog.getByLabel('City', { exact: true }).fill('San Francisco')
-  await expect(dialog.locator('.explore-scope-line')).toHaveText('Pottery wheel class · San Francisco · Saturday')
+  await expect(dialog.locator('.explore-scope-line').first()).toHaveText('Pottery wheel class · San Francisco · Saturday')
   await expect(dialog.getByLabel('Budget ($)')).toHaveValue('')
-  await dialog.getByRole('button', { name: /Add interests/ }).click()
-  await dialog.getByRole('checkbox', { name: jobs }).check()
   await expect(dialog.getByRole('status')).toHaveText('2 ideas selected')
   await button(page, 'Find options').click()
   await expect(dialog).toBeHidden()
 
   // Partial success: the panel shows what was added and stays quiet about the failed interest.
   await expect(results(page).getByRole('status')).toHaveText('1 option added to your board')
-  await expect(results(page)).not.toContainText('couldn’t finish')
-  expect(requests[0]?.topics.map(topic => topic.kind)).toEqual(['web', 'web'])
+  await expect(results(page).getByRole('button', { name: 'Retry unfinished' })).toBeVisible()
+  expect(requests[0]?.topics.map(topic => topic.kind)).toEqual(['card', 'card'])
   expect(requests[0]?.topics.find(topic => topic.title === pottery)).toMatchObject({ city: 'San Francisco', schedule: 'Saturday', query: 'Pottery wheel class' })
-  const log = results(page).locator('details.explore-log')
+  const log = results(page).locator('details.explore-log').filter({ hasText: 'Agent activity' })
   await expect(log).not.toHaveAttribute('open')
   await expect(results(page).getByText('Search planner', { exact: false }).first()).toBeHidden()
   await log.locator('summary').click()
@@ -103,11 +108,10 @@ test('a selected idea is searched with its scope; confirmed options, Show on boa
   await expect(page.locator('.card-findings')).toContainText('Schedule published, spots not confirmed')
 
   // A second run finds the job too; the shared step appears only after Add to board.
-  // With a findings card selected, the idea searched before is ticked again; the failed one waits under Add interests.
+  // Generated findings are eligible too; this run explicitly keeps the two original scopes.
   await button(page, 'Explore board').click()
-  await expect(dialog.getByRole('checkbox', { name: pottery })).toBeChecked()
-  await dialog.getByRole('button', { name: /Add interests/ }).click()
-  await dialog.getByRole('checkbox', { name: jobs }).check()
+  await expect(dialog.getByRole('checkbox', { name: pottery, exact: true })).toBeChecked()
+  await only(page, [pottery, jobs])
   await button(page, 'Find options').click()
   await expect(results(page).getByRole('status')).toHaveText('1 option added to your board')
   await expect(page.locator('.card-findings')).toHaveCount(2)
@@ -127,22 +131,23 @@ test('a selected idea is searched with its scope; confirmed options, Show on boa
   // Running the same search again reports options that are already saved instead of claiming new ones.
   await selectCard(page, pottery)
   await button(page, 'Explore board').click()
+  await only(page, [pottery])
   await button(page, 'Find options').click()
   await expect(results(page).getByRole('status')).toHaveText('The option is already on your board')
   await button(page, 'Show on board').click()
   await expect(page.locator('.card-findings.is-selected')).toHaveCount(1)
 })
 
-test('without a selection, new ideas are listed but not ticked', async ({ page }) => {
+test('without a selection, every meaningful card starts checked', async ({ page }) => {
   await stub(page, () => ({ reports: [] }))
   await board(page)
   await page.keyboard.press('Escape')
   await page.mouse.click(720, 900)
   await button(page, 'Explore board').click()
   const dialog = page.getByRole('dialog', { name: 'Explore board' })
-  await expect(dialog.getByRole('checkbox', { name: pottery })).not.toBeChecked()
-  await expect(dialog.getByRole('checkbox', { name: jobs })).not.toBeChecked()
-  await expect(button(page, 'Find options')).toBeDisabled()
+  await expect(dialog.getByRole('checkbox', { name: pottery, exact: true })).toBeChecked()
+  await expect(dialog.getByRole('checkbox', { name: jobs, exact: true })).toBeChecked()
+  await expect(button(page, 'Find options')).toBeEnabled()
 })
 
 test('no confirmed options offers Edit search with the same scope; a failure offers Retry; Stop ends the run', async ({ page }) => {
@@ -153,6 +158,7 @@ test('no confirmed options offers Edit search with the same scope; a failure off
   await selectCard(page, pottery)
   await button(page, 'Explore board').click()
   const dialog = page.getByRole('dialog', { name: 'Explore board' })
+  await only(page, [pottery])
   await button(page, `Edit search for ${pottery}`).click()
   await dialog.getByLabel('City', { exact: true }).fill('Oakland')
   await button(page, 'Find options').click()
@@ -171,13 +177,13 @@ test('no confirmed options offers Edit search with the same scope; a failure off
   await selectCard(page, jobs)
   await button(page, 'Explore board').click()
   await button(page, 'Find options').click()
-  await expect(results(page).getByRole('status')).toHaveText('Finding options…')
+  await expect(results(page).getByRole('status')).toHaveText('Exploring your cards…')
   await results(page).getByRole('button', { name: 'Stop' }).click()
   await expect(results(page).getByRole('status')).toHaveText('Search stopped')
   await expect(button(page, 'Edit search')).toBeVisible()
 })
 
-test('found options sit beside their card, can be searched again or removed, and a second child branches sideways', async ({ page }) => {
+test('found options sit beside their card, can be searched again or removed, and notes avoid overlap', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await stub(page, request => ({ reports: request.topics.map(topic => found(topic.sourceId, 'web:claystudio', 'Intro to the Wheel')) }))
   await board(page)
@@ -186,6 +192,7 @@ test('found options sit beside their card, can be searched again or removed, and
   const right = photos.reduce((a, b) => (b.x > a.x ? b : a)).goal, left = right === jobs ? pottery : jobs
   await selectCard(page, right)
   await button(page, 'Explore board').click()
+  await only(page, [right])
   await button(page, 'Find options').click()
   await expect(results(page).getByRole('status')).toHaveText('1 option added to your board')
 
@@ -203,10 +210,10 @@ test('found options sit beside their card, can be searched again or removed, and
   await options.hover()
   await options.getByRole('button', { name: 'Search again' }).click()
   const dialog = page.getByRole('dialog', { name: 'Explore board' })
-  await expect(dialog.getByRole('checkbox', { name: right })).toBeChecked()
+  await expect(dialog.getByRole('checkbox', { name: right, exact: true })).toBeChecked()
   await page.keyboard.press('Escape')
 
-  // A note goes under its card; a second note from the same card branches next to the first instead of under it.
+  // Nearby notes retain separate bodies as the board grows.
   const card = photo(left)
   const send = async (text: string) => {
     const composer = page.getByRole('textbox', { name: 'Message', exact: true })
@@ -221,8 +228,11 @@ test('found options sit beside their card, can be searched again or removed, and
   await button(page, 'Close chat').click()
   const first = page.locator('.card-artifact', { hasText: 'glaze colors' }), second = page.locator('.card-artifact', { hasText: 'apron and towel' })
   const [a, b, c] = await Promise.all([card.boundingBox(), first.boundingBox(), second.boundingBox()])
-  expect(a && b && Math.abs(b.x - a.x) < 5 && b.y > a.y + a.height).toBe(true)
-  expect(b && c && c.x > b.x + b.width && Math.abs(c.y - b.y) < 5).toBe(true)
+  assert.ok(a && b && c)
+  const overlap = (x: NonNullable<typeof a>, y: NonNullable<typeof a>) => x.x < y.x + y.width && x.x + x.width > y.x && x.y < y.y + y.height && x.y + x.height > y.y
+  expect(overlap(a, b)).toBe(false)
+  expect(overlap(a, c)).toBe(false)
+  expect(overlap(b, c)).toBe(false)
 
   await button(page, 'Fit board').click()
   await page.screenshot({ path: 'output/findings-layout.png' })

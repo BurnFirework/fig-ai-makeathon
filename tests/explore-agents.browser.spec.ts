@@ -31,10 +31,10 @@ test('a shared step for one option serving two ideas stays single, survives relo
   async function run() {
     await page.getByRole('button', { name: 'Explore board', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Explore board' })
-    // The last edited card stays selected, so only it is ticked; the other idea is under Add interests.
-    const more = dialog.getByRole('button', { name: /Add interests/ })
-    if (await more.count()) await more.click()
-    for (const name of [craft, people]) await dialog.getByRole('checkbox', { name }).check()
+    // Every card starts checked; rerun only the original two scopes for this shared-step fixture.
+    const selected = await dialog.getByRole('checkbox', { checked: true }).evaluateAll(inputs => inputs.map(input => input.getAttribute('aria-label')))
+    for (const name of selected) if (name && ![craft, people].includes(name)) await dialog.getByRole('checkbox', { name, exact: true }).click()
+    for (const name of [craft, people]) await expect(dialog.getByRole('checkbox', { name, exact: true })).toBeChecked()
     await page.getByRole('button', { name: 'Find options', exact: true }).click()
     await expect(panel.getByRole('button', { name: 'Edit search' }).or(panel.getByRole('button', { name: 'Show on board' }))).toBeVisible()
   }
