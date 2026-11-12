@@ -100,7 +100,7 @@ test('a selected idea is searched with its scope; confirmed options, Show on boa
   await expect(log).toContainText('Searched “Pottery wheel class” for organizer pages')
   await button(page, 'Show on board').click()
   await expect(page.locator('.card-findings.is-selected')).toHaveCount(1)
-  await expect(page.locator('.card-findings')).toContainText('Schedule published · spots not confirmed')
+  await expect(page.locator('.card-findings')).toContainText('Schedule published, spots not confirmed')
 
   // A second run finds the job too; the shared step appears only after Add to board.
   // With a findings card selected, the idea searched before is ticked again; the failed one waits under Add interests.

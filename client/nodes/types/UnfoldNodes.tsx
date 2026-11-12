@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { type Editor, T, useEditor, useValue } from 'tldraw'
-import { ArrowRight, Check, ChevronDown, Clock, ExternalLink, LoaderCircle, MapPin, MessageCircle, RotateCcw, Search, Sparkles, Trash2, Wallet } from 'lucide-react'
+import { ArrowRight, Calendar, Check, ChevronDown, Clock, ExternalLink, LoaderCircle, MapPin, MessageCircle, RotateCcw, Search, Sparkles, Trash2, Wallet } from 'lucide-react'
 import { isUnfoldNode, type UnfoldNode } from '../../../shared/schema'
+import type { ExploreFinding } from '../../../shared/explore'
 import { isEmpty, isNotEmpty } from '../../../shared/arrays'
 import { lineage, nodeTitle } from '../../../shared/chats'
 import { actions, uiState } from '../../actions'
@@ -32,7 +33,7 @@ export class UnfoldNodeDefinition extends NodeDefinition<UnfoldNode> {
   getBodyHeightPx(_shape: NodeShape, node: UnfoldNode) {
     if (node.type === 'findings') {
       const count = node.findings.filter(finding => !node.dismissed.includes(finding.id)).length
-      return node.fit ?? (count ? 110 + Math.min(count, node.expanded ? 30 : 2) * 120 : 160) + (node.stale ? 24 : 0)
+      return node.fit ?? (count ? 110 + Math.min(count, node.expanded ? 30 : 2) * 190 : 160) + (node.stale ? 24 : 0)
     }
     if (node.type === 'action') return node.fit ?? actionHeight(node, node.expanded === true)
     if (node.type === 'artifact') return node.fit ?? 110 + lines(node.content.description, 44) * 21 + (node.content.kind === 'moodboard' ? Math.ceil(node.content.items.length / 2) * 110 : 0) + (node.stale ? 26 : 0)
@@ -155,6 +156,29 @@ function ActionBody({ shape, node }: { shape: NodeShape; node: ActionNode }) {
   </div>
 }
 
+/** Agents sometimes wrap words in markdown emphasis; the card shows plain text. */
+const plain = (text: string) => text.replace(/\*\*|__|`/g, '').replace(/\s+/g, ' ').trim()
+
+/**
+ * One found option as its own small card: the name links to the page, then where it is, date and price as chips,
+ * why it fits in a readable line, and a quiet line saying how far the details are confirmed and where they were checked.
+ */
+function FindingRow({ finding, checkedAt, onDismiss }: { finding: ExploreFinding; checkedAt: number; onDismiss: () => void }) {
+  const facts = [finding.when && { icon: <Calendar size={12}/>, text: plain(finding.when) }, finding.price && { icon: <Wallet size={12}/>, text: plain(finding.price) }].filter(item => !!item)
+  const availability = finding.availability === 'spots' ? 'Spots listed as available' : finding.availability === 'schedule' ? 'Schedule published, spots not confirmed' : undefined
+  const checked = new Date(checkedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return <div className="finding-row">
+    <div className="finding-heading">
+      <a className="finding-title" href={finding.url} target="_blank" rel="noopener noreferrer">{plain(finding.title)}<ExternalLink size={12}/></a>
+      <button type="button" className="finding-dismiss" aria-label={`Dismiss ${finding.title}`} onClick={onDismiss}><Trash2 size={13}/></button>
+    </div>
+    <div className="finding-where">{finding.state !== 'seen' && <span className={`finding-state is-${finding.state}`}>{finding.state}</span>}<span>{plain(finding.subtitle)}</span></div>
+    {isNotEmpty(facts) && <div className="finding-facts">{facts.map(item => <span key={item.text} className="meta-chip">{item.icon}{item.text}</span>)}</div>}
+    <p className="finding-why">{plain(finding.why)}</p>
+    <p className="finding-check">{availability && <>{availability} · </>}Checked {checked} on <a href={finding.source} target="_blank" rel="noopener noreferrer">{domain(finding.source)}</a></p>
+  </div>
+}
+
 /**
  * Options a search found for one card. It sits beside that card, not under it, because it is research about the card
  * rather than the next step on its path; it grows with its content and can be searched again or removed as a whole.
@@ -174,12 +198,7 @@ function FindingsCard({ shape, node, selected, hovered, updated }: { shape: Node
       <div ref={content} className="card-content findings-body">
         <div className="findings-meta"><strong>{findings.length} {findings.length === 1 ? 'option' : 'options'}</strong>{source && <span> for “{nodeTitle(source.props.node)}”</span>}</div>
         {node.stale && <div className="stale-banner">Interest changed · search again</div>}
-        {findings.slice(0, node.expanded ? undefined : 2).map(finding => <div key={finding.id} className="finding-row">
-          <div className="finding-heading"><a href={finding.url} target="_blank" rel="noopener noreferrer">{finding.title}<ExternalLink size={12}/></a><button type="button" className="finding-dismiss" aria-label={`Dismiss ${finding.title}`} onClick={() => api?.dismissFinding(shape.id, finding.id)}><Trash2 size={13}/></button></div>
-          <small>{finding.subtitle}</small>
-          <div className="finding-facts">{finding.when && <span>{finding.when}</span>}{finding.price && <span>{finding.price}</span>}{finding.availability && finding.availability !== 'unknown' && <span>{finding.availability === 'spots' ? 'Spots listed as available' : 'Schedule published · spots not confirmed'}</span>}{finding.state !== 'seen' && <span className="finding-state">{finding.state}</span>}</div>
-          <p>{finding.why} <a href={finding.source} target="_blank" rel="noopener noreferrer">Source · {domain(finding.source)}</a> · Checked {new Date(finding.checkedAt ?? node.checkedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</p>
-        </div>)}
+        {findings.slice(0, node.expanded ? undefined : 2).map(finding => <FindingRow key={finding.id} finding={finding} checkedAt={finding.checkedAt ?? node.checkedAt} onDismiss={() => api?.dismissFinding(shape.id, finding.id)}/>)}
         {isEmpty(findings) && <p>All findings dismissed.</p>}
         {findings.length > 2 && <button type="button" className="details-toggle" aria-expanded={node.expanded === true} onClick={() => editor.run(() => editor.updateShape<NodeShape>({ id: shape.id, type: 'node', props: { node: { ...node, expanded: !node.expanded } } }), { history: 'ignore' })}>{node.expanded ? 'Show less' : `Show all ${findings.length}`}<ChevronDown size={12}/></button>}
       </div>

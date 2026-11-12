@@ -584,18 +584,23 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .unfold-card.card-findings { border-style: dashed; border-color: color-mix(in srgb, var(--accent-600) 40%, var(--line)); background: color-mix(in srgb, var(--accent-50) 60%, var(--paper)); box-shadow: none; }
 .card-findings .card-eyebrow { display: inline-flex; align-items: center; gap: 5px; }
 .findings-body { display: block; flex: 0 0 auto; overflow: visible; }
-.findings-meta { display: block; font-size: 13px; }
-.findings-meta span { color: var(--muted-foreground); }
-.finding-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.finding-row { display: grid; align-content: start; gap: 3px; padding-block: 9px; border-top: 1px solid var(--border); }
-.finding-heading a { display: inline; color: inherit; font-weight: 650; line-height: 1.25; }
-.finding-heading a svg { display: inline; margin-left: 4px; vertical-align: middle; }
-.finding-dismiss { color: var(--muted-foreground); padding: 3px; }
-.finding-row small, .finding-row p, .findings-meta small { color: var(--muted-foreground); font-size: 11px; line-height: 1.35; }
-.finding-facts { display: flex; flex-wrap: wrap; gap: 4px; margin-block: 2px; }
-.finding-facts span { font-size: 10px; background: var(--secondary); border-radius: 5px; padding: 2px 5px; }
-.finding-facts .finding-state { text-transform: capitalize; font-weight: 650; }
-.finding-row p a { text-decoration: underline; }
+.findings-meta { display: block; margin-bottom: 10px; font-size: 13px; color: var(--ink); }
+.findings-meta span { color: var(--cocoa-soft); }
+/* Each option is its own small white card so options read apart from each other and from the tinted frame. */
+.finding-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; padding: 12px 12px 11px 14px; border: 1px solid var(--accent-100); border-radius: 12px; background: var(--paper); }
+.finding-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.finding-title { color: var(--ink); font-size: 14.5px; font-weight: 600; line-height: 1.35; letter-spacing: -.1px; text-decoration: none; pointer-events: auto; }
+.finding-title:hover { color: var(--accent-600); }
+.finding-title svg { display: inline; margin-left: 5px; vertical-align: -1px; color: var(--cocoa-soft); }
+.finding-dismiss { flex: 0 0 auto; margin: -3px -4px 0 0; padding: 4px; border-radius: 6px; color: var(--cocoa-soft); cursor: pointer; pointer-events: auto; }
+.finding-dismiss:hover { background: var(--accent-50); color: var(--accent-600); }
+.finding-where { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--cocoa-soft); font-size: 12.5px; line-height: 1.4; }
+.finding-state { padding: 1px 7px; border-radius: 999px; background: var(--accent-500); color: #fff; font-size: 10.5px; font-weight: 650; letter-spacing: .2px; text-transform: capitalize; }
+.finding-state.is-closed { background: var(--secondary); color: var(--cocoa-soft); }
+.finding-facts { display: flex; flex-wrap: wrap; gap: 6px; }
+.finding-why { margin: 2px 0 0; color: var(--ink); font-size: 13px; line-height: 1.5; }
+.finding-check { margin: 0; color: var(--cocoa-soft); font-size: 11.5px; line-height: 1.45; }
+.finding-check a { color: inherit; text-decoration: underline; text-decoration-color: var(--accent-300); text-underline-offset: 2px; pointer-events: auto; }
 @media (max-width: 560px) {
   .explore-board-trigger { padding-inline: 7px; }
 }
