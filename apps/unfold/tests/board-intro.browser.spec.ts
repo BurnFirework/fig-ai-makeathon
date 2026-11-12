@@ -7,6 +7,14 @@ test('board intro appears only while there are no inspiration images', async ({ 
   await expect(intro).toContainText('A SPACE FOR WHAT’S NEXT')
   await expect(page.getByRole('toolbar', { name: 'Canvas tools' })).toHaveCount(0)
 
+  const centerY = (button: Element) => {
+    const { top, height } = button.getBoundingClientRect()
+    return top + height / 2
+  }
+  const addCenter = await page.getByRole('button', { name: 'Add inspiration', exact: true }).evaluate(centerY)
+  const sampleCenter = await page.getByRole('button', { name: 'Explore a sample board', exact: true }).evaluate(centerY)
+  expect(addCenter).toBeCloseTo(sampleCenter, 1)
+
   await page.locator('input[accept="image/png,image/jpeg,image/webp"]').setInputFiles({
     name: 'inspiration.png', mimeType: 'image/png',
     buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9WQAAAAASUVORK5CYII=', 'base64'),

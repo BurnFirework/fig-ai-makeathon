@@ -12,9 +12,14 @@
     "desktop:dev": "pnpm --filter unfold desktop:dev",
     "desktop:package": "pnpm --filter unfold desktop:package",
     "desktop:package:mac": "pnpm --filter unfold desktop:package:mac",
+    "desktop:package:linux": "pnpm --filter unfold desktop:package:linux",
     "test:web": "pnpm --filter unfold test:web",
     "test:desktop": "pnpm --filter unfold test:desktop",
-    "build:site": "pnpm --filter unfold-landing build --outDir ../../output/site --emptyOutDir && pnpm --filter unfold exec vite build --base=/app/ --outDir ../../output/site/app"
+    "build:site": "pnpm --filter unfold-landing build --outDir ../../output/site --emptyOutDir && pnpm --filter unfold exec vite build --base=/app/ --outDir ../../output/site/app",
+    "deploy": "pnpm build:site && wrangler deploy"
   },
-  "packageManager": "pnpm@10.33.1+sha512.05ba3c1d5d1c18f68df06470d74055e62d41fc110a0c660db1b2dfb2785327f04cf0f68345d4609bc52089e7fa0343c31593b2f9594e2c5d5da426230acc9820"
+  "packageManager": "pnpm@10.33.1+sha512.05ba3c1d5d1c18f68df06470d74055e62d41fc110a0c660db1b2dfb2785327f04cf0f68345d4609bc52089e7fa0343c31593b2f9594e2c5d5da426230acc9820",
+  "devDependencies": {
+    "wrangler": "^4.160.1"
+  }
 }

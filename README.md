@@ -17,6 +17,10 @@ Open **http://127.0.0.1:5173**. The frontend proxies to the local agent server o
 
 The pnpm workspace keeps the [landing page](apps/landing) and the [Unfold app](apps/unfold) in separate packages. The Unfold package contains the shared browser and Electron UI, the local runtime, and their tests. Run the documented commands from the repository root. `pnpm build:site` writes the landing page to `output/site/` and the browser app to `output/site/app/`.
 
+## Deploy the browser preview
+
+Sign in to the Cloudflare account that owns `bezr.dev` with `pnpm exec wrangler login`. From the repository root, run `pnpm run deploy`. The script builds the site and uploads `output/site/` to the dedicated Worker defined in [wrangler.jsonc](wrangler.jsonc). Check the landing page and `/app/` at `https://unfold.bezr.dev` after deployment. [Cloudflare Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/)
+
 ## Bring your own subscription
 
 No API key is required. Unfold launches **Claude Code** or **Codex CLI** on the same computer as its server, using the CLI's existing sign-in. It does not extract, copy or send login tokens to the browser. Provider subscription limits and CLI availability still apply.
@@ -115,6 +119,10 @@ xcrun stapler staple "$unfold_dmg"
 xcrun stapler validate "$unfold_dmg"
 spctl --assess --type open --context context:primary-signature --verbose "$unfold_dmg"
 ```
+
+### Build the Linux x64 release
+
+Run `pnpm desktop:package:linux` on x64 Linux with `binutils` and `xz-utils` installed. It writes the Debian package and AppImage to `output/desktop-release/`. Install the `.deb` with your package manager, or make the `.AppImage` executable and run it directly.
 
 ## Agents and source evidence
 

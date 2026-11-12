@@ -146,9 +146,7 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .empty-mark { width: 60px; height: 60px; display: grid; place-items: center; color: #92968b; margin: 0 auto 22px; }
 .empty-state h1 { font-weight: 500; font-size: 25px; letter-spacing: -.7px; margin: 0 0 14px; }
 .empty-state p { color: var(--cocoa-soft); font-size: 14px; line-height: 1.7; margin: 0 0 25px; }
-.empty-state > button { margin: 0 auto; display: flex; }
-.empty-state > button:first-of-type { padding-inline: 18px; }
-.empty-state > button:last-child { margin-top: 12px; font-size: 12px; color: var(--cocoa-soft); }
+.empty-state-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
 .bottom-toolbar { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 3px; padding: 6px; border: 1px solid var(--chrome-edge); border-radius: 20px; box-shadow: inset 0 1px 0 #ffffffe6, inset 0 -1px 0 #ffffff66, 0 2px 6px #2b2d300a, 0 12px 32px #2b2d3014; pointer-events: auto; }
 .toolbar-divider { height: 20px; width: 1px; background: var(--line); margin: 0 5px; }
 .tool-group { display: flex; gap: 2px; }

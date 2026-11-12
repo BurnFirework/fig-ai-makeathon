@@ -1,6 +1,8 @@
 {
   "name": "unfold",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "description": "A visual workspace for exploring ideas and finding a small next step.",
+  "homepage": "https://unfold.bezr.dev/",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,6 +16,7 @@
     "desktop:dev": "pnpm desktop:build && pnpm exec electron dist-desktop/main.js",
     "desktop:package": "pnpm desktop:build && node scripts/desktop-package.mjs",
     "desktop:package:mac": "pnpm desktop:build && node scripts/desktop-package.mjs --release-mac",
+    "desktop:package:linux": "pnpm desktop:build && node scripts/desktop-package.mjs --release-linux",
     "test:web": "playwright test --config tests/playwright.config.ts",
     "test:desktop": "node --import tsx tests/electron.smoke.mjs"
   },

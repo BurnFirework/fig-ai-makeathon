@@ -5,6 +5,7 @@ dist/
 .dev.vars
 output/
 .playwright-cli/
+.wrangler/
 .pnpm-store/
 .DS_Store
 

@@ -19,13 +19,98 @@ body {
 }
 
 .masthead {
+  position: sticky;
+  z-index: 50;
+  top: 0;
+  border-bottom: 1px solid transparent;
+  background: var(--canvas);
+  transition: border-color 300ms;
+}
+
+.masthead.is-scrolled {
+  border-bottom-color: var(--edge);
+}
+
+@supports ((backdrop-filter: blur(18px)) or (-webkit-backdrop-filter: blur(18px))) {
+  .masthead {
+    background: color-mix(in srgb, var(--canvas) 75%, transparent);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+  }
+}
+
+.masthead-inner {
   display: flex;
   align-items: center;
-  gap: 10px;
-  max-width: 1200px;
+  justify-content: space-between;
+  gap: 24px;
+  max-width: 1240px;
   margin-inline: auto;
-  padding: 24px clamp(20px, 4vw, 44px);
-  font: 600 24px/1 Georgia, serif;
+  padding: 12px 32px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.025em;
+  text-decoration: none;
+}
+
+.masthead-actions {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.masthead-link,
+.download {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding-inline: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.brand:hover,
+.masthead-link:hover,
+.download:hover,
+details[open] > .download {
+  color: var(--ink);
+}
+
+@media (width <= 820px) {
+  .masthead-inner {
+    padding-inline: 20px;
+  }
+}
+
+@media (width <= 420px) {
+  .masthead-inner {
+    gap: 12px;
+  }
+
+  .masthead-link,
+  .download {
+    height: 34px;
+    padding-inline: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .masthead {
+    transition: none;
+  }
 }
 
 main {
@@ -60,41 +145,88 @@ h1 em {
   text-wrap: pretty;
 }
 
-.actions {
+.hero-actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
   justify-content: center;
-  gap: 14px 20px;
+  gap: 10px;
   margin-top: 28px;
 }
 
-.try {
+.try,
+.hero-download {
   display: inline-flex;
   align-items: center;
   gap: 12px;
   min-height: 46px;
   padding: 10px 19px;
   border-radius: 9px;
-  background: var(--rose);
-  color: #fff;
   font-size: 15px;
   font-weight: 650;
   text-decoration: none;
+}
+
+.try {
+  background: var(--rose);
+  color: #fff;
 }
 
 .try:hover {
   background: #80284b;
 }
 
-.try:focus-visible {
-  outline: 2px solid var(--rose);
-  outline-offset: 4px;
+.hero-download {
+  border: 1px solid var(--rose);
+  color: var(--rose);
 }
 
-.download-status {
-  color: var(--muted);
+.hero-download:hover {
+  background: #9d345d0d;
+}
+
+:where(.masthead, .intro) :focus-visible {
+  outline: 2px solid var(--rose);
+  outline-offset: 2px;
+}
+
+.download {
+  cursor: pointer;
+  list-style: none;
+}
+
+.download::-webkit-details-marker {
+  display: none;
+}
+
+.download-options a:hover {
+  background: #9d345d0d;
+}
+
+.download-options {
+  position: absolute;
+  z-index: 1;
+  top: calc(100% + 6px);
+  right: 0;
+  width: max-content;
+  max-width: calc(100vw - 40px);
+  margin: 0;
+  padding: 6px;
+  border: 1px solid var(--edge);
+  border-radius: 9px;
+  background: var(--canvas);
+  box-shadow: 0 8px 24px #6547391f;
+  list-style: none;
+  text-align: left;
+}
+
+.download-options a {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 5px;
+  color: var(--rose);
   font-size: 14px;
+  font-weight: 650;
+  text-decoration: none;
 }
 
 .board {
