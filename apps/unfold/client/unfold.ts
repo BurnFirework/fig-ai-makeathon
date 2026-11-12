@@ -620,24 +620,29 @@ export function setupUnfold(editor: Editor) {
     try {
       const fingerprint = () => JSON.stringify({ cards: records().map(({ id, node }) => ({ id, node: { ...node, fit: undefined, expanded: undefined } })), conversations: chats(), relations: boardLinks(editor) })
       let expected = fingerprint()
-      const captured = structuredClone({ cards: records(), conversations: chats(), relations: boardLinks(editor) })
+      const captured = { cards: records(), conversations: chats(), relations: boardLinks(editor) }
+      const assets = new Map(editor.getAssets().map(asset => [String(asset.id), asset]))
+      const images = new Map<string, Promise<string>>()
+      async function readImage(assetId: string) {
+        const asset = assets.get(assetId)
+        if (!asset) throw new Error('An inspiration image is unavailable. Reimport it before exploring.')
+        const url = await editor.resolveAssetUrl(asset.id, { shouldResolveToOriginal: true })
+        if (!url) throw new Error('An inspiration image is unavailable.')
+        if (url.startsWith('data:image/')) return url
+        const response = await fetch(url, { signal: controller.signal })
+        if (!response.ok) throw new Error('An inspiration image could not be read.')
+        const blob = await response.blob()
+        return new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Could not read an image.')); reader.onerror = () => reject(new Error('Could not read an image.')); reader.readAsDataURL(blob) })
+      }
       const cards = await Promise.all(captured.cards.map(async card => {
-        let image: string | undefined
-        if (card.node.type === 'inspiration' && card.node.assetId) {
-          const assetId = card.node.assetId
-          const asset = editor.getAssets().find(asset => asset.id === assetId)
-          if (!asset) throw new Error('An inspiration image is unavailable. Reimport it before exploring.')
-          const url = await editor.resolveAssetUrl(asset.id, { shouldResolveToOriginal: true })
-          if (!url) throw new Error('An inspiration image is unavailable.')
-          if (url.startsWith('data:image/')) image = url
-          else {
-            const response = await fetch(url, { signal: controller.signal })
-            if (!response.ok) throw new Error('An inspiration image could not be read.')
-            const blob = await response.blob()
-            image = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Could not read an image.')); reader.onerror = () => reject(new Error('Could not read an image.')); reader.readAsDataURL(blob) })
-          }
+        if (card.node.type !== 'inspiration' || !card.node.assetId) return card
+        const id = card.node.assetId
+        let image = images.get(id)
+        if (!image) {
+          image = readImage(id)
+          images.set(id, image)
         }
-        return { id: card.id, node: card.node, ...(image ? { image } : {}) }
+        return { ...card, image: await image }
       }))
       controller.signal.throwIfAborted()
       const apply = (report: ExploreReport) => {
@@ -686,7 +691,6 @@ export function setupUnfold(editor: Editor) {
             })
             expected = fingerprint()
             editor.markHistoryStoppingPoint('card investigation applied')
-            saveNow.get(editor)?.()
           }
         }
         reports.push(report)
@@ -710,6 +714,7 @@ export function setupUnfold(editor: Editor) {
       if (!disposed) setExplore(run => ({ ...run, stopped: controller.signal.aborted, error: controller.signal.aborted ? '' : error instanceof Error ? error.message : 'Explore board could not finish.' }))
     } finally {
       if (exploreRun === controller) exploreRun = undefined
+      if (!disposed && reports.some(report => report.status === 'complete')) saveNow.get(editor)?.()
       if (!disposed) setExplore(run => ({ ...run, running: false, failed: [...new Set([...run.failed, ...scope.filter(topic => !applied.has(topic.sourceId)).map(topic => topic.sourceId)])], workers: run.workers.map(worker => worker.status === 'running' || worker.status === 'queued' ? { ...worker, status: 'skipped', message: controller.signal.aborted ? 'Stopped by you.' : 'The investigation ended before this card.' } : worker) }))
     }
   }

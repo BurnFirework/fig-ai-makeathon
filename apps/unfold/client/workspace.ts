@@ -79,6 +79,7 @@ export class WorkspaceController {
       const boards = { ...workspace.boards }
       for (const board of catalog.boards) if (!boards[board.id]) boards[board.id] = Object.values(emptyWorkspace().boards)[0] ?? { document: createTLStore({ schema: workspaceTLSchema }).getStoreSnapshot('document') }
       this.change({ ...workspace, catalog, boards })
+      if (catalog.activeId !== workspace.catalog.activeId) this.flush().catch((error: unknown) => this.report(error))
       return true
     } catch (error) { this.report(error); return false }
   }

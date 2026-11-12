@@ -1,4 +1,4 @@
-import { actions, uiState } from '../actions'
+import { actions, uiState, type ExploreRun } from '../actions'
 import { LoaderCircle } from 'lucide-react'
 import {
 	Circle2d,
@@ -151,15 +151,48 @@ function NodePorts({ shape }: { shape: NodeShape }) {
 	)
 }
 
+const workersByCard = new WeakMap<ExploreRun['workers'], Map<string, ExploreRun['workers'][number]>>()
+const reportsByCard = new WeakMap<NonNullable<ExploreRun['reports']>, Map<string, NonNullable<ExploreRun['reports']>[number]>>()
+
+function workerForCard(workers: ExploreRun['workers'], id: string) {
+  let index = workersByCard.get(workers)
+  if (!index) {
+    index = new Map()
+    for (const worker of workers) {
+      if (worker.sourceId && index.get(worker.sourceId)?.status !== 'running') index.set(worker.sourceId, worker)
+    }
+    workersByCard.set(workers, index)
+  }
+  return index.get(id)
+}
+
+function reportForCard(reports: NonNullable<ExploreRun['reports']>, id: string) {
+  let index = reportsByCard.get(reports)
+  if (!index) {
+    index = new Map(reports.map(report => [report.sourceId, report]))
+    reportsByCard.set(reports, index)
+  }
+  return index.get(id)
+}
+
 function CardInvestigation({ shape }: { shape: NodeShape }) {
   const editor = useEditor()
-  const run = useValue('card investigation', () => uiState.get(editor).explore, [editor])
-  const worker = run?.workers.find(worker => worker.sourceId === shape.id && worker.status === 'running') ?? run?.workers.filter(worker => worker.sourceId === shape.id).at(-1)
-  const report = run?.reports?.find(report => report.sourceId === shape.id)
+  const worker = useValue('card investigation worker', () => {
+    const run = uiState.get(editor).explore
+    return run ? workerForCard(run.workers, shape.id) : undefined
+  }, [editor, shape.id])
+  const report = useValue('card investigation result', () => {
+    const reports = uiState.get(editor).explore?.reports
+    return reports ? reportForCard(reports, shape.id) : undefined
+  }, [editor, shape.id])
+  const canRetry = useValue('card investigation retry', () => {
+    const run = uiState.get(editor).explore
+    return Boolean(run?.reports && !run.running && reportForCard(run.reports, shape.id)?.status === 'failed')
+  }, [editor, shape.id])
   if (!worker && !report) return null
   const message = report?.status === 'failed' ? report.message : report?.status === 'complete' ? report.note ?? 'Added to your board.' : worker?.message
   return <div className="explore-source-status" role="status" title={message} onPointerDown={event => editor.markEventAsHandled(event)} onKeyDown={event => event.stopPropagation()}>
     {worker?.status === 'running' && !report && <LoaderCircle size={13} className="spin"/>}<span>{message}</span>
-    {report?.status === 'failed' && !run?.running && <button type="button" onClick={() => { actions.get(editor)?.retryExplore().catch(() => {}) }}>Retry</button>}
+    {canRetry && <button type="button" onClick={() => { actions.get(editor)?.retryExplore().catch(() => {}) }}>Retry</button>}
   </div>
 }

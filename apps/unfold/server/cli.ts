@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { z } from 'zod'
 import { StringDecoder } from 'node:string_decoder'
+import { acquireCli } from './cli-queue'
 
 const exec = promisify(execFile)
 export type CliProvider = 'claude' | 'codex' | 'demo'
@@ -93,12 +94,15 @@ export function readCliEvent(line: string, provider: 'claude' | 'codex') {
   return { text, searched, urls, error, failure }
 }
 
-export interface CliOptions { search?: boolean; image?: string; images?: string[]; timeoutMs?: number; maxTurns?: number }
+export interface CliOptions { search?: boolean; image?: string; images?: string[]; timeoutMs?: number; maxTurns?: number; background?: boolean }
 export async function callCli(config: CliConfig, prompt: string, signal: AbortSignal, options: CliOptions = {}): Promise<{ text: string; searched: boolean; urls: string[] }> {
   if (config.provider === 'demo') throw new Error('Preview mode has no live provider.')
   const provider = config.provider
-  const directory = await mkdtemp(join(tmpdir(), 'unfold-agent-'))
+  const release = await acquireCli(signal, options.background ?? false)
+  let directory: string | undefined
   try {
+    signal.throwIfAborted()
+    directory = await mkdtemp(join(tmpdir(), 'unfold-agent-'))
     const imageInputs = [...(options.image ? [options.image] : []), ...(options.images ?? [])]
     const imagePaths: string[] = []
     for (const [index, value] of imageInputs.entries()) {
@@ -118,6 +122,7 @@ export async function callCli(config: CliConfig, prompt: string, signal: AbortSi
       for (const image of imageInputs) { const match = /^data:([^;]+);base64,(.+)$/.exec(image); if (match) content.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } }) }
       input = JSON.stringify({ type: 'user', message: { role: 'user', content } }) + '\n'
     }
+    signal.throwIfAborted()
     const output = await new Promise<{ text: string; searched: boolean; urls: string[] }>((resolve, reject) => {
       const child = spawn(config.binary, args, { cwd: directory, env, stdio: ['pipe', 'pipe', 'pipe'], shell: false, detached: process.platform !== 'win32' })
       let buffer = ''; let text = ''; let searched = false; let stderr = ''; let total = 0; let eventError = ''; let failure: CliFailure | undefined; let timedOut = false
@@ -171,5 +176,7 @@ export async function callCli(config: CliConfig, prompt: string, signal: AbortSi
     signal.throwIfAborted()
     // Evidence URLs come only from tool events; callers decide what counts as a verified source.
     return { text: output.text, searched: output.searched, urls: output.urls }
-  } finally { await rm(directory, { recursive: true, force: true }) }
+  } finally {
+    try { if (directory) await rm(directory, { recursive: true, force: true }) } finally { release() }
+  }
 }
