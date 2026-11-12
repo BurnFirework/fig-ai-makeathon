@@ -89,7 +89,30 @@ pnpm desktop:package
 
 Web and desktop builds share the temporary public trial key in `client/tldraw-license.ts`, which expires on **2027-02-17**. Replace it before expiry, or set `VITE_TLDRAW_LICENSE_KEY=your-key` in `.env.local` before building to override it. The same key covers the legacy browser-board migration canvases. A replacement key must cover the desktop origin `unfold://app` and any hosted web domain. See [tldraw license setup](https://tldraw.dev/sdk-features/license-key). The desktop smoke check waits beyond tldraw's five-second license gate so an initial paint cannot hide a licensing failure.
 
-The first desktop run or packaging build downloads the Electron runtime and requires an internet connection. Packaging targets the current operating system and architecture: `output/desktop/mac-arm64/Unfold.app` on Apple Silicon, `output/desktop/mac/Unfold.app` on Intel macOS, and `output/desktop/linux-unpacked/unfold` on x64 Linux. The initial packaging script creates an unsigned local app; signing/notarization for public distribution is not configured. Development settings/recovery use a separate profile from the packaged app. No Vite server or project-local Node installation is required to run the packaged app. Linux needs a graphical session and Electron's system libraries; NixOS must supply those libraries in its runtime environment. Install/sign in to Claude Code or Codex separately for live AI.
+The first desktop run or packaging build downloads the Electron runtime and requires an internet connection. Local packaging creates an unsigned app for the current operating system and architecture. It writes `output/desktop/mac-arm64/Unfold.app` on Apple Silicon, `output/desktop/mac/Unfold.app` on Intel macOS, or `output/desktop/linux-unpacked/unfold` on x64 Linux. Development settings/recovery use a separate profile from the packaged app. No Vite server or project-local Node installation is required to run the packaged app. Linux needs a graphical session and Electron's system libraries. NixOS must supply those libraries in its runtime environment. Install and sign in to Claude Code or Codex separately for live AI.
+
+### Build and notarize the Apple Silicon DMG
+
+On an Apple Silicon Mac with native Node.js, install a Developer ID Application identity in Keychain and configure the `unfold-notary` profile. If you have identities for multiple teams, set `CSC_NAME` to the release team's Team ID. [Apple's distribution guide](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution)
+
+```sh
+pnpm desktop:package:mac
+```
+
+The command signs the app and the disk image. Set `unfold_dmg` to the generated file under `output/desktop-release/`. Replace `0.1.0` with the version you built. Submit that image to Apple.
+
+```sh
+unfold_dmg=output/desktop-release/Unfold-0.1.0-arm64.dmg
+xcrun notarytool submit "$unfold_dmg" --keychain-profile unfold-notary --wait
+```
+
+After Apple reports `Accepted`, attach and verify the ticket on the same image.
+
+```sh
+xcrun stapler staple "$unfold_dmg"
+xcrun stapler validate "$unfold_dmg"
+spctl --assess --type open --context context:primary-signature --verbose "$unfold_dmg"
+```
 
 ## Agents and source evidence
 

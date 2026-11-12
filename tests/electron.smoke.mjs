@@ -65,6 +65,7 @@ try {
   const composer = page.getByRole('textbox', { name: 'Message', exact: true })
   await composer.fill('Add a note about light and color.')
   await composer.press('Enter')
+  await page.getByRole('group', { name: 'Suggested for your canvas' }).getByRole('button', { name: 'Add to canvas', exact: true }).click()
   await expect(page.locator('.card-artifact')).toContainText('light and color')
   await expect(page.getByRole('status').filter({ hasText: 'Saved on this device' })).toBeVisible()
   await expect.poll(async () => {
