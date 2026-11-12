@@ -100,7 +100,7 @@ test('two cards share a conversation that asks, creates, reuses images, and undo
   await button(page, 'More canvas actions').click()
   await page.getByRole('menuitem', { name: 'Redo', exact: true }).click()
   await expect(note).toBeVisible()
-  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeAttached()
   await page.reload()
   await expect(moodboard).toBeVisible()
   await openPhoto(page, 'Room photo')

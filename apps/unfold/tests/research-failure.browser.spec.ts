@@ -76,7 +76,7 @@ test('a research reply that cannot be read pauses the link with a clear error an
   await button(page, 'Agent activity').click()
 
   // After a reload the paused check and its Retry are still there (the board saves shortly after each change).
-  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeAttached()
   await page.reload()
   await button(page, 'Fit board').click()
   await expect(page.locator('.link-pill.tone-error').first()).toHaveAttribute('aria-label', /could not be read.*Retry/)

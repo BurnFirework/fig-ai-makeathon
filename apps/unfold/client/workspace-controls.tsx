@@ -1,8 +1,8 @@
-import { useContext, useEffect, useRef, useSyncExternalStore } from 'react'
+import { useContext, useEffect, useId, useRef, useSyncExternalStore } from 'react'
 import { FolderOpen, Download, Upload, MoreHorizontal } from 'lucide-react'
 import { WorkspaceContext } from './workspace'
 import { Button } from './components/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './components/ui/dropdown-menu'
 
 export function WorkspaceControls() {
   const workspace = useContext(WorkspaceContext)
@@ -12,6 +12,9 @@ export function WorkspaceControls() {
 }
 function Controls({ workspace, input }: { workspace: NonNullable<React.ContextType<typeof WorkspaceContext>>; input: React.RefObject<HTMLInputElement | null> }) {
   const state = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot)
+  const storageNoteId = useId()
+  const savedInBrowser = state.status === 'Saved in browser'
+  const statusColor = state.status === 'Not saved' ? 'text-destructive' : 'text-muted-foreground'
   const run = (operation: Promise<unknown>) => { operation.catch((error: unknown) => workspace.report(error)) }
   useEffect(() => {
     if (workspace.desktop) return
@@ -59,11 +62,20 @@ function Controls({ workspace, input }: { workspace: NonNullable<React.ContextTy
     window.addEventListener('keydown', key, true)
     return () => { unsubscribe?.(); unclose?.(); window.removeEventListener('keydown', key, true) }
   }, [workspace, input])
-  return <><span className="text-xs text-muted-foreground" role="status">{state.status}</span>
-    <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Board menu" title={`Board menu · ${state.status}`}/>}><MoreHorizontal size={17}/></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-56" onPointerDown={event => event.stopPropagation()}>
-      <DropdownMenuItem onClick={() => run(workspace.exportCopy())}><Download/>{workspace.desktop ? 'Export backup' : 'Export'}</DropdownMenuItem>
-      {workspace.desktop && <><DropdownMenuItem onClick={() => input.current?.click()}><Upload/>Import</DropdownMenuItem><DropdownMenuItem onClick={() => { if (workspace.desktop) run(workspace.desktop.showDataFolder()) }}><FolderOpen/>Show data folder</DropdownMenuItem></>}
-    </DropdownMenuContent></DropdownMenu>
+  return <><span className={savedInBrowser ? 'sr-only' : `text-xs ${statusColor}`} role="status">{state.status}</span>
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Board menu" title={savedInBrowser ? 'Board menu' : `Board menu · ${state.status}`}/>}><MoreHorizontal size={17}/></DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56" onPointerDown={event => event.stopPropagation()}>
+        <DropdownMenuItem aria-describedby={workspace.desktop ? undefined : storageNoteId} onClick={() => run(workspace.exportCopy())}><Download/>{workspace.desktop ? 'Export backup' : 'Export'}</DropdownMenuItem>
+        {workspace.desktop ? <><DropdownMenuItem onClick={() => input.current?.click()}><Upload/>Import</DropdownMenuItem><DropdownMenuItem onClick={() => { if (workspace.desktop) run(workspace.desktop.showDataFolder()) }}><FolderOpen/>Show data folder</DropdownMenuItem></> : <>
+          <DropdownMenuSeparator/>
+          <div id={storageNoteId} className="px-2.5 pt-1 pb-2 text-xs leading-normal text-muted-foreground">
+            <p className="font-semibold text-foreground">Boards stay in this browser</p>
+            <p>Export to keep a backup.</p>
+          </div>
+        </>}
+      </DropdownMenuContent>
+    </DropdownMenu>
     {workspace.desktop && <input ref={input} type="file" accept=".unfold,application/zip" hidden aria-label="Import backup" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) run(workspace.importCopy(file)) }}/>}
   </>
 }

@@ -48,7 +48,7 @@ test('a shared step for one option serving two ideas stays single, survives relo
   await expect(shared).toHaveCount(1)
   await page.getByRole('button', { name: 'Fit board', exact: true }).click()
   await expect(shared.getByRole('link')).toHaveCount(1)
-  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeAttached()
   await page.reload()
   await expect(shared).toHaveCount(1)
   await run()

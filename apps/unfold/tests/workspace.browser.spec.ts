@@ -5,7 +5,9 @@ import { decodeWorkspace } from '../shared/workspace-format'
 test('browser flushes on background and warns only while edits are unsaved', async ({ page }) => {
   page.on('pageerror', error => console.error('BROWSER ERROR', error))
   await page.goto('/')
-  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  const status = page.getByRole('banner').getByRole('status')
+  await expect(status).toHaveText('Saved in browser')
+  expect(await status.evaluate(element => element.getBoundingClientRect().width)).toBeLessThanOrEqual(1)
   expect(await page.evaluate(() => !window.dispatchEvent(new Event('beforeunload', { cancelable: true })))).toBe(false)
   await page.getByRole('button', { name: 'Mood boards: Your next chapter', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Rename board', exact: true }).click()
@@ -17,7 +19,7 @@ test('browser flushes on background and warns only while edits are unsaved', asy
     return !window.dispatchEvent(new Event('beforeunload', { cancelable: true }))
   })
   expect(guarded).toBe(true)
-  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeAttached()
   expect(await page.evaluate(() => !window.dispatchEvent(new Event('beforeunload', { cancelable: true })))).toBe(false)
   await page.getByRole('button', { name: 'Mood boards: Saved on background', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Rename board', exact: true }).click()
@@ -27,11 +29,27 @@ test('browser flushes on background and warns only while edits are unsaved', asy
   await page.getByRole('button', { name: 'Save name', exact: true }).evaluate(button => {
     if (!(button instanceof HTMLButtonElement)) throw new Error('Expected a save button')
     button.click()
+  })
+  await expect(status).toHaveText('Unsaved changes')
+  expect(await status.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(1)
+  await page.evaluate(() => {
+    const open = indexedDB.open.bind(indexedDB)
+    indexedDB.open = (name, version) => {
+      const request = open(name, version)
+      // Hold the real database open callback until the paused test clock resumes.
+      Object.defineProperty(request, 'onsuccess', { set(listener: EventListener) {
+        request.addEventListener('success', event => { setTimeout(() => listener(event), 1) }, { once: true })
+      } })
+      return request
+    }
     window.dispatchEvent(new Event('blur'))
   })
-  // With timers paused, only the blur handler can persist this edit; the debounce cannot fire.
-  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  // The paused debounce cannot fire. Only blur can start this save.
+  await expect(status).toHaveText('Saving…')
+  expect(await status.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(1)
   await page.clock.resume()
+  await expect(status).toHaveText('Saved in browser')
+  expect(await status.evaluate(element => element.getBoundingClientRect().width)).toBeLessThanOrEqual(1)
   await page.reload()
   await expect(page.getByRole('button', { name: 'Mood boards: Background flush verified', exact: true })).toBeVisible()
 })
@@ -46,7 +64,7 @@ test('legacy boards and images survive migration, reload and web export', async 
   await expect(page.locator('body')).toHaveAttribute('data-seeded', 'true')
   await page.goto('/')
   await expect(page.getByRole('img', { name: 'Legacy image 1', exact: true })).toBeVisible()
-  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeAttached()
   await page.reload()
   await expect(page.getByRole('img', { name: 'Legacy image 1', exact: true })).toBeVisible()
   await page.getByRole('textbox', { name: 'Inspiration goal', exact: true }).focus()
@@ -57,13 +75,17 @@ test('legacy boards and images survive migration, reload and web export', async 
   // The answered question folds into one row with the answer; the new reply follows it.
   await expect(page.locator('.folded-turn')).toHaveCount(1)
   await expect(page.locator('.assistant-message')).toHaveCount(1)
-  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeAttached()
   await page.getByRole('button', { name: 'Close chat', exact: true }).click()
   await page.getByRole('button', { name: 'Board menu', exact: true }).click()
+  const menu = page.getByRole('menu')
+  const exportItem = menu.getByRole('menuitem', { name: 'Export', exact: true })
+  await expect(menu.getByText('Boards stay in this browser', { exact: true })).toBeVisible()
+  await expect(exportItem).toHaveAccessibleDescription('Boards stay in this browser Export to keep a backup.')
   await expect(page.getByRole('menuitem', { name: 'Import', exact: true })).toHaveCount(0)
   await expect(page.locator('input[aria-label="Import backup"]')).toHaveCount(0)
   const downloading = page.waitForEvent('download')
-  await page.getByRole('menuitem', { name: 'Export', exact: true }).click()
+  await exportItem.click()
   const download = await downloading
   const path = testInfo.outputPath('roundtrip.unfold')
   await download.saveAs(path)
@@ -90,14 +112,14 @@ test('legacy boards and images survive migration, reload and web export', async 
   if (!asset) throw new Error('Exported image missing')
   await page.locator('input[accept="image/png,image/jpeg,image/webp"]').setInputFiles({ name: 'fresh.png', mimeType: 'image/png', buffer: Buffer.from(asset.data, 'base64') })
   await expect(page.getByRole('img', { name: 'fresh', exact: true })).toBeVisible()
-  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeAttached()
   await page.reload()
   await expect(page.getByRole('img', { name: 'fresh', exact: true })).toBeVisible()
 })
 
 test('invalid browser data reports a recoverable error instead of hanging or replacing it', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeAttached()
   await page.evaluate(async () => {
     await new Promise<void>((resolve, reject) => {
       const request = indexedDB.open('unfold-workspaces-v1', 1)
@@ -126,21 +148,24 @@ test('invalid browser data reports a recoverable error instead of hanging or rep
 
 test('a stale second tab cannot overwrite a newer saved workspace', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+  await expect(page.getByText('Saved in browser', { exact: true })).toBeAttached()
   const other = await page.context().newPage()
   try {
     await other.goto('/')
-    await expect(other.getByText('Saved in browser', { exact: true })).toBeVisible()
+    await expect(other.getByText('Saved in browser', { exact: true })).toBeAttached()
     await page.getByRole('button', { name: 'Mood boards: Your next chapter', exact: true }).click()
     await page.getByRole('menuitem', { name: 'Rename board', exact: true }).click()
     await page.getByRole('textbox', { name: 'Board name', exact: true }).fill('Newer saved name')
     await page.getByRole('button', { name: 'Save name', exact: true }).click()
-    await expect(page.getByText('Saved in browser', { exact: true })).toBeVisible()
+    await expect(page.getByText('Saved in browser', { exact: true })).toBeAttached()
     await other.getByRole('button', { name: 'Mood boards: Your next chapter', exact: true }).click()
     await other.getByRole('menuitem', { name: 'Rename board', exact: true }).click()
     await other.getByRole('textbox', { name: 'Board name', exact: true }).fill('Stale name')
     await other.getByRole('button', { name: 'Save name', exact: true }).click()
     await expect(other.getByRole('alert')).toContainText('changed in another tab')
+    const status = other.getByRole('banner').getByRole('status')
+    await expect(status).toHaveText('Not saved')
+    expect(await status.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(1)
     await page.reload()
     await expect(page.getByRole('button', { name: 'Mood boards: Newer saved name', exact: true })).toBeVisible()
   } finally { await other.close() }
