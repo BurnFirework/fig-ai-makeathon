@@ -1,3 +1,4 @@
+import { curveControls, curvePoints } from '../../shared/spatial-layout'
 import { actions } from '../actions'
 import { RelationshipSchema, type Relationship } from '../../shared/board-edits'
 import {
@@ -16,7 +17,6 @@ import {
 	Vec,
 	type VecLike,
 	type VecModel,
-	clamp,
 	useEditor,
 	useValue,
 	vecModelValidator,
@@ -257,7 +257,8 @@ function ConnectionShape({ connection }: { connection: ConnectionShape }) {
 
 	return (
 		<SVGContainer className="ConnectionShape">
-			<path d={getConnectionPath(start, end, sideways)} strokeDasharray={connection.props.relationship === 'reference' ? '6 5' : undefined} />
+			<defs><marker id={`arrow-${connection.id.replace(/:/g, '-')}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><polyline points="1,1 9,5 1,9" fill="none" stroke="currentColor" strokeWidth="1.5"/></marker></defs>
+            <path markerEnd={`url(#arrow-${connection.id.replace(/:/g, '-')})`} d={getConnectionPath(start, end, sideways)} strokeDasharray={connection.props.relationship === 'reference' ? '6 5' : undefined} />
 		</SVGContainer>
 	)
 }
@@ -285,16 +286,8 @@ export const isSidePort = (portId: string | undefined) => portId?.startsWith('si
 
 // Connections flow top-to-bottom, so control points are offset vertically from each terminal; side links flow left to right
 function getConnectionControlPoints(start: VecLike, end: VecLike, sideways = false): [Vec, Vec] {
-	if (sideways) {
-		const reach = Math.max(30, Math.abs(end.x - start.x) / 2)
-		return [new Vec(start.x + reach, start.y), new Vec(end.x - reach, end.y)]
-	}
-	const distance = end.y - start.y
-	const adjustedDistance = Math.max(
-		30,
-		distance > 0 ? distance / 3 : clamp(Math.abs(distance) + 30, 0, 100)
-	)
-	return [new Vec(start.x, start.y + adjustedDistance), new Vec(end.x, end.y - adjustedDistance)]
+  const [first, second] = curveControls(start, end, sideways)
+  return [Vec.From(first), Vec.From(second)]
 }
 
 // Generate SVG path for the connection
@@ -320,3 +313,10 @@ export function getConnectionTerminals(editor: Editor, connection: ConnectionSha
 	return { start: getTerminal('start'), end: getTerminal('end'), sideways: isSidePort(bindings.start?.props.portId) }
 }
 
+
+/** Sample the same page-space path used by rendering and hit geometry for placement scoring. */
+export function getConnectionPagePoints(editor: Editor, connection: ConnectionShape) {
+  const { start, end, sideways } = getConnectionTerminals(editor, connection)
+  const transform = editor.getShapePageTransform(connection)
+  return curvePoints(start, end, sideways).map(point => transform.applyToPoint(point))
+}

@@ -8,7 +8,7 @@ const STAGE_ORDER = { discovery: 0, verification: 1, shortlist: 2, synthesis: 3 
 
 /** What the run produced, in one line, with the one action that fits. */
 function outcome(run: ExploreRun): { title: string; detail?: string; action?: 'show' | 'edit' | 'retry'; ids?: TLShapeId[] } {
-  if (run.running) return { title: 'Finding options…' }
+  if (run.running) return { title: 'Exploring your cards…', detail: `${run.workers.filter(worker => worker.status === 'complete').length} of ${run.topics.length} cards complete · additions appear as they are ready` }
   if (run.stopped) return { title: 'Search stopped', action: 'edit' }
   if (run.added > 0) return { title: `${run.added} ${run.added === 1 ? 'option' : 'options'} added to your board`, action: 'show', ids: run.updatedIds }
   if (run.existing > 0) return { title: `${run.existing === 1 ? 'The option is' : 'These options are'} already on your board`, detail: 'Nothing new turned up this time.', action: 'show', ids: run.existingIds }
@@ -40,6 +40,7 @@ export function ExploreActivity() {
       {run.running && <Button variant="outline" size="sm" onClick={() => api?.stopExplore()}>Stop</Button>}
       {result.action === 'show' && result.ids && <Button size="sm" onClick={() => show(result.ids ?? [])}>Show on board</Button>}
       {result.action === 'edit' && <Button size="sm" onClick={() => uiState.update(editor, state => ({ ...state, exploreDialog: { reuse: true } }))}>Edit search</Button>}
+      {!run.running && isNotEmpty(run.failed) && result.action !== 'retry' && <Button variant="outline" size="sm" onClick={() => { api?.retryExplore().catch(() => {}) }}>Retry unfinished</Button>}
       {result.action === 'retry' && <Button size="sm" onClick={() => { api?.retryExplore().catch(() => {}) }}>Retry</Button>}
     </div>
     {shared && !run.running && <section className="explore-shared" aria-label="Suggested shared step">
@@ -50,12 +51,13 @@ export function ExploreActivity() {
         ? <Button variant="ghost" size="sm" onClick={() => show([addedId])}>On your board · Show</Button>
         : <Button variant="outline" size="sm" onClick={() => api?.addSharedStep()}><Plus aria-hidden="true"/>Add to board</Button>}
     </section>}
+    {run.reports && <details className="explore-log"><summary>Card outcomes<ChevronDown size={14}/></summary><ol>{run.reports.map(report => <li key={report.sourceId}><strong>{titles.get(report.sourceId)}</strong><p>{report.status === 'failed' ? report.message : report.note ?? (report.outcome === 'incomplete' ? 'A required fact is still unknown.' : report.outcome === 'rejected' ? 'The sources contradicted the scope.' : report.outcome === 'empty' ? 'No confirmed options found.' : 'Confirmed options added.')}</p></li>)}</ol></details>}
     {!isEmpty(log) && <details className="explore-log">
       <summary>Agent activity<ChevronDown size={14} aria-hidden="true"/></summary>
       <ol>
         {log.map(worker => <li key={worker.id} data-status={worker.status}>
           <strong>{worker.label}{worker.sourceId && titles.get(worker.sourceId) ? <span> · {titles.get(worker.sourceId)}</span> : null}</strong>
-          <p>{worker.status === 'queued' ? 'Waiting.' : worker.message}</p>
+          <p>{worker.status === 'queued' ? 'Waiting.' : worker.message}</p>{worker.connections?.map(connection => <a key={connection.toolkit} href={connection.url} target="_blank" rel="noopener noreferrer">Connect {connection.toolkit}</a>)}
         </li>)}
       </ol>
     </details>}

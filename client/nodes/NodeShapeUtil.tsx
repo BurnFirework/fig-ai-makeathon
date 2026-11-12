@@ -1,3 +1,5 @@
+import { actions, uiState } from '../actions'
+import { LoaderCircle } from 'lucide-react'
 import {
 	Circle2d,
 	Group2d,
@@ -125,6 +127,7 @@ function NodeShape({ shape }: { shape: NodeShape }) {
 		>
 			<NodeBody shape={shape} />
 			<NodePorts shape={shape} />
+            <CardInvestigation shape={shape} />
 		</HTMLContainer>
 	)
 }
@@ -146,4 +149,17 @@ function NodePorts({ shape }: { shape: NodeShape }) {
 			))}
 		</>
 	)
+}
+
+function CardInvestigation({ shape }: { shape: NodeShape }) {
+  const editor = useEditor()
+  const run = useValue('card investigation', () => uiState.get(editor).explore, [editor])
+  const worker = run?.workers.find(worker => worker.sourceId === shape.id && worker.status === 'running') ?? run?.workers.filter(worker => worker.sourceId === shape.id).at(-1)
+  const report = run?.reports?.find(report => report.sourceId === shape.id)
+  if (!worker && !report) return null
+  const message = report?.status === 'failed' ? report.message : report?.status === 'complete' ? report.note ?? 'Added to your board.' : worker?.message
+  return <div className="explore-source-status" role="status" title={message} onPointerDown={event => editor.markEventAsHandled(event)} onKeyDown={event => event.stopPropagation()}>
+    {worker?.status === 'running' && !report && <LoaderCircle size={13} className="spin"/>}<span>{message}</span>
+    {report?.status === 'failed' && !run?.running && <button type="button" onClick={() => { actions.get(editor)?.retryExplore().catch(() => {}) }}>Retry</button>}
+  </div>
 }

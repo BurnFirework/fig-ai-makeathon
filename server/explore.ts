@@ -1,9 +1,10 @@
+import { runCardExplore } from './explore-cards'
 import { z } from 'zod'
 import { callCli, type CliConfig } from './cli'
 import { parseWithRetry } from './agents'
 import { isEmpty, isNotEmpty } from '../shared/arrays'
 import type { AgentEvent } from '../shared/schema'
-import { ExploreFindingSchema, ExploreUrl, type ExploreFinding, type ExploreReport, type ExploreRequest, type ExploreTopic, type ExploreWorker, type ExploreShared, type WebTopic } from '../shared/explore'
+import { ExploreFindingSchema, ExploreUrl, type ExploreFinding, type ExploreReport, type ExploreRequest, type ExploreTopic, type ExploreWorker, type ExploreShared, type ExploreResult, type WebTopic } from '../shared/explore'
 import { searchWebTopic } from './explore-web'
 import { fetchPages, findPages, searchEvents, searchJobs, type EvidencePage, type JobLead, type Ticket } from './explore-sources'
 
@@ -102,7 +103,7 @@ export function verifiedJob(lead: JobLead, pages: EvidencePage[], remoteOnly: bo
 // `leads` is how many provider listings survived the scope filters, so an empty result can say whether the
 // provider had nothing or the source pages did not confirm what it listed.
 type TopicSearch = { leads: number; findings: ExploreFinding[] }
-async function exploreTopic(topic: Exclude<ExploreTopic, { kind: 'web' }>, signal: AbortSignal, progress: (message: string) => void, recordEvidence: (pages: EvidencePage[]) => void): Promise<TopicSearch> {
+async function exploreTopic(topic: Exclude<ExploreTopic, { kind: 'web' | 'card' }>, signal: AbortSignal, progress: (message: string) => void, recordEvidence: (pages: EvidencePage[]) => void): Promise<TopicSearch> {
   if (topic.kind === 'events') {
     const events = (await searchEvents(topic, signal)).filter(event => topic.maxPrice === undefined
       || !event.priceRanges || isEmpty(event.priceRanges) || event.priceRanges.some(price => price.currency === 'USD' && price.min <= (topic.maxPrice ?? Infinity))).slice(0, 5)
@@ -168,7 +169,7 @@ async function ticketmasterFindings(topic: WebTopic, signal: AbortSignal): Promi
 }
 
 /** A plain explanation for a search that produced no source-verified candidates. */
-export function emptySearchNote(topic: Exclude<ExploreTopic, { kind: 'web' }>, leads: number): string {
+export function emptySearchNote(topic: Exclude<ExploreTopic, { kind: 'web' | 'card' }>, leads: number): string {
   const terms = `“${topic.query.slice(0, 80)}”`
   if (topic.kind === 'events') return leads === 0
     ? `Ticketmaster lists no events for ${terms} in ${topic.cities.join(' or ')} on these dates. It covers concerts, shows and sports, not classes or meetups; try a performer, venue or genre.`
@@ -246,7 +247,7 @@ async function ask<T>(config: CliConfig, assignment: string, data: unknown, sche
 }
 
 let active = false
-export async function runExplore(request: ExploreRequest, signal: AbortSignal, emit: (event: AgentEvent) => void, config: CliConfig = { provider: 'demo', binary: '' }) {
+async function runLegacyExplore(request: ExploreRequest, signal: AbortSignal, emit: (event: AgentEvent) => void, config: CliConfig = { provider: 'demo', binary: '' }) {
   if (active) throw new Error('An Explore board run is already active.')
   active = true
   const live = config.provider !== 'demo'
@@ -280,7 +281,8 @@ export async function runExplore(request: ExploreRequest, signal: AbortSignal, e
           if (!signal.aborted) emit({ type: 'activity', role: 'research', message })
         }
         try {
-          if (topic.kind === 'web') return await searchWebTopic(topic, {
+          if (topic.kind === 'card') throw new Error('Generic cards use their independent investigation agent.')
+  if (topic.kind === 'web') return await searchWebTopic(topic, {
             ...(live ? { ask: <T>(assignment: string, data: unknown, schema: z.ZodType<T>) => ask(config, assignment, data, schema, signal) } : {}),
             search: (objective, queries) => findPages(objective, queries, signal),
             fetch: (objective, urls) => fetchPages(objective, urls, signal),
@@ -359,4 +361,8 @@ export async function runExplore(request: ExploreRequest, signal: AbortSignal, e
     }
     active = false
   }
+}
+
+export async function runExplore(request: ExploreRequest, signal: AbortSignal, emit: (event: AgentEvent) => void, config: CliConfig = { provider: 'demo', binary: '' }): Promise<ExploreResult> {
+  return request.board || request.topics.some(topic => topic.kind === 'card') ? runCardExplore(request, signal, emit, config) : runLegacyExplore(request, signal, emit, config)
 }

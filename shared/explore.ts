@@ -12,8 +12,7 @@ export type WebCategory = z.infer<typeof WebCategorySchema>
  * `web` is the search Explore runs today. `events` and `jobs` are earlier provider-specific searches; they stay readable so
  * saved boards keep their findings, and the client turns them into web searches before running them again.
  */
-export const ExploreTopicSchema = z.discriminatedUnion('kind', [
-  z.object({ ...target, kind: z.literal('web'), category: WebCategorySchema,
+const WebTopicObject = z.object({ ...target, kind: z.literal('web'), category: WebCategorySchema,
     /** Optional scope the user approved. Unset means no limit, never "anything nearby". */
     city: short.optional(), schedule: short.optional(), start: z.iso.date().optional(), end: z.iso.date().optional(),
     maxPrice: z.number().nonnegative().max(100000).optional(), remoteOnly: z.boolean().optional(), region: short.optional(),
@@ -25,20 +24,25 @@ export const ExploreTopicSchema = z.discriminatedUnion('kind', [
     context: z.array(label).max(6).default([]),
     /** Links already on the source card; checked first. */
     links: z.array(ExploreUrl).max(3).default([]),
-  }),
+  })
+export const ExploreTopicSchema = z.discriminatedUnion('kind', [
+  WebTopicObject,
+  WebTopicObject.extend({ kind: z.literal('card'), category: WebCategorySchema.optional() }),
   z.object({ ...target, kind: z.literal('events'), cities: z.array(label).min(1).max(2), start: z.iso.date(), end: z.iso.date(), maxPrice: z.number().positive().max(100000).optional() }),
   z.object({ ...target, kind: z.literal('jobs'), remoteOnly: z.boolean() }),
 ])
 export type ExploreTopic = z.infer<typeof ExploreTopicSchema>
+export type InvestigationTopic = Extract<ExploreTopic, { kind: 'card' | 'web' }>
 export type WebTopic = Extract<ExploreTopic, { kind: 'web' }>
 const window = (start: string, end: string) => start <= end && Date.parse(end) - Date.parse(start) <= 90 * 86400000
 export const ExploreRequestSchema = z.object({
-  operation: z.literal('explore'), requestId: label, topics: z.array(ExploreTopicSchema).min(1).max(4),
+  operation: z.literal('explore'), requestId: label, topics: z.array(ExploreTopicSchema).min(1),
+  board: z.object({ cards: z.array(z.object({ id: label, node: z.record(z.string(), z.unknown()), image: z.string().max(4_000_000).optional() })), conversations: z.array(z.unknown()), relations: z.array(z.unknown()) }).optional(),
 }).superRefine(({ topics }, ctx) => {
   if (new Set(topics.map(topic => topic.sourceId)).size !== topics.length) ctx.addIssue({ code: 'custom', message: 'Choose one search per interest.' })
   for (const topic of topics) {
     if (topic.kind === 'events' && !window(topic.start, topic.end)) ctx.addIssue({ code: 'custom', message: 'Choose an event window of up to 90 days.' })
-    if (topic.kind === 'web' && topic.start && topic.end && !window(topic.start, topic.end)) ctx.addIssue({ code: 'custom', message: `“${topic.title}”: choose dates up to 90 days apart, with the start first.` })
+    if ((topic.kind === 'web' || topic.kind === 'card') && topic.start && topic.end && !window(topic.start, topic.end)) ctx.addIssue({ code: 'custom', message: `“${topic.title}”: choose dates up to 90 days apart, with the start first.` })
   }
 })
 export type ExploreRequest = z.infer<typeof ExploreRequestSchema>
@@ -52,15 +56,18 @@ export const ExploreFindingSchema = z.object({
 })
 export type ExploreFinding = z.infer<typeof ExploreFindingSchema>
 export const ExploreOutcomeSchema = z.enum(['confirmed', 'incomplete', 'rejected', 'empty'])
+export const ExploreDevelopmentSchema = z.object({ id: label, kind: z.enum(['idea', 'plan', 'question', 'comparison']), title: label, text: z.string().min(1).max(1200), sources: z.array(z.object({ title: label, url: ExploreUrl, quote: z.string().trim().min(4).max(1200) })).default([]) })
 export const ExploreReportSchema = z.discriminatedUnion('status', [
   z.object({ sourceId: label, status: z.literal('complete'), findings: z.array(ExploreFindingSchema).max(6), note: z.string().min(1).max(400).optional(),
     /** confirmed: options passed every check · incomplete: a required fact stayed unknown · rejected: sources contradicted the scope · empty: nothing to check. */
+    developments: z.array(ExploreDevelopmentSchema).optional(), usedCardIds: z.array(label).optional(),
     outcome: ExploreOutcomeSchema.optional(), candidates: z.number().int().nonnegative().optional(), checkedAt: z.number() }),
   z.object({ sourceId: label, status: z.literal('failed'), message: label }),
 ])
 export type ExploreReport = z.infer<typeof ExploreReportSchema>
 export const ExploreWorkerSchema = z.object({
   id: label, sourceId: label.optional(), label, message: z.string().max(500),
+  connections: z.array(z.object({ toolkit: label, url: ExploreUrl })).optional(),
   stage: z.enum(['discovery', 'verification', 'shortlist', 'synthesis']),
   status: z.enum(['queued', 'running', 'complete', 'failed', 'skipped']),
 })
@@ -71,11 +78,11 @@ export const ExploreSharedSchema = z.object({
   checkedAt: z.number(),
 })
 export type ExploreShared = z.infer<typeof ExploreSharedSchema>
-export const ExploreResultSchema = z.object({ requestId: label, reports: z.array(ExploreReportSchema).max(4), shared: ExploreSharedSchema.optional() })
+export const ExploreResultSchema = z.object({ requestId: label, reports: z.array(ExploreReportSchema), shared: ExploreSharedSchema.optional() })
 export type ExploreResult = z.infer<typeof ExploreResultSchema>
 
 export function searchScope(topic: ExploreTopic): string {
-  if (topic.kind === 'web') return JSON.stringify([topic.kind, topic.category, topic.query, topic.city, topic.schedule, topic.start, topic.end, topic.maxPrice, topic.remoteOnly, topic.region, topic.conditions])
+  if (topic.kind === 'web' || topic.kind === 'card') return JSON.stringify([topic.kind, topic.category, topic.query, topic.city, topic.schedule, topic.start, topic.end, topic.maxPrice, topic.remoteOnly, topic.region, topic.conditions])
   return topic.kind === 'events' ? JSON.stringify([topic.kind, topic.query, topic.cities, topic.start, topic.end, topic.maxPrice])
     : JSON.stringify([topic.kind, topic.query, topic.remoteOnly])
 }
@@ -208,7 +215,7 @@ export function buildWebTopic(seed: TopicSeed): WebTopic {
 }
 
 /** Reads an earlier provider-specific search as the equivalent web search. */
-export function toWebTopic(topic: ExploreTopic): WebTopic {
+export function toWebTopic(topic: Exclude<ExploreTopic, { kind: 'card' }>): WebTopic {
   if (topic.kind === 'web') return topic
   const base = { sourceId: topic.sourceId, title: topic.title, query: topic.query.split(/\s+OR\s+/i)[0]?.trim() || topic.query, dependencies: topic.dependencies, conditions: [], preferences: [], context: [], links: [] }
   return topic.kind === 'events'
@@ -220,8 +227,23 @@ const dateText = (date: string) => new Date(`${date}T12:00:00Z`).toLocaleDateStr
 const money = (value: number) => value === 0 ? 'Free' : `Up to $${value.toLocaleString('en-US')}`
 /** The one-line scope shown before a search, e.g. "Pottery wheel class · San Francisco · Saturday". */
 export function describeTopic(topic: ExploreTopic): string {
-  const web = toWebTopic(topic)
+  const web = topic.kind === 'card' ? topic : toWebTopic(topic)
   const dates = web.start && web.end ? `${dateText(web.start)}–${dateText(web.end)}` : web.start ? `From ${dateText(web.start)}` : web.end ? `Until ${dateText(web.end)}` : undefined
   return [web.query, web.remoteOnly ? `Remote${web.region ? ` · ${web.region}` : ''}` : web.city, web.schedule, dates,
     web.maxPrice !== undefined ? money(web.maxPrice) : undefined, ...web.conditions.slice(0, 2)].filter(Boolean).join(' · ')
+}
+
+export function investigationTopic(topic: ExploreTopic): InvestigationTopic { return topic.kind === 'card' ? topic : toWebTopic(topic) }
+/** Transport duration accounts for all selected cards; per-card work stays bounded. */
+export const exploreTimeout = (cards: number) => Math.min(2_147_000_000, cards * 490_000 + 20_000)
+export function developmentKey(item: { kind: string; title: string; text: string; sources: { url: string }[] }): string {
+  const normalize = (value: string) => value.trim().replace(/\s+/g, ' ')
+  return JSON.stringify([item.kind, normalize(item.title).toLowerCase(), normalize(item.text), [...new Set(item.sources.map(source => new URL(source.url).href))].sort()])
+}
+
+/** Refresh inherited facts while preserving scope fields explicitly edited for the prior run. */
+export function refreshInvestigationScope(current: InvestigationTopic, previous: InvestigationTopic, baseline?: InvestigationTopic): InvestigationTopic {
+  const keys = ['query', 'city', 'schedule', 'start', 'end', 'maxPrice', 'remoteOnly', 'region', 'preferences'] as const
+  const overrides = Object.fromEntries(keys.filter(key => baseline && JSON.stringify(previous[key]) !== JSON.stringify(baseline[key])).map(key => [key, previous[key]]))
+  return { ...current, ...overrides }
 }

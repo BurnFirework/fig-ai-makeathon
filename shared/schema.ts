@@ -1,4 +1,4 @@
-import { ExploreFindingSchema, ExploreResultSchema, ExploreTopicSchema, ExploreWorkerSchema } from './explore'
+import { ExploreFindingSchema, ExploreReportSchema, ExploreResultSchema, ExploreTopicSchema, ExploreWorkerSchema } from './explore'
 import { z } from 'zod'
 import { BoardContextSchema, BoardEditsSchema, CardContentSchema } from './board-edits'
 
@@ -93,6 +93,7 @@ export const LinkScanSchema = z.object({
   reason: z.string().max(400), chatId: z.string().optional(), at: z.number(),
 })
 const base = {
+  exploration: z.object({ sourceId: z.string(), id: z.string(), kind: z.enum(['idea', 'plan', 'question', 'comparison']), sources: z.array(z.object({ title: z.string(), url: z.url({ protocol: /^https?$/ }), quote: z.string().optional() })) }).optional(),
   chats: z.array(ChatSchema).optional(),
   origin: z.object({ nodeId: z.string(), chatId: z.string(), messageId: z.string(), inputs: z.array(DependencySchema).optional() }).optional(),
   branchId: z.string(), sequence: z.number(), revision: z.number().int().nonnegative(), stale: z.boolean(),
@@ -159,6 +160,7 @@ export const ResultSchema = z.object({
 export type AgentResult = z.infer<typeof ResultSchema>
 export const EventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('explore-worker'), worker: ExploreWorkerSchema }),
+  z.object({ type: z.literal('explore-report'), report: ExploreReportSchema }),
   z.object({ type: z.literal('activity'), role: ActivitySchema.shape.role, message: z.string() }),
   z.object({ type: z.literal('handoff'), handoff: HandoffSchema }),
   z.object({ type: z.literal('result'), result: ResultSchema }),

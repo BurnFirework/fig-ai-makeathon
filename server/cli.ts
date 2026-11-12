@@ -93,27 +93,29 @@ export function readCliEvent(line: string, provider: 'claude' | 'codex') {
   return { text, searched, urls, error, failure }
 }
 
-export interface CliOptions { search?: boolean; image?: string; timeoutMs?: number; maxTurns?: number }
+export interface CliOptions { search?: boolean; image?: string; images?: string[]; timeoutMs?: number; maxTurns?: number }
 export async function callCli(config: CliConfig, prompt: string, signal: AbortSignal, options: CliOptions = {}): Promise<{ text: string; searched: boolean; urls: string[] }> {
   if (config.provider === 'demo') throw new Error('Preview mode has no live provider.')
   const provider = config.provider
   const directory = await mkdtemp(join(tmpdir(), 'unfold-agent-'))
   try {
-    let imagePath: string | undefined
-    if (options.image) {
-      const image = /^data:image\/(png|jpeg|webp);base64,(.+)$/.exec(options.image)
+    const imageInputs = [...(options.image ? [options.image] : []), ...(options.images ?? [])]
+    const imagePaths: string[] = []
+    for (const [index, value] of imageInputs.entries()) {
+      const image = /^data:image\/(png|jpeg|webp);base64,(.+)$/.exec(value)
       if (!image?.[1] || !image[2]) throw new Error('Unsupported image input.')
-      imagePath = join(directory, `inspiration.${image[1] === 'jpeg' ? 'jpg' : image[1]}`)
+      const imagePath = join(directory, `inspiration-${index}.${image[1] === 'jpeg' ? 'jpg' : image[1]}`)
       await writeFile(imagePath, Buffer.from(image[2], 'base64'), { mode: 0o600 })
+      imagePaths.push(imagePath)
     }
     const args = provider === 'codex'
-      ? ['exec', '--json', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check', '--sandbox', 'read-only', '--disable', 'shell_tool', '--disable', 'hooks', '-c', `web_search="${options.search ? 'live' : 'disabled'}"`, ...(config.model ? ['--model', config.model] : []), ...(imagePath ? ['--image', imagePath] : []), '-']
+      ? ['exec', '--json', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check', '--sandbox', 'read-only', '--disable', 'shell_tool', '--disable', 'hooks', '-c', `web_search="${options.search ? 'live' : 'disabled'}"`, ...(config.model ? ['--model', config.model] : []), ...imagePaths.flatMap(path => ['--image', path]), '-']
       : ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--max-turns', String(options.maxTurns ?? 8), '--permission-mode', 'dontAsk', '--tools', options.search ? 'WebSearch,WebFetch' : '', '--allowedTools', options.search ? 'WebSearch,WebFetch' : '', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '', '--settings', '{"disableAllHooks":true}', ...(config.model ? ['--model', config.model] : [])]
     const env = cliEnv()
     let input = prompt
     if (provider === 'claude') {
       const content: unknown[] = [{ type: 'text', text: prompt }]
-      if (options.image) { const match = /^data:([^;]+);base64,(.+)$/.exec(options.image); if (match) content.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } }) }
+      for (const image of imageInputs) { const match = /^data:([^;]+);base64,(.+)$/.exec(image); if (match) content.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } }) }
       input = JSON.stringify({ type: 'user', message: { role: 'user', content } }) + '\n'
     }
     const output = await new Promise<{ text: string; searched: boolean; urls: string[] }>((resolve, reject) => {

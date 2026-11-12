@@ -725,3 +725,6 @@ export async function searchWebTopic(topic: WebTopic, deps: WebDeps): Promise<Ex
   deps.stage('shortlist', 'complete', `Chose ${findings.map(finding => `“${clip(finding.title, 50)}”`).join(', ')}${isNotEmpty(topic.preferences) ? `, ranked by ${topic.preferences.slice(0, 2).join(' and ').toLowerCase()}` : ''}.`)
   return { sourceId: topic.sourceId, status: 'complete', findings, outcome: 'confirmed', candidates: reviews.length + leads.length + tickets.length, checkedAt }
 }
+
+/** Primary item text, excluding related listings/footer, for card-agent evidence quotations. */
+export const ownPageText = (page: EvidencePage) => itemText(page)

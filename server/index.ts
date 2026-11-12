@@ -1,3 +1,4 @@
+import { exploreTimeout } from '../shared/explore'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { existsSync, readFileSync } from 'node:fs'
 import { extname, resolve, sep } from 'node:path'
@@ -41,15 +42,16 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   if (request.method === 'POST' && pathname === '/api/agent') {
     const controller = new AbortController()
     response.on('close', () => controller.abort())
-    const timeout = setTimeout(() => controller.abort(), 500_000)
+    let timeout = setTimeout(() => controller.abort(), 500_000)
     try {
       const chunks: Buffer[] = []; let size = 0
       for await (const bytes of requestBytes(request)) {
         size += bytes.length
-        if (size > 8_000_000) { response.writeHead(413); response.end('Image or request is too large.'); return }
+        if (size > 64_000_000) { response.writeHead(413); response.end('Image or request is too large.'); return }
         chunks.push(bytes)
       }
       const parsed = parseAgentRequest(JSON.parse(Buffer.concat(chunks).toString()))
+      if (parsed.operation === 'explore') { clearTimeout(timeout); timeout = setTimeout(() => controller.abort(), exploreTimeout(parsed.topics.length)) }
       response.writeHead(200, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store' })
       const emit = (event: unknown) => { if (!response.destroyed) response.write(JSON.stringify(event) + '\n') }
       await runRuntime(parsed, providerConfig(), controller.signal, emit)

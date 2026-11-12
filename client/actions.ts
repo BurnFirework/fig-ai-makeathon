@@ -1,6 +1,6 @@
 import { Editor, EditorAtom, type TLShapeId } from 'tldraw'
 import type { Handoff } from '../shared/schema'
-import type { ExploreShared, ExploreTopic, ExploreWorker, WebTopic } from '../shared/explore'
+import type { ExploreReport, ExploreShared, ExploreTopic, ExploreWorker, InvestigationTopic } from '../shared/explore'
 import type { BoardEdit } from '../shared/board-edits'
 
 export interface Activity { id: string; role: string; message: string; time: number; handoff?: Handoff }
@@ -23,18 +23,20 @@ export interface ExploreRun {
   stopped: boolean; error: string
   workers: ExploreWorker[]
   /** The approved scope of this run, for Edit search and Retry. */
-  topics: WebTopic[]
+  topics: InvestigationTopic[]
   /** Finding groups holding options this run added, and how many options are new. */
   updatedIds: TLShapeId[]; added: number
   /** Groups holding options this run found again that were already on the board. */
   existingIds: TLShapeId[]; existing: number
   /** Interests whose search failed for a technical reason. */
   failed: string[]
+  reports?: ExploreReport[]
+  baselines?: InvestigationTopic[]
   /** A shared next step the agents suggested; its card exists only after Add to board. */
   shared?: { plan: ExploreShared; addedId?: TLShapeId }
 }
 export const uiState = new EditorAtom<UiState>('unfold-ui', () => ({ mode: 'demo', provider: 'Preview', activity: [], panel: false, jobs: {}, saved: true, activeChat: null, chatView: 'focus', removing: null, explore: null, exploreDialog: null }))
-export interface ExploreCandidate { topic: WebTopic; selected: boolean; suggested: boolean; reason: string; conditions: string[] }
+export interface ExploreCandidate { topic: InvestigationTopic; selected: boolean; suggested: boolean; reason: string; conditions: string[] }
 /** Writes the workspace now instead of after the usual short delay; registered by the workspace for its editor. */
 export const saveNow = new WeakMap<Editor, () => void>()
 

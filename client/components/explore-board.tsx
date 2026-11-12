@@ -3,7 +3,7 @@ import { useRef, useState } from 'react'
 import { ArrowRight, Compass, LoaderCircle, Pencil, Plus } from 'lucide-react'
 import { useEditor, useValue } from 'tldraw'
 import { actions, uiState, type ExploreCandidate } from '../actions'
-import { describeTopic, ExploreRequestSchema, type WebTopic } from '../../shared/explore'
+import { describeTopic, refreshInvestigationScope, ExploreRequestSchema, type InvestigationTopic } from '../../shared/explore'
 import { Button } from './ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog'
 import { Input } from './ui/input'
@@ -12,7 +12,7 @@ import { Textarea } from './ui/textarea'
 type Draft = ExploreCandidate & { checked: boolean; editing: boolean }
 type ScopeChange = { query?: string; remoteOnly?: boolean; city?: string | undefined; schedule?: string | undefined; start?: string | undefined; end?: string | undefined; maxPrice?: number | undefined; region?: string | undefined }
 /** Applies an edit to the search scope; a cleared field is removed rather than kept as an empty value. */
-function applyScope(topic: WebTopic, change: ScopeChange): WebTopic {
+function applyScope(topic: InvestigationTopic, change: ScopeChange): InvestigationTopic {
   const next = { ...topic, ...change }
   const { city, schedule, start, end, maxPrice, region } = next
   const { city: _city, schedule: _schedule, start: _start, end: _end, maxPrice: _maxPrice, region: _region, ...rest } = topic
@@ -20,7 +20,6 @@ function applyScope(topic: WebTopic, change: ScopeChange): WebTopic {
     ...(city ? { city } : {}), ...(schedule ? { schedule } : {}), ...(start ? { start } : {}), ...(end ? { end } : {}),
     ...(maxPrice !== undefined && Number.isFinite(maxPrice) ? { maxPrice } : {}), ...(region ? { region } : {}) }
 }
-const LIMIT = 4
 
 /** Optional text field: empty clears the value instead of storing an empty string. */
 const optional = (value: string) => value.trim() ? value.trim().slice(0, 160) : undefined
@@ -37,14 +36,14 @@ export function ExploreBoard() {
   const setOpen = (open: boolean) => uiState.update(editor, state => ({ ...state, exploreDialog: open ? state.exploreDialog ?? { reuse: false } : null }))
   const prepare = (reuse: boolean, failure = '') => {
     const candidates = actions.get(editor)?.exploreCandidates() ?? []
-    const last = reuse ? uiState.get(editor).explore?.topics ?? [] : []
-    const picked = candidates.filter(candidate => candidate.selected)
+    const priorRun = reuse ? uiState.get(editor).explore : null
+    const last = priorRun?.topics ?? []
     // A selected card is the search; with no selection, ideas searched before are offered again.
     const defaults = isNotEmpty(last) ? new Set(last.map(topic => topic.sourceId))
-      : new Set((isNotEmpty(picked) ? picked : candidates.filter(candidate => candidate.suggested)).slice(0, LIMIT).map(candidate => candidate.topic.sourceId))
+      : new Set(candidates.map(candidate => candidate.topic.sourceId))
     setRows(candidates.map(candidate => {
       const previous = last.find(topic => topic.sourceId === candidate.topic.sourceId)
-      return { ...candidate, topic: previous ? { ...previous, dependencies: candidate.topic.dependencies } : candidate.topic, checked: defaults.has(candidate.topic.sourceId), editing: reuse && previous !== undefined }
+      return { ...candidate, topic: previous ? refreshInvestigationScope(candidate.topic, previous, priorRun?.baselines?.find(topic => topic.sourceId === previous.sourceId)) : candidate.topic, checked: defaults.has(candidate.topic.sourceId), editing: reuse && previous !== undefined }
     }))
     setAdding(defaults.size === 0)
     setError(failure)
@@ -76,7 +75,7 @@ export function ExploreBoard() {
           <span className="explore-header-icon"><Compass size={21} aria-hidden="true"/></span>
           <div>
             <DialogTitle ref={titleRef} tabIndex={-1}>Explore board</DialogTitle>
-            <DialogDescription>Choose up to four ideas. Unfold searches the web, checks each option on its own page and adds confirmed ones next to your cards.</DialogDescription>
+            <DialogDescription>Each card has its own investigation, with your board as context. Keep every card selected or adjust the scope.</DialogDescription>
           </div>
         </DialogHeader>
         <form onSubmit={event => { event.preventDefault(); if (!running) find() }}>
@@ -85,7 +84,7 @@ export function ExploreBoard() {
               <h3>No ideas to explore yet</h3>
               <p>Add an inspiration or a note about something you want to find.</p>
             </div>}
-            {shown.map(row => <Topic key={row.topic.sourceId} row={row} disabled={running} full={!row.checked && selected.length >= LIMIT}
+            {shown.map(row => <Topic key={row.topic.sourceId} row={row} disabled={running} full={false}
               onCheck={checked => patch(row.topic.sourceId, current => ({ ...current, checked, editing: checked && current.editing }))}
               onEdit={() => patch(row.topic.sourceId, current => ({ ...current, editing: !current.editing }))}
               onScope={change => scope(row.topic.sourceId, change)}/>)}

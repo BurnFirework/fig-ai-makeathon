@@ -1,3 +1,4 @@
+import { exploreTimeout } from '../shared/explore'
 import { AgentMessageSchema } from '../shared/agent-contract'
 import { discoverProviders, publicConfig, selectProvider, providerConfig } from '../server/cli'
 import { parseAgentRequest, runRuntime } from '../server/runtime'
@@ -24,7 +25,7 @@ port.on('message', ({ data }: { data: unknown }) => {
     if (running.has(message.id)) throw new Error('Duplicate agent request')
     const controller = new AbortController()
     running.set(message.id, controller)
-    const timer = setTimeout(() => controller.abort(), 500_000)
+    const timer = setTimeout(() => controller.abort(), message.request.operation === 'explore' ? exploreTimeout(message.request.topics.length) : 500_000)
     try {
       const request = parseAgentRequest(message.request)
       await runRuntime(request, providerConfig(), controller.signal, event => port.postMessage({ type: 'event', id: message.id, event }))
