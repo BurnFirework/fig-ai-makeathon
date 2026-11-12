@@ -40,6 +40,12 @@ Live Explore uses Parallel for public web search and page reading, with CLI web 
 
 Explore checks claims about concrete options against primary pages such as a venue or employer site. A published schedule or listing can establish the stated details. Confirm current availability with the provider.
 
+## Privacy
+
+Unfold has no account system, usage analytics, or session replay. Your board library is stored on your device, and you can export a copy.
+
+Live AI sends prompts, board context, and relevant images to the model provider you sign in to. Live research can send search queries, page URLs, and tool inputs to services such as Parallel and Composio. Those services process requests under their own policies. The hosted browser preview uses sample conversations.
+
 ## Data storage
 
 Boards, stored images, conversations, and decisions save on your device. Browser and desktop libraries are independent.
