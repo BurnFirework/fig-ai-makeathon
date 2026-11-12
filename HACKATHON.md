@@ -111,41 +111,8 @@ These are organizer eligibility/prize descriptions, not confirmation that our te
 
 Source: eligibility and prize sections of the [event page](https://events.figstudio.vc/e/fig-ai-design-makeathon-2026).
 
-## How Unfold addresses the brief
+## Unfold demo
 
-This section is **our product interpretation**, not an additional official rubric or a promise that every feature is complete.
+Show how two images become separate goals, how the agents find a shared option, and how the user accepts, refines, or declines it. Include one correction that changes the next step and one sourced result the user can act on. Use the [README](README.md) to distinguish the hosted preview from a live run.
 
-Unfold helps a person move from visual inspiration to a clarified goal and a small real action. Its core journey is:
-
-**Two images → starred explorations → separate questions and answers → a shared possibility → user acceptance → sourced research → a concrete first step.**
-
-| Rubric concern | Evidence to show in Unfold |
-| --- | --- |
-| Problem framing and user value | Explain one target user's difficulty moving from inspiration to a feasible action, and why a visual exploration helps. |
-| AI-native workflow design | Show distinct branch contexts, an actual research handoff and a connection agent consuming both goals' results. Explain why those roles are useful. |
-| Human–agent interaction and control | The user changes direction through answers/comments, stops or retries work, and accepts/rejects/refines a shared proposal. Show one correction affecting what happens next. |
-| Usability and user flow | Complete the journey without explaining internal node IDs, prompts or CLI mechanics. Make the next action clear and preserve user decisions. |
-| Visual and interaction design | Keep images, questions, confirmed answers, proposals and actions legible and distinguishable; make connections and agent activity understandable. |
-| Functional demonstration | Run the complete journey and make loading, failure/retry and saved-board behavior credible. Clearly identify any simulated portion. |
-| Real-world applicability | Offer one modest, relevant action with sources and known constraints; do not imply that booking or another external action has already happened. |
-| Potential impact | Explain what the user gains over collecting images or chatting in a linear thread. Keep impact claims proportional to demonstrated evidence. |
-
-The project uses tldraw and subscription-backed local AI CLIs. Keep the browser-local architecture and storage policy in the [README](README.md#data-storage). See the [README](README.md) for current implementation scope and [architecture plan](ARCHITECTURE.md) for the planned web/desktop boundary; this reference does not replace current code or verification evidence.
-
-## Demo and submission preparation
-
-Prepare these materials before finalizing the organizer form:
-
-- [ ] Define one target user, problem and two-image demo scenario.
-- [ ] Show the two branches developing separately, including a meaningful user comment.
-- [ ] Show the shared proposal and explain the benefit to each goal.
-- [ ] Demonstrate user control: rejection/refinement or a correction that changes the next step.
-- [ ] Show the research handoff, source links and one practical first action.
-- [ ] Prepare a brief rationale covering the interaction choices and the role of AI.
-- [ ] Record which portions are live and which, if any, are simulated.
-- [ ] Prepare title, summary and description within the form's character limits.
-- [ ] Supply a judge-accessible demo URL and supporting project material.
-- [ ] Confirm the deadline timezone, any updated tool rules and the relevant event dates.
-- [ ] Review the final material before closing editing through final submission.
-
-Open product decisions remain decisions for the team: the precise target audience, final demo scenario, scope of agent autonomy and presentation narrative. Do not treat examples from earlier brainstorming as agreed requirements.
+Before submitting, check the [required deliverables](#required-deliverables), [submission fields](#submission-requirements), and [unresolved schedule details](#schedule-and-unresolved-discrepancies). Confirm the demo link opens for judges and identify any simulated parts.

@@ -1,53 +1,46 @@
-# Unfold public hosting and desktop downloads
+# Unfold hosting and releases
 
-Research date: November 11, 2026. Local source inspected at `e763522a49d8de545b738868f7d74f722cfde456`.
+## Deploy the website
 
-## Proposed layout
-
-| URL | Purpose |
+| Address | Contents |
 | --- | --- |
-| `https://unfold.bezr.dev/` | Product landing page with **Try in browser**, **Download for Mac** once available, and a link to the full demo recording. |
-| `https://unfold.bezr.dev/app/` | The actual Unfold canvas in browser preview mode, with a curated example board and browser-local edits. |
-| `https://unfold-downloads.bezr.dev/` | Versioned public desktop artifacts from a dedicated R2 bucket. |
+| `https://unfold.bezr.dev/` | Landing page with a board screenshot and desktop download links |
+| `https://unfold.bezr.dev/app/` | Browser preview with local board storage |
+| `https://unfold-downloads.bezr.dev/` | Host for versioned installer files linked from the landing page |
 
-The repo now has `apps/landing` and `apps/unfold` in one pnpm workspace with a root `.gitignore`. The landing page uses plain HTML and CSS with Vite. Browser and Electron builds share the application code in `apps/unfold`. `pnpm build:site` combines the landing output at the web root and the browser app under `app/`. Desktop packaging remains a separate build. The URLs above describe the proposed public deployment. [Workspace](pnpm-workspace.yaml), [Unfold package](apps/unfold/package.json), [repository architecture](ARCHITECTURE.md), [Vite production build](https://vite.dev/guide/build.html#public-base-path)
+Run `pnpm build:site` from the repository root to build both web entry points into `output/site/`. The landing page builds at the root and Vite builds the browser app under `/app/`.
 
-Use Unfold's cream and rose palette, an editorial heading, and a still of an actual example board as the main visual. Keep both entry points easy to find near the heading. The board should show the images and the relationships that make the canvas useful. [Product inspiration](PRODUCT_INSPIRATION.md)
+Sign in with `pnpm exec wrangler login`, then run `pnpm deploy`. [wrangler.jsonc](wrangler.jsonc) defines the Cloudflare Worker and custom domain. The Worker serves static assets. The browser uses sample conversations when its agent API is unavailable. After deploying, open the landing page and `/app/`, load a sample board, and check that it survives a reload. [Cloudflare Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/)
 
-## What T3 Code does
+## Desktop releases
 
-T3 Code has a dedicated landing page and download page. Its landing CTA links to a macOS asset on GitHub. The download page lets people choose stable or nightly and pick their OS and architecture. The source places its Astro marketing site under `apps/marketing`. The published release workflow builds platform artifacts, runs checks, and publishes them together to GitHub Releases. Its documented release flow includes signing, notarization, and smoke testing. [T3 Code homepage](https://t3.codes/), [download page](https://t3.codes/download), [marketing source](https://github.com/pingdotgg/t3code/tree/main/apps/marketing), [release checklist](https://github.com/pingdotgg/t3code/blob/main/docs/operations/release.md), [release workflow](https://github.com/pingdotgg/t3code/blob/main/.github/workflows/release.yml)
+The [landing page](apps/landing/index.html) links directly to versioned files on the download host. Release commands build artifacts into `output/desktop-release/`. Upload the installers to the public download bucket and update the links to match the uploaded filenames. [Packaging script](apps/unfold/scripts/desktop-package.mjs) · [R2 custom domains](https://developers.cloudflare.com/r2/buckets/public-buckets/)
 
-For Unfold, borrow the clear product page and architecture-specific installer links. One release with versioned artifacts is enough for the first public download.
+### Apple Silicon
 
-## Cloudflare hosting
+Use native Node.js on an Apple Silicon Mac with a Developer ID Application identity in Keychain. Configure a notarytool profile named `unfold-notary`. If multiple signing teams are available, set `CSC_NAME` to the release team's Team ID. [Apple distribution guide](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution)
 
-**Workers Static Assets** fits the two entry points. An assets-only deployment serves `index.html` at `/` and `app/index.html` at `/app/` with default HTML handling. The default missing-asset response is 404, which lets `/api/config` fail cleanly and preserves the app's existing preview fallback. A global SPA fallback serves the root `index.html` for missing navigation paths, which would be the landing page in this layout. Static asset requests are free and unlimited under the documented billing model. [Static Assets](https://developers.cloudflare.com/workers/static-assets/), [HTML handling](https://developers.cloudflare.com/workers/static-assets/routing/advanced/html-handling/), [billing](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/), [preview fallback](apps/unfold/client/agentClient.ts)
+```sh
+pnpm desktop:package:mac
+```
 
-**Pages** also supports custom domains and static output. It assumes a root SPA when the project lacks a top-level `404.html`, so the same two-entry layout needs a `404.html` to opt out. Cloudflare documents migration from Pages to Workers Static Assets. Both products cap each static file at 25 MiB, so use the release artifact host for installers. [Pages serving behavior](https://developers.cloudflare.com/pages/configuration/serving-pages/), [Pages custom domains](https://developers.cloudflare.com/pages/configuration/custom-domains/), [Pages migration](https://developers.cloudflare.com/workers/static-assets/migration-guides/migrate-from-pages/), [Workers limits](https://developers.cloudflare.com/workers/platform/limits/), [Pages limits](https://developers.cloudflare.com/pages/platform/limits/)
+Set `unfold_dmg` to the signed image produced by the build. The filename includes the version from the [app manifest](apps/unfold/package.json).
 
-Attach `unfold.bezr.dev` as a Worker Custom Domain. Cloudflare provisions the DNS record and TLS certificate in the existing zone. An existing CNAME on that exact hostname blocks attachment. The read-only account check found the `bezr.dev` zone active and public DNS returned NXDOMAIN for both proposed hostnames. The Cloudflare connection lacked DNS record read permission, so the account's record inventory is still unverified. [Worker Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
+```sh
+unfold_dmg=output/desktop-release/Unfold-0.1.1-arm64.dmg
+xcrun notarytool submit "$unfold_dmg" --keychain-profile unfold-notary --wait
+```
 
-Build the hosted app with Vite `base: '/app/'`. A temporary production build with that base emitted 92 files, the largest 2.56 MiB. Vite rebased the HTML favicon, appearance script, and JS/CSS URLs. The example board's runtime SVG paths still use root-relative URLs and need to honor the configured base. Preserve the existing root entry for Electron and the local helper. Check direct navigation to `/app/`, example board assets, preview chat, and reload persistence against the combined production output. [Vite public base](https://vite.dev/guide/build.html#public-base-path), [HTML entry](apps/unfold/index.html), [example board asset paths](apps/unfold/client/unfold.ts), [desktop entry](apps/unfold/desktop/main.ts)
+After Apple reports `Accepted`, staple the ticket and verify the image.
 
-## What the browser can demonstrate
+```sh
+xcrun stapler staple "$unfold_dmg"
+xcrun stapler validate "$unfold_dmg"
+spctl --assess --type open --context context:primary-signature --verbose "$unfold_dmg"
+```
 
-The static build serves the actual canvas. When `/api/config` is unavailable, the browser uses deterministic preview conversations. The hosted build can demonstrate canvas editing, conversations, and browser-local storage. **Explore board** requires the local runtime. Live model providers and some optional search sources have their own credential requirements. For a judge-facing browser example, open a curated sample and give Explore a desktop explanation. Label preview conversations and any prepared research as such. Record the signed-in desktop flow for the live-model and web-research steps. The organizer accepts a judge-accessible recording or live deployment as the demo URL. [Browser fallback](apps/unfold/client/agentClient.ts), [preview agent implementation](apps/unfold/shared/preview.ts), [runtime configuration](README.md), [optional credentials](.env.example), [submission requirements](HACKATHON.md#submission-requirements)
+### Linux x64
 
-## Desktop release
+Run `pnpm desktop:package:linux` on x64 Linux with `binutils` and `xz-utils` installed. The command builds a Debian package and an AppImage. Install the Debian package with your package manager, or make the AppImage executable and run it directly.
 
-**R2 fits the private source repo.** The authenticated repository check found private visibility and no releases. GitHub Releases are visible to people with read access to their repository and automatically include source archives. A public artifact-only repository would support GitHub's release pages and stable latest-release links, with each asset under 2 GiB and no documented bandwidth cap. A dedicated public R2 bucket in the existing Cloudflare account keeps the release downloads under `bezr.dev` with fewer moving parts than a second public repo. Link directly to versioned objects from the landing page. [GitHub release permissions and limits](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases), [GitHub release links](https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases)
-
-Connect `unfold-downloads.bezr.dev` to the dedicated public R2 bucket, with only published release files in the bucket. Cloudflare's managed `r2.dev` endpoint is intended for non-production traffic. R2 has no direct internet egress charge and meters storage and operations with an included free tier. The Cloudflare connection lacked R2 read scope, so subscription status remains unverified. Cloudflare requires a checkout flow to enable it if absent. [R2 public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/), [R2 pricing](https://developers.cloudflare.com/r2/pricing/), [R2 signup](https://developers.cloudflare.com/r2/get-started/)
-
-The current packaging script builds an unpacked app for the host OS and architecture, and explicitly sets the macOS signing identity to `null`. The README documents local Apple Silicon, Intel, and x64 Linux outputs. For the first public macOS release, package a DMG and use a Developer ID Application signature, Hardened Runtime, notarization, and a stapled ticket. Electron-builder supports this with a signing certificate and Apple notarization credentials. The local default keychain search found zero valid Developer ID Application signing identities. Confirm access to the certificate and notarization credentials before committing to a download date. Start with Apple Silicon if it is the architecture we can sign and exercise. Expose an Intel or Linux link after its corresponding artifact is ready and tested. [Current packaging](apps/unfold/scripts/desktop-package.mjs), [local build scope](README.md#run-the-desktop-app-macos-or-linux), [Apple notarization](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution), [electron-builder 26 DMG](https://www.electron.build/v26/docs/dmg/), [electron-builder 26 notarization](https://www.electron.build/v26/docs/notarization/)
-
-Publish the landing and browser preview first. Keep the desktop release separate. Build, sign, notarize, and smoke-test the packaged app before uploading the versioned installer to R2. Verify the public download, then enable its versioned link on the landing page. Automate the same release steps in CI once the first release has exercised them end to end.
-
-## Canvas license
-
-The repo documents a shared public tldraw trial key expiring on February 17, 2027. Test that the trial build renders on the public HTTPS hostname and in the packaged app past the SDK's five-second license gate. Before expiration, obtain a replacement covering `unfold.bezr.dev` and the Electron origin `unfold://app`. tldraw offers a discretionary non-commercial hobby license with a visible watermark, and a commercial license for commercial production use. Its client-side license keys are public and encode allowed hosts and expiration. [Current key and origins](README.md#run-the-desktop-app-macos-or-linux), [tldraw license keys](https://tldraw.dev/sdk-features/license-key), [tldraw licensing](https://tldraw.dev/community/license)
-
-## Verification scope
-
-This research used official product pages, documentation, published workflows, repository reads, a local Vite build, and read-only account and DNS checks. Browser behavior on the deployed hostname, R2 subscription, signing credentials outside the default keychain, and the production installer have yet to be verified.
+Use the [desktop smoke checks](README.md#checks) to verify a packaged app. Check each public download URL after uploading an installer.
