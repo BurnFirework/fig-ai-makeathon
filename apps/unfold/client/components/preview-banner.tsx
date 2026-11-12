@@ -4,7 +4,7 @@ import { Button, buttonVariants } from './ui/button'
 import { CodeBlock, CodeBlockContent, CodeBlockCopyButton, CodeBlockHeader } from './ui/code-block'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog'
 
-const source = 'https://github.com/OlegBezr/fig-ai-makeathon'
+const source = 'https://github.com/BurnFirework/fig-ai-makeathon'
 const helperCommand = 'pnpm helper'
 
 export function PreviewBanner({ desktop, onSettings }: { desktop: boolean; onSettings: () => void }) {
@@ -34,7 +34,7 @@ export function PreviewBanner({ desktop, onSettings }: { desktop: boolean; onSet
           <div className="flex items-center gap-3 text-xs text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">or</div>
           <section className="grid gap-2">
             <h3 className="font-semibold">Run the local helper</h3>
-            <p>Requires access to the <a className="underline" href={source} target="_blank" rel="noopener noreferrer">Unfold repository</a>, Node 22.14+, and pnpm 10.33.1. Open Terminal in your Unfold checkout, then run this to install dependencies, sign in to Codex if needed, and start the helper.</p>
+            <p>Clone the <a className="underline" href={source} target="_blank" rel="noopener noreferrer">Unfold repository</a>. Requires Node 22.14+ and pnpm 10.33.1. Open Terminal in your Unfold checkout, then run this to install dependencies, sign in to Codex if needed, and start the helper.</p>
             <CodeBlock>
               <CodeBlockHeader title="Terminal"><CodeBlockCopyButton value={helperCommand}/></CodeBlockHeader>
               <CodeBlockContent>{helperCommand}</CodeBlockContent>

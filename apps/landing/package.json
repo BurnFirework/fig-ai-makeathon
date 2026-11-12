@@ -1,6 +1,7 @@
 {
   "name": "unfold-landing",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "build": "vite build"
   },

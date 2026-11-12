@@ -4,6 +4,7 @@
   "description": "A visual workspace for exploring ideas and finding a small next step.",
   "homepage": "https://unfold.bezr.dev/",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"tsx watch server/index.ts\" \"vite --host 127.0.0.1\"",

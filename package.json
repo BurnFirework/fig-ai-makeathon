@@ -1,6 +1,7 @@
 {
   "name": "unfold-workspace",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "pnpm --filter unfold dev",
     "helper": "pnpm install --frozen-lockfile && (pnpm --filter unfold exec codex login status || pnpm --filter unfold exec codex login) && pnpm dev",

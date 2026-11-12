@@ -2,7 +2,7 @@
 
 Unfold is a vision board with AI conversations attached to cards. Add an image, talk through what it represents, and turn the conversation into notes or next steps. Agents can suggest links between goals and research options that fit the conditions you confirm.
 
-[Try the browser preview](https://unfold.bezr.dev/app/) or [find desktop downloads](https://unfold.bezr.dev/).
+[Watch the demo](https://www.youtube.com/watch?v=hJiJUeoXvxE), [try the browser preview](https://unfold.bezr.dev/app/), or [find desktop downloads](https://unfold.bezr.dev/).
 
 | Where you run Unfold | Agent features |
 | --- | --- |
@@ -84,3 +84,7 @@ Run `pnpm test:web` for Chromium and WebKit browser tests. To smoke-test the pac
 - [Hackathon Track 1 brief and submission reference](HACKATHON.md)
 - [Product inspiration](PRODUCT_INSPIRATION.md) and [technical inspiration](TECH_INSPIRATION.md)
 - [tldraw starter source](https://github.com/tldraw/tldraw/tree/69f43954f15a171b3a6edb45134d27b71560de02/templates) and [starter license](LICENSE.starter.md)
+
+## License
+
+Unfold is released under the [MIT License](LICENSE). It builds on the tldraw SDK, which has [its own license](https://tldraw.dev/community/license), and on the tldraw starter templates, which keep their [MIT notice](LICENSE.starter.md).
