@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "pnpm --filter unfold dev",
+    "helper": "pnpm install --frozen-lockfile && (pnpm --filter unfold exec codex login status || pnpm --filter unfold exec codex login) && pnpm dev",
     "build": "pnpm --filter unfold build",
     "start": "pnpm --filter unfold start",
     "test": "pnpm --filter unfold test",

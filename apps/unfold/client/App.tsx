@@ -14,6 +14,7 @@ import { BoardSwitcher, BoardsContext } from './components/board-switcher'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select'
 import { Button } from './components/ui/button'
 import { ChatPanel } from './components/chat-panel'
+import { PreviewBanner } from './components/preview-banner'
 import { lineage, nodeTitle } from '../shared/chats'
 import { Input } from './components/ui/input'
 import { Textarea } from './components/ui/textarea'
@@ -61,8 +62,8 @@ function Chrome() {
   return <div className={`chrome ${state.activeChat ? `has-chat ${state.chatView === 'focus' ? 'has-focus-chat' : ''}` : ''}`} onPointerDown={event => { if (event.target !== event.currentTarget) editor.markEventAsHandled(event) }}>
     <header className="app-header">
       <div className="header-navigation"><BoardSwitcher/><nav className="breadcrumbs" aria-label="Exploration breadcrumbs">{(path.length > 1 || state.activeChat) && path.map((record, index) => <span className="breadcrumb" key={record.id}><ChevronRight size={13}/><button aria-current={index === path.length - 1 && !state.activeChat ? 'location' : undefined} title={nodeTitle(record.node)} onClick={() => { const shape = nodes(editor).find(shape => shape.id === record.id); if (shape) { api?.closeChat(); editor.select(shape.id); editor.zoomToSelection() } }}>{nodeTitle(record.node)}</button></span>)}{state.activeChat && <span className="breadcrumb current"><ChevronRight size={13}/><MessageCircle size={13}/><span aria-current="location">Chat</span></span>}</nav></div>
+      {state.mode === 'demo' && <PreviewBanner desktop={Boolean(window.unfoldDesktop)} onSettings={() => setSettingsOpen(true)}/>}
       <div className="header-right">{isNotEmpty(cards) && <ExploreBoard/>}<WorkspaceControls/>
-        {state.mode === 'demo' && <span className="mode-label" title="Chats use preview responses. Explore board uses its configured sources.">Chat preview</span>}
         <StylePicker/>
         <Button variant="ghost" size="icon-sm" aria-label="Board settings" title="Board settings" onClick={() => setSettingsOpen(true)}><Settings2 size={17}/></Button>
         <Button variant="ghost" size="sm" aria-label="Agent activity" aria-pressed={state.panel} onClick={() => uiState.update(editor, state => ({ ...state, panel: !state.panel }))}>
