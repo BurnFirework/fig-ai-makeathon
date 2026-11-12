@@ -1,4 +1,5 @@
 import { actions, uiState, type ExploreRun } from '../actions'
+import { cardRow } from '../explore-summary'
 import { LoaderCircle } from 'lucide-react'
 import {
 	Circle2d,
@@ -189,9 +190,11 @@ function CardInvestigation({ shape }: { shape: NodeShape }) {
     const run = uiState.get(editor).explore
     return Boolean(run?.reports && !run.running && reportForCard(run.reports, shape.id)?.status === 'failed')
   }, [editor, shape.id])
+  const tally = useValue('card investigation tally', () => uiState.get(editor).explore?.cards?.[shape.id], [editor, shape.id])
   if (!worker && !report) return null
-  const message = report?.status === 'failed' ? report.message : report?.status === 'complete' ? report.note ?? 'Added to your board.' : worker?.message
-  return <div className="explore-source-status" role="status" title={message} onPointerDown={event => editor.markEventAsHandled(event)} onKeyDown={event => event.stopPropagation()}>
+  // Once the card is done, the chip says what happened in a few words; the agent's full note lives in the results panel.
+  const message = report?.status === 'failed' ? report.message : report ? cardRow({ sourceId: report.sourceId, title: '' }, report, tally, false).label : worker?.message
+  return <div className="explore-source-status" role="status" title={report?.status === 'complete' ? report.note ?? message : message} onPointerDown={event => editor.markEventAsHandled(event)} onKeyDown={event => event.stopPropagation()}>
     {worker?.status === 'running' && !report && <LoaderCircle size={13} className="spin"/>}<span>{message}</span>
     {canRetry && <button type="button" onClick={() => { actions.get(editor)?.retryExplore().catch(() => {}) }}>Retry</button>}
   </div>

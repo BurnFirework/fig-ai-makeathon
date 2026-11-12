@@ -12,7 +12,7 @@ import { branchFrom, type BranchEdge } from '../shared/branch'
 import { canPublish, cardConditions, chatContext, contextThreads, currentRevisions, decisionOf, foldLegacyMessages, lineage, memoryDependencies, nodeTitle, suggestedTitle } from '../shared/chats'
 import { applyAgentMemory, applyDrafts, chatMemory, classifyMessage, confirmAssumption, interpretMessage, questionFor, revisedConditions, withdrawEntry } from '../shared/memory'
 import { buildWebTopic, developmentKey, investigationTopic, refreshInvestigationScope, ExploreRequestSchema, mergeFindings, searchScope, type ExploreReport, type ExploreTopic } from '../shared/explore'
-import { actions, saveNow, uiState, type ExploreCandidate, type ExploreRun, type UnfoldActions } from './actions'
+import { actions, saveNow, uiState, type ExploreCandidate, type ExploreCardTally, type ExploreRun, type UnfoldActions } from './actions'
 import { requestAgent, requestExplore, getAgentConfig } from './agentClient'
 import { createOrUpdateConnectionBinding, getConnectionBindings } from './connection/ConnectionBindingUtil'
 import { getNextConnectionIndex } from './connection/keepConnectionsAtBottom'
@@ -616,7 +616,8 @@ export function setupUnfold(editor: Editor) {
     const updatedIds: TLShapeId[] = []; const existingIds: TLShapeId[] = []
     const addedOptions = new Set<string>(); const existingOptions = new Set<string>()
     const reports: ExploreReport[] = []
-    uiState.update(editor, state => ({ ...state, explore: { running: true, stopped: false, error: '', workers: [], topics: scope, baselines: baselineTopics, reports: [], updatedIds: [], added: 0, existingIds: [], existing: 0, failed: [] } }))
+    const tallies: Record<string, ExploreCardTally> = {}
+    uiState.update(editor, state => ({ ...state, explore: { running: true, stopped: false, error: '', workers: [], topics: scope, baselines: baselineTopics, reports: [], cards: {}, updatedIds: [], added: 0, existingIds: [], existing: 0, failed: [] } }))
     try {
       const fingerprint = () => JSON.stringify({ cards: records().map(({ id, node }) => ({ id, node: { ...node, fit: undefined, expanded: undefined } })), conversations: chats(), relations: boardLinks(editor) })
       let expected = fingerprint()
@@ -659,6 +660,8 @@ export function setupUnfold(editor: Editor) {
           else if (!revisionsMatch(dependencies, revisions())) report = { sourceId: topic.sourceId, status: 'failed', message: 'A source used by this investigation changed. Retry with the latest context.' }
           else {
             const completed = report
+            const tally: ExploreCardTally = { options: 0, ideas: 0, existing: 0, ids: [] }
+            tallies[topic.sourceId] = tally
             editor.markHistoryStoppingPoint('apply card investigation')
             editor.run(() => {
               const group = nodes(editor).find(shape => shape.props.node.type === 'findings' && shape.props.node.topic.sourceId === topic.sourceId)
@@ -678,15 +681,20 @@ export function setupUnfold(editor: Editor) {
                 } else id = addNode({ ...baseNode(source.props.node.branchId, 'research'), type: 'findings', topic, findings, dismissed: [], checkedAt: completed.checkedAt, dependsOn: dependencies }, [source.id], new Map([[source.id, 'reference']]))
                 if (found.some(finding => finding.state === 'new')) updatedIds.push(id)
                 else if (isNotEmpty(found)) existingIds.push(id)
+                tally.options += found.filter(finding => finding.state === 'new').length
+                tally.existing += found.filter(finding => finding.state !== 'new').length
+                if (isNotEmpty(found)) tally.ids.push(id)
               }
               for (const development of completed.developments ?? []) {
                 const existing = nodes(editor).find(({ props: { node } }) => node.type === 'artifact' && node.exploration?.sourceId === topic.sourceId && developmentKey({ kind: node.exploration.kind, title: node.content.title, text: node.content.description, sources: node.exploration.sources }) === developmentKey(development))
                 if (existing) {
                   update(editor, existing.id, node => ({ ...node, dependsOn: dependencies.filter(dependency => dependency.id !== existing.id), stale: false, ...(node.exploration ? { exploration: { ...node.exploration, sources: development.sources } } : {}) }))
-                  existingIds.push(existing.id); existingOptions.add(`development:${topic.sourceId}:${development.id}`); continue
+                  existingIds.push(existing.id); existingOptions.add(`development:${topic.sourceId}:${development.id}`)
+                  tally.existing++; tally.ids.push(existing.id); continue
                 }
                 const id = addNode({ ...baseNode(`explore:${topic.sourceId}:${development.id}`, 'research'), type: 'artifact', content: { kind: 'note', title: development.title, description: development.text }, exploration: { sourceId: topic.sourceId, id: development.id, kind: development.kind, sources: development.sources }, dependsOn: dependencies }, [source.id])
                 updatedIds.push(id); addedOptions.add(`development:${topic.sourceId}:${development.id}`)
+                tally.ideas++; tally.ids.push(id)
               }
             })
             expected = fingerprint()
@@ -694,7 +702,7 @@ export function setupUnfold(editor: Editor) {
           }
         }
         reports.push(report)
-        setExplore(run => ({ ...run, reports: [...reports], updatedIds: [...new Set(updatedIds)], existingIds: [...new Set(existingIds)], added: addedOptions.size, existing: [...existingOptions].filter(id => !addedOptions.has(id)).length, failed: reports.flatMap(item => item.status === 'failed' ? [item.sourceId] : []) }))
+        setExplore(run => ({ ...run, reports: [...reports], cards: { ...tallies }, updatedIds: [...new Set(updatedIds)], existingIds: [...new Set(existingIds)], added: addedOptions.size, existing: [...existingOptions].filter(id => !addedOptions.has(id)).length, failed: reports.flatMap(item => item.status === 'failed' ? [item.sourceId] : []) }))
       }
       const result = await requestExplore({ ...parsed.data, board: { cards, conversations: captured.conversations, relations: captured.relations } }, controller.signal, event => {
         if (disposed || controller.signal.aborted || exploreRun !== controller) return
@@ -723,11 +731,12 @@ export function setupUnfold(editor: Editor) {
     exploreCandidates,
     exploreBoard,
     stopExplore() { exploreRun?.abort() },
-    async retryExplore() {
+    async retryExplore(sourceIds) {
       const run = uiState.get(editor).explore
       if (!run || run.running) return
       const fresh = exploreCandidates()
-      const topics = (run.error ? run.topics : run.topics.filter(topic => run.failed.includes(topic.sourceId))).flatMap(previous => {
+      const chosen = sourceIds ? run.topics.filter(topic => sourceIds.includes(topic.sourceId)) : run.error ? run.topics : run.topics.filter(topic => run.failed.includes(topic.sourceId))
+      const topics = chosen.flatMap(previous => {
         const candidate = fresh.find(candidate => candidate.topic.sourceId === previous.sourceId)?.topic
         if (!candidate) return []
         const baseline = run.baselines?.find(topic => topic.sourceId === previous.sourceId)

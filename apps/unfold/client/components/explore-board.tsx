@@ -34,22 +34,24 @@ export function ExploreBoard() {
   const titleRef = useRef<HTMLHeadingElement>(null)
   const selected = rows.filter(row => row.checked)
   const setOpen = (open: boolean) => uiState.update(editor, state => ({ ...state, exploreDialog: open ? state.exploreDialog ?? { reuse: false } : null }))
-  const prepare = (reuse: boolean, failure = '') => {
+  const prepare = (reuse: boolean, failure = '', focus?: string) => {
     const candidates = actions.get(editor)?.exploreCandidates() ?? []
     const priorRun = reuse ? uiState.get(editor).explore : null
     const last = priorRun?.topics ?? []
     // A selected card is the search; with no selection, ideas searched before are offered again.
-    const defaults = isNotEmpty(last) ? new Set(last.map(topic => topic.sourceId))
+    // Editing one card's search from the results panel ticks only that card.
+    const defaults = focus && candidates.some(candidate => candidate.topic.sourceId === focus) ? new Set([focus])
+      : isNotEmpty(last) ? new Set(last.map(topic => topic.sourceId))
       : new Set(candidates.map(candidate => candidate.topic.sourceId))
     setRows(candidates.map(candidate => {
       const previous = last.find(topic => topic.sourceId === candidate.topic.sourceId)
-      return { ...candidate, topic: previous ? refreshInvestigationScope(candidate.topic, previous, priorRun?.baselines?.find(topic => topic.sourceId === previous.sourceId)) : candidate.topic, checked: defaults.has(candidate.topic.sourceId), editing: reuse && previous !== undefined }
+      return { ...candidate, topic: previous ? refreshInvestigationScope(candidate.topic, previous, priorRun?.baselines?.find(topic => topic.sourceId === previous.sourceId)) : candidate.topic, checked: defaults.has(candidate.topic.sourceId), editing: reuse && previous !== undefined && defaults.has(candidate.topic.sourceId) }
     }))
     setAdding(defaults.size === 0)
     setError(failure)
   }
   const [prepared, setPrepared] = useState<typeof dialog>(null)
-  if (dialog !== prepared) { setPrepared(dialog); if (dialog) prepare(dialog.reuse, dialog.error) }
+  if (dialog !== prepared) { setPrepared(dialog); if (dialog) prepare(dialog.reuse, dialog.error, dialog.focus) }
   const patch = (sourceId: string, map: (row: Draft) => Draft) => setRows(current => current.map(row => row.topic.sourceId === sourceId ? map(row) : row))
   const scope = (sourceId: string, change: ScopeChange) => patch(sourceId, row => ({ ...row, topic: applyScope(row.topic, change) }))
   const shown = rows.filter(row => row.checked || adding)

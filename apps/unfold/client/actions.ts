@@ -14,7 +14,7 @@ export interface UiState {
   removing: TLShapeId[] | null;
   explore: ExploreRun | null;
   /** The Explore board dialog; `reuse` reopens it with the last run's scope (Edit search). */
-  exploreDialog: { reuse: boolean; error?: string } | null;
+  exploreDialog: { reuse: boolean; error?: string; focus?: string } | null;
 }
 /** The latest Explore board run, as the right-hand panel shows it. */
 export interface ExploreRun {
@@ -24,6 +24,8 @@ export interface ExploreRun {
   workers: ExploreWorker[]
   /** The approved scope of this run, for Edit search and Retry. */
   topics: InvestigationTopic[]
+  /** What each card's investigation put on the board, keyed by source card: new options, new ideas, results already saved, and the cards that hold them. */
+  cards?: Record<string, ExploreCardTally>
   /** Finding groups holding options this run added, and how many options are new. */
   updatedIds: TLShapeId[]; added: number
   /** Groups holding options this run found again that were already on the board. */
@@ -35,6 +37,7 @@ export interface ExploreRun {
   /** A shared next step the agents suggested; its card exists only after Add to board. */
   shared?: { plan: ExploreShared; addedId?: TLShapeId }
 }
+export interface ExploreCardTally { options: number; ideas: number; existing: number; ids: TLShapeId[] }
 export const uiState = new EditorAtom<UiState>('unfold-ui', () => ({ mode: 'demo', provider: 'Preview', activity: [], panel: false, jobs: {}, saved: true, activeChat: null, chatView: 'focus', removing: null, explore: null, exploreDialog: null }))
 export interface ExploreCandidate { topic: InvestigationTopic; selected: boolean; suggested: boolean; reason: string; conditions: string[] }
 /** Writes the workspace now instead of after the usual short delay; registered by the workspace for its editor. */
@@ -44,8 +47,8 @@ export interface UnfoldActions {
   exploreCandidates(): ExploreCandidate[]
   exploreBoard(topics: ExploreTopic[]): Promise<void>
   stopExplore(): void
-  /** Reruns the interests that failed, or the whole last run when it could not finish. */
-  retryExplore(): Promise<void>
+  /** Reruns the interests that failed (or just `sourceIds`), or the whole last run when it could not finish. */
+  retryExplore(sourceIds?: string[]): Promise<void>
   /** Creates (or refreshes) the card for the shared step the agents suggested. */
   addSharedStep(): TLShapeId | undefined
   dismissFinding(id: TLShapeId, findingId: string): void

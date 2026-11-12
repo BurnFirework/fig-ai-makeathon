@@ -64,6 +64,11 @@ export function compactStep(value: unknown, text = 600, items = 8, depth = 0): u
 }
 /** Recent steps stay readable in full unless one is very large, which slows every later reply. */
 const recentStep = (item: unknown) => JSON.stringify(item).length > 40_000 ? compactStep(item, 2000, 12) : item
+/** The investigation's last step in Agent activity: what the process did. What it found and why is the card's result, shown once in the results panel. */
+function finished(report: Extract<ExploreReport, { status: 'complete' }>) {
+  const checked = report.candidates ? ` after checking ${report.candidates} ${report.candidates === 1 ? 'option' : 'options'} on ${report.candidates === 1 ? 'its own page' : 'their own pages'}` : ''
+  return `Finished${checked}.`
+}
 export async function runCardExplore(request: ExploreRequest, signal: AbortSignal, emit: (event: AgentEvent) => void, config: CliConfig, decide?: (input: unknown, signal: AbortSignal) => Promise<CardDecision>) {
   const reports: ExploreReport[] = []
   const cards = new Map(request.board?.cards.map(({ id, node, image }) => [id, { id, node: NodeSchema.parse(node), image }]))
@@ -293,7 +298,7 @@ export async function runCardExplore(request: ExploreRequest, signal: AbortSigna
       const topic = request.topics[cursor++]
       if (!topic) return
       let report: ExploreReport
-      try { report = await investigate(topic); worker(topic, 'complete', report.status === 'complete' ? report.note ?? 'Ready on your board.' : '') }
+      try { report = await investigate(topic); worker(topic, 'complete', report.status === 'complete' ? finished(report) : '') }
       catch (error) { signal.throwIfAborted(); const message = (error instanceof Error ? error.message : 'This card could not finish. Retry it.').slice(0, 240); report = { sourceId: topic.sourceId, status: 'failed', message }; worker(topic, 'failed', message) }
       signal.throwIfAborted()
       reports.push(report); emit({ type: 'explore-report', report })

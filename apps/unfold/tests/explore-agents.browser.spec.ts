@@ -36,7 +36,7 @@ test('a shared step for one option serving two ideas stays single, survives relo
     for (const name of selected) if (name && ![craft, people].includes(name)) await dialog.getByRole('checkbox', { name, exact: true }).click()
     for (const name of [craft, people]) await expect(dialog.getByRole('checkbox', { name, exact: true })).toBeChecked()
     await page.getByRole('button', { name: 'Find options', exact: true }).click()
-    await expect(panel.getByRole('button', { name: 'Edit search' }).or(panel.getByRole('button', { name: 'Show on board' }))).toBeVisible()
+    await expect(panel.getByRole('button', { name: 'Edit search', exact: true }).or(panel.getByRole('button', { name: 'Show on board' }))).toBeVisible()
   }
   await run()
   // The wheel group sits on both ideas' cards but is one new option.

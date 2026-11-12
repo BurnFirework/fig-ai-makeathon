@@ -1,6 +1,7 @@
 import { ChevronDown, LoaderCircle, Plus, Sparkles, X } from 'lucide-react'
 import { useEditor, useValue, type TLShapeId } from 'tldraw'
 import { actions, uiState, type ExploreRun } from '../actions'
+import { cardRow, plural, type CardRow } from '../explore-summary'
 import { Button } from './ui/button'
 import { isEmpty, isNotEmpty } from '../../shared/arrays'
 
@@ -16,6 +17,8 @@ function outcome(run: ExploreRun): { title: string; detail?: string; action?: 's
   return { title: 'No confirmed options found', action: 'edit' }
 }
 
+const settled = (row: CardRow) => row.state === 'found' || row.state === 'known'
+
 export function ExploreActivity() {
   const editor = useEditor()
   const run = useValue('explore run', () => uiState.get(editor).explore, [editor])
@@ -29,6 +32,11 @@ export function ExploreActivity() {
     if (isNotEmpty(present)) { editor.select(...present); editor.zoomToSelection({ animation: { duration: 220 } }) }
   }
   const titles = new Map(run.topics.map(topic => [topic.sourceId, topic.title]))
+  const rows = run.topics.map(topic => cardRow(topic, run.reports?.find(report => report.sourceId === topic.sourceId), run.cards?.[topic.sourceId], run.running))
+  // Open by default only when a card needs a decision; a fully successful run stays one quiet line.
+  const needsYou = !run.running && rows.some(row => !settled(row))
+  const done = rows.filter(row => row.state !== 'working').length
+  const tally = run.running ? `${done} of ${rows.length} done` : needsYou ? `${plural(rows.filter(row => !settled(row)).length, 'card needs', 'cards need')} you` : `${plural(rows.length, 'card')} · all done`
   const log = [...run.workers].sort((a, b) => (a.sourceId ?? '~').localeCompare(b.sourceId ?? '~') || STAGE_ORDER[a.stage] - STAGE_ORDER[b.stage])
   return <aside className="explore-work-panel" aria-label="Explore results" onPointerDown={event => editor.markEventAsHandled(event)} onKeyDown={event => event.stopPropagation()}>
     <header>
@@ -52,7 +60,23 @@ export function ExploreActivity() {
         ? <Button variant="ghost" size="sm" onClick={() => show([addedId])}>On your board · Show</Button>
         : <Button variant="outline" size="sm" onClick={() => api?.addSharedStep()}><Plus aria-hidden="true"/>Add to board</Button>}
     </section>}
-    {run.reports && <details className="explore-log"><summary>Card outcomes<ChevronDown size={14}/></summary><ol>{run.reports.map(report => <li key={report.sourceId}><strong>{titles.get(report.sourceId)}</strong><p>{report.status === 'failed' ? report.message : report.note ?? (report.outcome === 'incomplete' ? 'A required fact is still unknown.' : report.outcome === 'rejected' ? 'The sources contradicted the scope.' : report.outcome === 'empty' ? 'No confirmed options found.' : 'Confirmed options added.')}</p></li>)}</ol></details>}
+    {isNotEmpty(rows) && <details className="explore-log explore-cards" open={needsYou || undefined} key={needsYou ? 'needs-you' : 'settled'}>
+      <summary>By card<span className="explore-cards-tally">{tally}</span><ChevronDown size={14} aria-hidden="true"/></summary>
+      <ol>
+        {rows.map(row => <li key={row.sourceId} data-state={row.state}>
+          <div className="explore-card-head">
+            <span className="explore-card-dot" aria-hidden="true">{row.state === 'working' && <LoaderCircle className="spin" size={11}/>}</span>
+            <button type="button" className="explore-card-title" title="Show on board" onClick={() => show(isNotEmpty(row.ids) ? row.ids : editor.getCurrentPageShapes().filter(shape => shape.id === row.sourceId).map(shape => shape.id))}>{row.title}</button>
+          </div>
+          <p className="explore-card-label">{row.label}</p>
+          {row.why && (settled(row)
+            ? <details className="explore-card-why"><summary>Agent’s note</summary><p>{row.why}</p></details>
+            : <p className="explore-card-why">{row.why}</p>)}
+          {!run.running && (row.state === 'failed' || row.state === 'unfinished') && <Button variant="outline" size="xs" aria-label={`Retry ${row.title}`} onClick={() => { api?.retryExplore([row.sourceId]).catch(() => {}) }}>Retry</Button>}
+          {!run.running && row.state === 'attention' && <Button variant="outline" size="xs" aria-label={`Edit search for ${row.title}`} onClick={() => uiState.update(editor, state => ({ ...state, exploreDialog: { reuse: true, focus: row.sourceId } }))}>Edit search</Button>}
+        </li>)}
+      </ol>
+    </details>}
     {!isEmpty(log) && <details className="explore-log">
       <summary>Agent activity<ChevronDown size={14} aria-hidden="true"/></summary>
       <ol>

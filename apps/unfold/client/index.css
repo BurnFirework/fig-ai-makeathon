@@ -644,6 +644,22 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .explore-log li strong { display: block; font-size: 12px; line-height: 1.3; font-weight: 600; }
 .explore-log li strong span { font-weight: 450; color: var(--cocoa-soft); }
 .explore-log li p { margin: 2px 0 0; color: var(--cocoa-soft); font-size: 11.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.explore-cards-tally { margin-left: auto; margin-right: 6px; font-weight: 500; }
+.explore-cards li { display: grid; gap: 3px; justify-items: start; border-left: 0; padding: 7px 0 7px 2px; }
+.explore-cards li + li { border-top: 1px solid var(--accent-100, var(--menu-edge)); }
+.explore-card-head { display: flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; }
+.explore-card-dot { flex: none; display: grid; place-items: center; width: 9px; height: 9px; border-radius: 50%; background: var(--accent-200); color: var(--accent-600); }
+.explore-cards li[data-state="found"] .explore-card-dot, .explore-cards li[data-state="known"] .explore-card-dot { background: #5c8a5a; }
+.explore-cards li[data-state="attention"] .explore-card-dot, .explore-cards li[data-state="unfinished"] .explore-card-dot { background: #c98a2b; }
+.explore-cards li[data-state="failed"] .explore-card-dot { background: #a43d3d; }
+.explore-cards li[data-state="working"] .explore-card-dot { background: none; }
+.explore-card-title { min-width: 0; padding: 0; border: 0; background: none; color: var(--ink); font: inherit; font-size: 12.5px; font-weight: 600; line-height: 1.3; text-align: left; cursor: pointer; }
+.explore-card-title:hover { color: var(--accent-600); text-decoration: underline; text-underline-offset: 2px; }
+.explore-cards li p.explore-card-label { margin: 0 0 0 16px; color: var(--ink); font-size: 12px; font-weight: 500; }
+.explore-cards li p.explore-card-why, .explore-cards details.explore-card-why { margin: 0 0 0 16px; }
+.explore-cards details.explore-card-why summary { display: inline; color: var(--cocoa-soft); font-size: 11.5px; font-weight: 500; text-decoration: underline dotted; text-underline-offset: 2px; }
+.explore-cards details.explore-card-why p { margin: 3px 0 0; }
+.explore-cards li > button[data-slot="button"] { margin: 3px 0 0 16px; border-radius: 999px; }
 .explore-topic-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .explore-edit { flex: none; gap: 5px; border-radius: 999px; color: var(--explore-accent); }
 .explore-edit svg { width: 13px; height: 13px; }
