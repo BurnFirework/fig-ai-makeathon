@@ -1063,8 +1063,8 @@ export function setupUnfold(editor: Editor) {
     async samples() {
       try {
         const files: File[] = []
-        for (const { path, name } of [{ path: '/creative.svg', name: 'Explore a creative practice' }, { path: '/connection.svg', name: 'Meet new people' }]) {
-          const blob = await (await fetch(path)).blob(); const file = await rasterize(new File([blob], name + '.svg', { type: 'image/svg+xml' })); files.push(new File([file], name + '.jpg', { type: 'image/jpeg' }))
+        for (const { path, name } of [{ path: 'creative.svg', name: 'Explore a creative practice' }, { path: 'connection.svg', name: 'Meet new people' }]) {
+          const blob = await (await fetch(`${import.meta.env.BASE_URL}${path}`)).blob(); const file = await rasterize(new File([blob], name + '.svg', { type: 'image/svg+xml' })); files.push(new File([file], name + '.jpg', { type: 'image/jpeg' }))
         }
         await api.importFiles(files)
       } catch { fail('Could not load the sample inspirations. Try uploading your own images.') }
