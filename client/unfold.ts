@@ -719,7 +719,7 @@ export function setupUnfold(editor: Editor) {
       const asked = chat.messages.find(item => item.id === replyTo)
       const chosen = asked?.role === 'assistant' && asked.proposal.kind === 'question' && asked.proposal.options.includes(value)
       const read = stance ?? classifyMessage(value)
-      const message: ChatMessage = { id: crypto.randomUUID(), role: 'user', text: value, ...(replyTo ? { replyTo } : {}), stance: chosen && read === 'question' ? 'answer' : read }
+      const message: ChatMessage = { id: crypto.randomUUID(), role: 'user', text: value, ...(replyTo ? { replyTo } : {}), stance: chosen && (read === 'question' || read === 'request') ? 'answer' : read }
       const messages = [...chat.messages, message]
       let index = 0
       const memory = applyDrafts(chatMemory(chat), interpretMessage(value, message.stance ?? 'answer', questionFor(messages, message)), [message.id], 'you', Date.now(), () => `${message.id}:${index++}`)

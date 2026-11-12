@@ -38,7 +38,8 @@ export const ProposalSchema = z.discriminatedUnion('kind', [
 ])
 export type Proposal = z.infer<typeof ProposalSchema>
 /** How a user message should be read: only answers can become confirmed facts. */
-export const StanceSchema = z.enum(['answer', 'question', 'decline', 'uncertain', 'refine'])
+/** How a user message reads: `request` asks for something; `suggestion` is a next move the agent offered and the user clicked. */
+export const StanceSchema = z.enum(['answer', 'question', 'decline', 'uncertain', 'refine', 'request', 'suggestion'])
 export type Stance = z.infer<typeof StanceSchema>
 export const MemoryKeySchema = z.enum(['budget', 'time', 'place', 'group', 'priority', 'other'])
 export type MemoryKey = z.infer<typeof MemoryKeySchema>

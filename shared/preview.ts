@@ -110,7 +110,7 @@ export function demoRuntime(delay = 250): AgentRuntime {
       if (input.evidence) return { next: 'ask', question: { prompt: 'The preview search found nothing that fits. Which condition could be flexible?', options: [...conditions.slice(0, 2), 'Try a different idea'].length >= 2 ? [...conditions.slice(0, 2), 'Try a different idea'] : ['Budget', 'Try a different idea'], purpose: 'Preview agents never invent a result.' } }
       const latest = first.answers.at(-1)
       if (latest?.stance === 'uncertain') return { next: 'ask', question: { prompt: 'No problem. Which part feels most uncertain right now?', options: ['When I would go', 'How much it costs', 'Where to start'], purpose: 'A short clarification keeps the next step realistic.' } }
-      const answered = first.answers.filter(answer => answer.stance !== 'question' && answer.stance !== 'uncertain')
+      const answered = first.answers.filter(answer => answer.stance !== 'question' && answer.stance !== 'uncertain' && answer.stance !== 'suggestion')
       if (input.operation === 'research' || answered.length >= 2 || input.branches.length === 2) {
         return { next: 'research', brief: `Beginner-friendly ${lower(first.goal)}${input.branches[1] ? ` combined with ${lower(input.branches[1].goal)}` : ''}`, mustMatch: conditions.slice(0, 6) }
       }

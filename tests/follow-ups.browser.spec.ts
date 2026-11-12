@@ -10,7 +10,7 @@ const panel = (page: Page) => page.getByRole('complementary', { name: 'Node conv
 
 test('follow-ups under the latest answer send the chosen message', async ({ page }) => {
   const replies: Proposal[] = [
-    { kind: 'reply', text: 'Here are three warm-ups to loosen up before Sunday.', followUps: ['Find the next step', 'Tell you how it went'] },
+    { kind: 'reply', text: 'Here are three warm-ups to loosen up before Sunday.', followUps: ['Find the next step', 'Sketch on Sunday morning'] },
     { kind: 'reply', text: 'Glad it helped. Charcoal is a good next material to try.' },
   ]
   const sent: string[] = []
@@ -35,10 +35,12 @@ test('follow-ups under the latest answer send the chosen message', async ({ page
   await composer.press('Enter')
 
   const next = panel(page).getByRole('group', { name: 'What next' })
-  await expect(next.getByRole('button')).toHaveText(['Find the next step', 'Tell you how it went'])
-  await next.getByRole('button', { name: 'Tell you how it went' }).click()
+  await expect(next.getByRole('button')).toHaveText(['Find the next step', 'Sketch on Sunday morning'])
+  await next.getByRole('button', { name: 'Sketch on Sunday morning' }).click()
   await expect(panel(page)).toContainText('Charcoal is a good next material')
-  expect(sent.at(-1)).toBe('Tell you how it went')
+  expect(sent.at(-1)).toBe('Sketch on Sunday morning')
+  // A clicked suggestion is the agent's wording, so it is not kept as something the user said about their time.
+  await expect(panel(page).getByText('Noted: Time', { exact: false })).toHaveCount(0)
   // Without the agent's own follow-ups, an answer that made no card can be kept as a note or turned into a step.
   await expect(next).toHaveCount(1)
   await expect(next.getByRole('button')).toHaveText(['Save this as a note', 'Find a concrete step'])

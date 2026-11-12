@@ -46,9 +46,9 @@ function Conversation({ sourceId, title, chat }: { sourceId: TLShapeId; title: s
   // A new, empty conversation waits for the person: put the cursor where they can ask.
   const empty = isEmpty(chat.messages) && !busy
   useEffect(() => { if (empty) composer.current?.focus() }, [chat.id, empty])
-  function send(text = draft) {
+  function send(text = draft, stance?: 'suggestion') {
     if (!text.trim() || busy) return
-    api?.send(sourceId, chat.id, text, lastAssistant?.id)
+    api?.send(sourceId, chat.id, text, lastAssistant?.id, stance)
     setDraft('')
   }
   return <aside className={`chat-panel ${state.chatView === 'focus' ? 'focus-mode' : 'board-mode'}`} aria-label="Node conversation" onKeyDown={event => {
@@ -77,7 +77,7 @@ function Conversation({ sourceId, title, chat }: { sourceId: TLShapeId; title: s
       {empty && <div className="chat-welcome"><MessageCircle size={26}/><h3>Where could this take you?</h3><p>Ask your own question below, or let the agents suggest a few directions.</p><Button variant="secondary" size="sm" className="suggest-button" onClick={() => api?.suggest(sourceId, chat.id)}><Sparkles size={14}/>Suggest directions</Button></div>}
       {foldTurns(chat.messages).map(item => item.kind === 'turn'
         ? <FoldedTurn key={item.question.id} question={item.question} answer={item.answer} chat={chat}/>
-        : <Message key={item.message.id} message={item.message} chat={chat} sourceId={sourceId} isLatest={item.message.id === lastAssistant?.id} busy={busy} stale={item.message.role === 'assistant' && !revisionsMatch(item.message.dependsOn, revisions)} onChoice={text => send(text)}/>)}
+        : <Message key={item.message.id} message={item.message} chat={chat} sourceId={sourceId} isLatest={item.message.id === lastAssistant?.id} busy={busy} stale={item.message.role === 'assistant' && !revisionsMatch(item.message.dependsOn, revisions)} onChoice={text => send(text)} onFollowUp={text => send(text, 'suggestion')}/>)}
       {job && <div className={`chat-job ${job.status}`} role="status">{busy ? <LoaderCircle size={15} className="spin"/> : <RotateCcw size={15}/>}<span>{busy && job.handoffs && isNotEmpty(job.handoffs) ? handoffStatus(job.handoffs.at(-1)) : job.message}</span><Button variant="ghost" size="icon-sm" aria-label={busy ? 'Stop request' : 'Retry request'} onClick={() => busy ? api?.stop(chat.id) : api?.retry(chat.id)}>{busy ? <Square size={13}/> : <RotateCcw size={14}/>}</Button></div>}
       {!job && chat.messages.at(-1)?.role === 'user' && <div className="chat-job error" role="status"><RotateCcw size={15}/><span>The agents have not answered your last message. Retry to continue from here.</span><Button variant="ghost" size="icon-sm" aria-label="Retry request" onClick={() => api?.retry(chat.id)}><RotateCcw size={14}/></Button></div>}
       {busy && job.handoffs && job.handoffs.length > 1 && <details className="agent-trace live"><summary>All agent steps so far · {job.handoffs.length}</summary><ol aria-label="What the agents are doing">{job.handoffs.map((handoff, index) => <HandoffLine key={index} handoff={handoff}/>)}</ol></details>}
@@ -201,7 +201,7 @@ function OwnAnswer({ placeholder, busy, open, onOpen, onClose, onSend }: { place
     </div>
   </form>
 }
-function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice }: { message: ChatMessage; chat: Chat; sourceId: TLShapeId; isLatest: boolean; busy: boolean; stale: boolean; onChoice: (choice: string) => void }) {
+function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice, onFollowUp }: { message: ChatMessage; chat: Chat; sourceId: TLShapeId; isLatest: boolean; busy: boolean; stale: boolean; onChoice: (choice: string) => void; onFollowUp: (option: string) => void }) {
   const editor = useEditor(); const api = actions.get(editor)
   const chatId = chat.id
   const outcomes = useValue('published outcomes', () => message.role === 'assistant' ? nodes(editor).filter(shape => shape.id === message.outcomeId || message.outcomeIds?.includes(shape.id)) : [], [editor, message])
@@ -251,7 +251,7 @@ function Message({ message, chat, sourceId, isLatest, busy, stale, onChoice }: {
     {proposal.kind === 'research' && <p>{proposal.brief}</p>}
     {proposal.kind === 'reply' && <><p>{proposal.text}</p>{outcomes.map(card => <Button key={card.id} variant="outline" size="sm" onClick={() => { uiState.update(editor, state => ({ ...state, chatView: 'board' })); editor.select(card.id); fitBoard(editor) }}>{nodeTitle(card.props.node)}<ArrowRight size={13}/></Button>)}
       {message.proposedEdits && <ProposedEdits edits={message.proposedEdits} declined={message.editsDeclined === true} stale={stale} busy={busy} onAdd={() => api?.addProposedEdits(sourceId, chatId, message.id)} onSkip={skip => api?.skipProposedEdits(sourceId, chatId, message.id, skip)}/>}
-      {isLatest && !stale && chat.messages.at(-1)?.id === message.id && (!message.proposedEdits || message.editsDeclined) && <div className="chat-choices follow-ups" role="group" aria-label="What next">{followUpsFor(proposal, { fromStep, madeCard: isNotEmpty(outcomes) }).map(option => <button key={option} type="button" className="choice" disabled={busy} onClick={() => onChoice(option)}><span>{option}</span><ArrowRight size={13}/></button>)}</div>}</>}
+      {isLatest && !stale && chat.messages.at(-1)?.id === message.id && (!message.proposedEdits || message.editsDeclined) && <div className="chat-choices follow-ups" role="group" aria-label="What next">{followUpsFor(proposal, { fromStep, madeCard: isNotEmpty(outcomes) }).map(option => <button key={option} type="button" className="choice" disabled={busy} onClick={() => onFollowUp(option)}><span>{option}</span><ArrowRight size={13}/></button>)}</div>}</>}
     {proposal.kind === 'none' && <div className="chat-none"><div className="outcome-label">No useful overlap</div><p>{proposal.reason}</p><small className="message-purpose">Nothing was added. Agents look again when either goal changes.</small></div>}
     {(proposal.kind === 'opportunity' || proposal.kind === 'action') && <div className={`chat-outcome ${decision ? `decision-${decision}` : ''}`}><div className="outcome-label">{proposal.kind === 'opportunity' ? (revisedFrom ? 'Shared direction · revised' : 'Shared direction') : revisedFrom ? 'Next step · revised' : 'Next step'}</div><h3>{proposal.title}</h3>
       {proposal.kind === 'action' ? <ActionSummary action={proposal}/> : <p>{proposal.description}</p>}

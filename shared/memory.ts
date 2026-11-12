@@ -11,6 +11,8 @@ const QUESTION_START = new RegExp(String.raw`^(?:what|how|why|where|when|which|w
 const UNCERTAIN = words("maybe|perhaps|not sure|unsure|don't know|do not know|dunno|possibly|might|just exploring|haven't decided|может быть|не знаю|не уверен|не уверена|наверное|возможно|пока не решил|пока не решила|посмотрим", 'i')
 const DECLINE_START = new RegExp(String.raw`^(?:no|nope|nah|not really|not quite|not for me|not interested|нет|неа|не очень|не совсем|не хочу|не интересно|не подходит)(?![\p{L}])`, 'iu')
 const DECLINE = words("don't want|do not want|not interested|doesn't work for me|не хочу|не интересно|не подходит|не моё|не мое", 'i')
+// A message that asks for something ("Find…", "What to sketch…", "Найди…", "Что нарисовать…") is a request, not a fact about the user.
+const REQUEST_START = new RegExp(String.raw`^(?:please\s+|пожалуйста,?\s+)?(?:find|show|suggest|give|make|save|help|plan|create|add|search|look for|tell|list|compare|write|draft|recommend|pick|choose|найди|покажи|предложи|дай|сделай|сохрани|помоги|составь|добавь|поищи|расскажи|напиши|сравни|подбери|выбери|посоветуй)(?![\p{L}])|^(?:what|how|where|which|when) to(?![\p{L}])|^(?:что|как|где|куда|когда|чем)\s+\p{L}+(?:ть|ти|чь)(?:ся)?(?![\p{L}])`, 'iu')
 const ACKNOWLEDGEMENT = /^(ok|okay|thanks|thank you|sure|cool|great|got it|ок|окей|спасибо|понятно|хорошо|ладно)[.!\s]*$/iu
 
 const CURRENCY = String.raw`(?:\$|€|£|₽|usd|eur|gbp|rub|рублей|рубля|руб\.?|р\.|долларов|доллара|доллар|евро|dollars?|euros?|pounds?)`
@@ -65,7 +67,16 @@ export function classifyMessage(text: string): Stance {
   if (/\?\s*$/.test(value) || (QUESTION_START.test(value) && value.includes('?'))) return 'question'
   if (DECLINE_START.test(value) || DECLINE.test(value)) return 'decline'
   if (UNCERTAIN.test(value)) return 'uncertain'
+  if (REQUEST_START.test(value)) return 'request'
   return 'answer'
+}
+
+// "After Sunday" points at a moment already planned; it is not when the user is free.
+const RELATIVE_BEFORE = /(?:after|since|following|после|с тех пор как)\s*$/iu
+const TIME_ALL = new RegExp(TIME.source, 'giu')
+/** Whether a clause states a time the user wants or has, rather than referring to one. */
+function statesTime(clause: string): boolean {
+  return [...clause.matchAll(TIME_ALL)].some(match => !RELATIVE_BEFORE.test(clause.slice(Math.max(0, match.index - 20), match.index)))
 }
 
 function budgetText(text: string): string | undefined {
@@ -79,9 +90,12 @@ function budgetText(text: string): string | undefined {
   return undefined
 }
 
-/** Turns one user message into memory drafts. Questions and uncertain replies stay out of confirmed memory. */
+/**
+ * Turns one user message into memory drafts. Questions, uncertain replies and next moves the agent suggested stay out
+ * of memory; a request keeps only the conditions it states ("Find a free class on Saturdays"), not the request itself.
+ */
 export function interpretMessage(text: string, stance: Stance, question?: string): MemoryDraft[] {
-  if (stance === 'question' || stance === 'uncertain') return []
+  if (stance === 'question' || stance === 'uncertain' || stance === 'suggestion') return []
   const value = clip(text, 400)
   if (!value || ACKNOWLEDGEMENT.test(value)) return []
   const drafts: MemoryDraft[] = []
@@ -94,13 +108,13 @@ export function interpretMessage(text: string, stance: Stance, question?: string
     const before = drafts.length
     const budget = budgetText(clause)
     if (budget) add({ kind: 'constraint', key: 'budget', text: budget })
-    if (TIME.test(clause)) add({ kind: 'constraint', key: 'time', text: `${MEMORY_LABELS.time}: ${clip(clause, 120)}` })
+    if (statesTime(clause)) add({ kind: 'constraint', key: 'time', text: `${MEMORY_LABELS.time}: ${clip(clause, 120)}` })
     if (PLACE.test(clause)) add({ kind: 'constraint', key: 'place', text: `${MEMORY_LABELS.place}: ${clip(clause, 120)}` })
     if (GROUP.test(clause)) add({ kind: 'constraint', key: 'group', text: `${MEMORY_LABELS.group}: ${clip(clause, 120)}` })
     if (PRIORITY.test(clause) && !budget) add({ kind: 'constraint', key: 'priority', text: `${MEMORY_LABELS.priority}: ${clip(clause, 140)}` })
     if (drafts.length === before) loose.push(clause)
   }
-  if (stance === 'decline') return drafts
+  if (stance === 'decline' || stance === 'request') return drafts
   if (isEmpty(drafts) && question) {
     const topic = TOPICS.find(item => item.pattern.test(question))
     if (topic && fitsMemoryKey(topic.key, value)) return [{ kind: 'constraint', key: topic.key, text: `${MEMORY_LABELS[topic.key]}: ${clip(value, 120)}` }]

@@ -354,4 +354,18 @@ cases.push(test('only a replaced or withdrawn condition counts as a change that 
   assert.deepEqual(revisedConditions(added, withdrawEntry(added, budget.id)), [{ before: 'Free' }])
 }))
 
+cases.push(test('requests and suggested next moves are not facts; a request keeps only the conditions it states', () => {
+  assert.equal(classifyMessage('Find the next step after Sunday'), 'request')
+  assert.equal(classifyMessage('What to sketch first on Sunday'), 'request')
+  assert.equal(classifyMessage('Найди что-нибудь на выходных'), 'request')
+  assert.equal(classifyMessage('Что нарисовать первым'), 'request')
+  assert.equal(classifyMessage('I can go on Saturdays'), 'answer')
+  // "After Sunday" refers to a planned moment, so it is not a time the user gave.
+  assert.deepEqual(interpretMessage('Find the next step after Sunday', 'request'), [])
+  assert.deepEqual(interpretMessage('Find a free class on Saturdays', 'request').map(draft => draft.key), ['budget', 'time'])
+  assert.deepEqual(interpretMessage('What to sketch first on Sunday', 'suggestion'), [])
+  assert.deepEqual(interpretMessage('Let us meet after Sunday', 'answer'), [{ kind: 'intent', text: 'Let us meet after Sunday' }])
+  assert.deepEqual(interpretMessage('Saturday mornings work', 'answer').map(draft => draft.key), ['time'])
+}))
+
 await Promise.all(cases)

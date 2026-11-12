@@ -54,7 +54,7 @@ export interface UnfoldActions {
   /** Lets the agents open an empty conversation with directions of their own. */
   suggest(id: TLShapeId, chatId: string): void;
   closeChat(): void;
-  send(id: TLShapeId, chatId: string, text: string, replyTo?: string, stance?: 'refine'): void;
+  send(id: TLShapeId, chatId: string, text: string, replyTo?: string, stance?: 'refine' | 'suggestion'): void;
   publish(id: TLShapeId, chatId: string, messageId: string): void;
   /** Applies the board changes an answer suggested, or sets them aside (and back) without touching the canvas. */
   addProposedEdits(id: TLShapeId, chatId: string, messageId: string): void;
