@@ -36,7 +36,10 @@ The CLI uses your existing sign-in and sends prompts and selected images to its 
 3. Use **Connect goals** to look for a shared direction. You can accept, refine, or decline a proposal. When a condition blocks an option, the agents can ask you what to change.
 4. With live AI, open **Explore board**, choose the cards to investigate, review their search scope, and select **Find options**. Results arrive by card. Use **Source evidence** to inspect citations and **By card** to review results, edit a search, or retry a failed card.
 
-Live Explore uses Parallel for public web search and page reading, with CLI web search as a fallback. It also uses a bundled Composio project key for dynamic read-only research tools. Set `COMPOSIO_API_KEY` to use your own scoped key with session management and session tool execution write access. The hosted preview has no connection to a visitor's local CLI or the bundled key. [Composio key permissions](https://docs.composio.dev/reference/authenticating-to-composio/project-api-key-permissions)
+Live Explore uses Parallel for public web search and page reading, with CLI web search as a fallback. It also uses Composio for dynamic read-only research tools.
+
+> [!NOTE]
+> Unfold ships with a **shared Composio demo key with a limited balance**, so the hackathon demo works without setup. Everyone who runs the app shares this key, and it may run out or be revoked at any time. For regular use, set `COMPOSIO_API_KEY` to your own key with session management read/write and session tool execution write access. The hosted preview has no connection to a visitor's local CLI or the demo key. [Composio key permissions](https://docs.composio.dev/reference/authenticating-to-composio/project-api-key-permissions)
 
 Explore checks claims about concrete options against primary pages such as a venue or employer site. A published schedule or listing can establish the stated details. Confirm current availability with the provider.
 

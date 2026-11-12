@@ -1,7 +1,8 @@
 import { z } from 'zod'
 
 const root = 'https://backend.composio.dev/api/v3.1'
-const bundledComposioKey = 'ak_P5DvM_8M2oLSs87M_o1E'
+/** Shared demo key with a limited balance, public on purpose so the demo works without setup. It may run out or be revoked; set COMPOSIO_API_KEY to use your own. */
+const bundledComposioKey ='ak_P5DvM_8M2oLSs87M_o1E'
 const object = z.record(z.string(), z.unknown())
 
 const inputSchema = z.object({ type: z.literal('object'), properties: z.record(z.string(), z.unknown()), required: z.array(z.string()).optional() }).passthrough()

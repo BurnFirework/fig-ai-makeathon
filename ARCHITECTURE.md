@@ -37,4 +37,4 @@ The runtime validates requests and launches short-lived Codex or Claude Code pro
 
 The coordinator dispatches typed tasks and streams activity separately from complete results. Board edits pass through application validation before they apply. The app checks the revisions the agent read and discards replies for changed sources or a board the user has left.
 
-Explore gives each selected card a research task with board context. The runtime uses Parallel, CLI web search, and Composio session tools. Composio uses the bundled project key by default and accepts an environment override. The local runtime limits dynamic discovery to read-only tools. It checks sources for concrete claims before publishing findings.
+Explore gives each selected card a research task with board context. The runtime uses Parallel, CLI web search, and Composio session tools. Composio uses a bundled, shared demo key with a limited balance by default and accepts an environment override. The local runtime limits dynamic discovery to read-only tools. It checks sources for concrete claims before publishing findings.
