@@ -28,6 +28,7 @@ async function setup(page: Page) {
 }
 async function begin(page: Page, index: number, onlyOne = false) {
   await button(page, 'Explore board').click()
+  await page.getByRole('checkbox', { name: 'Select all', exact: true }).check()
   if (onlyOne) while (await page.getByRole('checkbox', { checked: true }).count() > 1) await page.getByRole('checkbox', { checked: true }).last().click()
   await button(page, 'Find options').click()
   await expect.poll(() => page.evaluate(() => window.exploreFixture.requests.length)).toBe(index + 1)

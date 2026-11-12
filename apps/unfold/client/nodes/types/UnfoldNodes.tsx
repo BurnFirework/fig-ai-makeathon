@@ -191,7 +191,7 @@ function FindingsCard({ shape, node, selected, hovered, updated }: { shape: Node
   const source = useValue('searched card', () => nodes(editor).find(item => item.id === node.topic.sourceId), [editor, node.topic.sourceId])
   const searchAgain = () => {
     if (source) editor.select(source.id)
-    uiState.update(editor, state => ({ ...state, exploreDialog: { reuse: false } }))
+    uiState.update(editor, state => ({ ...state, exploreDialog: { reuse: false, focus: node.topic.sourceId } }))
   }
   return <article className={`unfold-card card-findings ${selected ? 'is-selected' : ''} ${hovered ? 'is-hovered' : ''} ${updated ? 'explore-updated' : ''}`}>
     <header className="card-header"><span className="card-eyebrow"><Search size={11}/>{node.topic.kind === 'web' || node.topic.kind === 'card' ? 'Found options' : `Explore board · ${node.topic.kind === 'events' ? 'Events' : 'Jobs'}`}</span></header>

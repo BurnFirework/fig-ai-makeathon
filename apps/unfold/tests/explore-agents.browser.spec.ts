@@ -30,8 +30,9 @@ test('a shared step for one option serving two ideas stays single, survives relo
   const panel = page.getByRole('complementary', { name: 'Explore results' })
   async function run() {
     await page.getByRole('button', { name: 'Explore board', exact: true }).click()
-    const dialog = page.getByRole('dialog', { name: 'Explore board' })
-    // Every card starts checked; rerun only the original two scopes for this shared-step fixture.
+    const dialog = page.getByRole('dialog', { name: 'Explore your ideas' })
+    // Nothing starts checked; tick every card, then keep only the original two scopes for this shared-step fixture.
+    await page.getByRole('checkbox', { name: 'Select all', exact: true }).check()
     const selected = await dialog.getByRole('checkbox', { checked: true }).evaluateAll(inputs => inputs.map(input => input.getAttribute('aria-label')))
     for (const name of selected) if (name && ![craft, people].includes(name)) await dialog.getByRole('checkbox', { name, exact: true }).click()
     for (const name of [craft, people]) await expect(dialog.getByRole('checkbox', { name, exact: true })).toBeChecked()

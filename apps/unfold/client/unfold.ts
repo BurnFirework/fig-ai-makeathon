@@ -543,6 +543,20 @@ export function setupUnfold(editor: Editor) {
     }
     return undefined
   }
+  /** A short tag for the Explore dialog: what the search looks for when it is a job or event, otherwise what the card is. */
+  function candidateKind(node: UnfoldNode, category: string | undefined) {
+    if (category === 'job') return 'Job'
+    if (category === 'event') return 'Event'
+    switch (node.type) {
+      case 'inspiration': return 'Inspiration'
+      case 'findings': return 'Findings'
+      case 'opportunity': return 'Direction'
+      case 'action': return 'Step'
+      case 'artifact': return node.content.kind === 'moodboard' ? 'Moodboard' : node.exploration ? 'Idea' : 'Note'
+      case 'question': return 'Question'
+      case 'answer': return 'Answer'
+    }
+  }
   function exploreCandidates(): ExploreCandidate[] {
     const all = records()
     const threads = chats()
@@ -559,7 +573,7 @@ export function setupUnfold(editor: Editor) {
         ? { ...investigationTopic(seen.topic), sourceId: id, title, dependencies }
         : buildWebTopic({ sourceId: id, title, dependencies, conditions, links })
       const generic = { ...topic, kind: 'card' as const, category: topic.category === 'activity' ? undefined : topic.category }
-      return [{ topic: generic, selected: true, suggested: true, reason: node.type === 'findings' ? 'Develop previous discoveries' : 'Explore this card', conditions }]
+      return [{ topic: generic, selected: true, suggested: true, kind: candidateKind(node, topic.category), conditions }]
     })
   }
 

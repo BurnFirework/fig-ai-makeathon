@@ -1,5 +1,5 @@
 import { isEmpty, isNotEmpty } from '../../shared/arrays'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, Compass, LoaderCircle, Pencil, Plus } from 'lucide-react'
 import { useEditor, useValue } from 'tldraw'
 import { actions, uiState, type ExploreCandidate } from '../actions'
@@ -38,11 +38,10 @@ export function ExploreBoard() {
     const candidates = actions.get(editor)?.exploreCandidates() ?? []
     const priorRun = reuse ? uiState.get(editor).explore : null
     const last = priorRun?.topics ?? []
-    // A selected card is the search; with no selection, ideas searched before are offered again.
-    // Editing one card's search from the results panel ticks only that card.
+    // Nothing starts ticked: the person picks cards, or Select all. Search again and Edit search for one card tick
+    // only that card; Edit search for a whole run ticks the cards that run searched.
     const defaults = focus && candidates.some(candidate => candidate.topic.sourceId === focus) ? new Set([focus])
-      : isNotEmpty(last) ? new Set(last.map(topic => topic.sourceId))
-      : new Set(candidates.map(candidate => candidate.topic.sourceId))
+      : new Set(last.map(topic => topic.sourceId))
     setRows(candidates.map(candidate => {
       const previous = last.find(topic => topic.sourceId === candidate.topic.sourceId)
       return { ...candidate, topic: previous ? refreshInvestigationScope(candidate.topic, previous, priorRun?.baselines?.find(topic => topic.sourceId === previous.sourceId)) : candidate.topic, checked: defaults.has(candidate.topic.sourceId), editing: reuse && previous !== undefined && defaults.has(candidate.topic.sourceId) }
@@ -54,6 +53,8 @@ export function ExploreBoard() {
   if (dialog !== prepared) { setPrepared(dialog); if (dialog) prepare(dialog.reuse, dialog.error, dialog.focus) }
   const patch = (sourceId: string, map: (row: Draft) => Draft) => setRows(current => current.map(row => row.topic.sourceId === sourceId ? map(row) : row))
   const scope = (sourceId: string, change: ScopeChange) => patch(sourceId, row => ({ ...row, topic: applyScope(row.topic, change) }))
+  const allChecked = isNotEmpty(rows) && selected.length === rows.length
+  const checkAll = (checked: boolean) => setRows(current => current.map(row => ({ ...row, checked, editing: checked && row.editing })))
   const shown = rows.filter(row => row.checked || adding)
   const hidden = rows.length - shown.length
   const find = () => {
@@ -74,13 +75,14 @@ export function ExploreBoard() {
       </DialogTrigger>
       <DialogContent className="explore-board-dialog" initialFocus={titleRef} onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
         <DialogHeader className="explore-header">
-          <span className="explore-header-icon"><Compass size={21} aria-hidden="true"/></span>
+          <span className="explore-header-icon"><Compass size={18} aria-hidden="true"/></span>
           <div>
-            <DialogTitle ref={titleRef} tabIndex={-1}>Explore board</DialogTitle>
-            <DialogDescription>Each card has its own investigation, with your board as context. Keep every card selected or adjust the scope.</DialogDescription>
+            <DialogTitle ref={titleRef} tabIndex={-1}>Explore your ideas</DialogTitle>
+            <DialogDescription>Select cards to discover new ideas and connections.</DialogDescription>
           </div>
         </DialogHeader>
         <form onSubmit={event => { event.preventDefault(); if (!running) find() }}>
+          {isNotEmpty(rows) && <SelectAll selected={selected.length} total={rows.length} disabled={running} onChange={() => checkAll(!allChecked)}/>}
           <div className="explore-topic-list">
             {isEmpty(rows) && <div className="explore-empty">
               <h3>No ideas to explore yet</h3>
@@ -94,8 +96,7 @@ export function ExploreBoard() {
           </div>
           <div className="explore-footer">
             <div className="explore-status" role="status">
-              {error ? <span className="explore-error">{error}</span> : running ? <><LoaderCircle size={16} className="spin" aria-hidden="true"/>Finding options…</>
-                : isNotEmpty(rows) && <span><strong>{selected.length}</strong> {selected.length === 1 ? 'idea' : 'ideas'} selected</span>}
+              {error ? <span className="explore-error">{error}</span> : running && <><LoaderCircle size={16} className="spin" aria-hidden="true"/>Finding options…</>}
             </div>
             <div className="explore-actions">
               {running ? <Button type="button" variant="ghost" onClick={() => actions.get(editor)?.stopExplore()}>Stop</Button> : <>
@@ -110,6 +111,20 @@ export function ExploreBoard() {
   )
 }
 
+/** Ticks every card, or clears them all once every card is ticked; shows a dash while only some are. */
+function SelectAll({ selected, total, disabled, onChange }: { selected: number; total: number; disabled: boolean; onChange: () => void }) {
+  const box = useRef<HTMLInputElement>(null)
+  const some = selected > 0 && selected < total
+  useEffect(() => { if (box.current) box.current.indeterminate = some }, [some])
+  return <div className="explore-select-row">
+    <label className="explore-select-all">
+      <input ref={box} type="checkbox" checked={selected === total} aria-checked={some ? 'mixed' : selected === total} disabled={disabled} onChange={onChange}/>
+      Select all
+    </label>
+    <span className="explore-count" aria-live="polite"><strong>{selected}</strong> of {total} selected</span>
+  </div>
+}
+
 function Topic({ row, disabled, full, onCheck, onEdit, onScope }: { row: Draft; disabled: boolean; full: boolean; onCheck: (checked: boolean) => void; onEdit: () => void; onScope: (change: ScopeChange) => void }) {
   const { topic } = row
   const job = topic.category === 'job'
@@ -120,7 +135,7 @@ function Topic({ row, disabled, full, onCheck, onEdit, onScope }: { row: Draft; 
     <div className="explore-topic-row">
       <label className="explore-topic-heading">
         <input type="checkbox" aria-label={topic.title} checked={row.checked} disabled={full} onChange={event => onCheck(event.target.checked)}/>
-        <span><strong>{topic.title}</strong>{!row.checked && <small>{row.reason}</small>}</span>
+        <span><strong>{topic.title}</strong><small className="explore-kind">{row.kind}</small></span>
       </label>
       {row.checked && <Button type="button" variant="ghost" size="sm" className="explore-edit" aria-expanded={row.editing} aria-label={`Edit search for ${topic.title}`} onClick={onEdit}><Pencil aria-hidden="true"/>{row.editing ? 'Done' : 'Edit'}</Button>}
     </div>

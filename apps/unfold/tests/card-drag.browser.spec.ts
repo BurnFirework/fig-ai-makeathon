@@ -87,6 +87,7 @@ test('a card moves when dragged by its text or title; a click on the title edits
 
   // Found options: dragged by the text of an option, the whole card moves.
   await page.getByRole('button', { name: 'Explore board', exact: true }).click()
+  await page.getByRole('checkbox', { name: 'Select all', exact: true }).check()
   await page.getByRole('button', { name: 'Find options', exact: true }).click()
   await expect(results(page).getByRole('status')).toHaveText(/added to your board/)
   await page.getByRole('button', { name: 'Close Explore results' }).click()
@@ -115,6 +116,7 @@ test('notes and steps move from their text; titles, checkboxes, evidence and lin
   })
   await board(page)
   await page.getByRole('button', { name: 'Explore board', exact: true }).click()
+  await page.getByRole('checkbox', { name: 'Select all', exact: true }).check()
   await page.getByRole('button', { name: 'Find options', exact: true }).click()
   await expect(results(page).getByRole('status')).toHaveText(/added to your board/)
   await results(page).getByRole('region', { name: 'Suggested shared step' }).getByRole('button', { name: 'Add to board' }).click()

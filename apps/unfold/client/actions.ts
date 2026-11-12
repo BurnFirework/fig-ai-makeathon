@@ -39,7 +39,7 @@ export interface ExploreRun {
 }
 export interface ExploreCardTally { options: number; ideas: number; existing: number; ids: TLShapeId[] }
 export const uiState = new EditorAtom<UiState>('unfold-ui', () => ({ mode: 'demo', provider: 'Preview', activity: [], panel: false, jobs: {}, saved: true, activeChat: null, chatView: 'focus', removing: null, explore: null, exploreDialog: null }))
-export interface ExploreCandidate { topic: InvestigationTopic; selected: boolean; suggested: boolean; reason: string; conditions: string[] }
+export interface ExploreCandidate { topic: InvestigationTopic; selected: boolean; suggested: boolean; kind: string; conditions: string[] }
 /** Writes the workspace now instead of after the usual short delay; registered by the workspace for its editor. */
 export const saveNow = new WeakMap<Editor, () => void>()
 

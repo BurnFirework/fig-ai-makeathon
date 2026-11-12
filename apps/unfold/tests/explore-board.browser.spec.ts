@@ -11,10 +11,13 @@ const jobs = 'Remote design engineering roles'
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true })
 const results = (page: Page) => page.getByRole('complementary', { name: 'Explore results' })
 
+/** Ticks exactly these cards in the Explore dialog. */
 async function only(page: Page, names: string[]) {
-  const dialog = page.getByRole('dialog', { name: 'Explore board' })
-  const selected = await dialog.getByRole('checkbox', { checked: true }).evaluateAll(inputs => inputs.map(input => input.getAttribute('aria-label')))
-  for (const name of selected) if (name && !names.includes(name)) await dialog.getByRole('checkbox', { name, exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Explore your ideas' })
+  const more = dialog.getByRole('button', { name: /^Add interests/ })
+  if (await more.isVisible()) await more.click()
+  const labels = await dialog.locator('input[type=checkbox][aria-label]').evaluateAll(inputs => inputs.map(input => input.getAttribute('aria-label') ?? ''))
+  for (const name of labels) await dialog.getByRole('checkbox', { name, exact: true }).setChecked(names.includes(name))
 }
 
 type Reply = (request: ExploreRequest) => { reports: ExploreReport[]; shared?: unknown } | 'error' | 'hold'
@@ -68,7 +71,7 @@ async function selectCard(page: Page, title: string) {
   await page.mouse.click(bounds.x, bounds.y)
 }
 
-test('all ideas default to selected and retain their scope; confirmed options, Show on board and a shared step survive reloads', async ({ page }) => {
+test('nothing starts ticked, Select all ticks every idea, and ideas retain their scope; confirmed options, Show on board and a shared step survive reloads', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   const requests = await stub(page, request => {
     const reports = request.topics.map(topic => topic.title === pottery ? found(topic.sourceId, 'web:claystudio', 'Intro to the Wheel')
@@ -79,21 +82,26 @@ test('all ideas default to selected and retain their scope; confirmed options, S
   await board(page)
   await selectCard(page, pottery)
   await button(page, 'Explore board').click()
-  const dialog = page.getByRole('dialog', { name: 'Explore board' })
+  const dialog = page.getByRole('dialog', { name: 'Explore your ideas' })
+  // Nothing starts ticked, even with a card selected on the board; Select all ticks every card.
+  await expect(dialog.getByRole('checkbox', { name: pottery, exact: true })).not.toBeChecked()
+  await expect(dialog.getByRole('checkbox', { name: jobs, exact: true })).not.toBeChecked()
+  await expect(button(page, 'Find options')).toBeDisabled()
+  await page.getByRole('checkbox', { name: 'Select all', exact: true }).check()
   await expect(dialog.getByRole('checkbox', { name: pottery, exact: true })).toBeChecked()
   await expect(dialog.getByRole('checkbox', { name: jobs, exact: true })).toBeChecked()
   await expect(dialog).not.toContainText('Search type')
   await expect(dialog).not.toContainText('Ticketmaster')
-  await expect(dialog.locator('.explore-scope-line').first()).toHaveText('Pottery wheel class · Saturday')
+  await expect(dialog.locator('fieldset', { has: page.getByRole('checkbox', { name: pottery, exact: true }) }).locator('.explore-scope-line')).toHaveText('Pottery wheel class · Saturday')
   await button(page, `Edit search for ${pottery}`).click()
   // Typed key by key: a space between words must survive; the trailing one is trimmed on submit.
   const city = dialog.getByLabel('City', { exact: true })
   await city.fill('')
   await city.pressSequentially('San Francisco ')
   await expect(city).toHaveValue('San Francisco ')
-  await expect(dialog.locator('.explore-scope-line').first()).toHaveText('Pottery wheel class · San Francisco · Saturday')
+  await expect(dialog.locator('fieldset', { has: page.getByRole('checkbox', { name: pottery, exact: true }) }).locator('.explore-scope-line')).toHaveText('Pottery wheel class · San Francisco · Saturday')
   await expect(dialog.getByLabel('Budget ($)')).toHaveValue('')
-  await expect(dialog.getByRole('status')).toHaveText('2 ideas selected')
+  await expect(dialog.getByRole('checkbox', { name: 'Select all', exact: true })).toBeChecked()
   await button(page, 'Find options').click()
   await expect(dialog).toBeHidden()
 
@@ -123,7 +131,7 @@ test('all ideas default to selected and retain their scope; confirmed options, S
   // A second run finds the job too; the shared step appears only after Add to board.
   // Generated findings are eligible too; this run explicitly keeps the two original scopes.
   await button(page, 'Explore board').click()
-  await expect(dialog.getByRole('checkbox', { name: pottery, exact: true })).toBeChecked()
+  await expect(dialog.getByRole('checkbox', { name: pottery, exact: true })).not.toBeChecked()
   await only(page, [pottery, jobs])
   await button(page, 'Find options').click()
   await expect(results(page).getByRole('status')).toHaveText('1 option added to your board')
@@ -154,16 +162,29 @@ test('all ideas default to selected and retain their scope; confirmed options, S
   await expect(page.locator('.card-findings.is-selected')).toHaveCount(1)
 })
 
-test('without a selection, every meaningful card starts checked', async ({ page }) => {
+test('nothing starts checked; Select all shows partial selection, ticks every card and clears them all', async ({ page }) => {
   await stub(page, () => ({ reports: [] }))
   await board(page)
   await page.keyboard.press('Escape')
   await page.mouse.click(720, 900)
   await button(page, 'Explore board').click()
-  const dialog = page.getByRole('dialog', { name: 'Explore board' })
+  const dialog = page.getByRole('dialog', { name: 'Explore your ideas' })
+  const all = dialog.getByRole('checkbox', { name: 'Select all', exact: true })
+  await expect(dialog.getByRole('checkbox', { checked: true })).toHaveCount(0)
+  await expect(dialog.getByText(/^0 of \d+ selected$/)).toBeVisible()
+  await expect(button(page, 'Find options')).toBeDisabled()
+  // One card ticked: Select all shows as partly checked.
+  await dialog.getByRole('checkbox', { name: pottery, exact: true }).check()
+  await expect(all).toHaveJSProperty('indeterminate', true)
+  await expect(dialog.getByText(/^1 of \d+ selected$/)).toBeVisible()
+  await all.check()
+  await expect(all).toHaveJSProperty('indeterminate', false)
   await expect(dialog.getByRole('checkbox', { name: pottery, exact: true })).toBeChecked()
   await expect(dialog.getByRole('checkbox', { name: jobs, exact: true })).toBeChecked()
   await expect(button(page, 'Find options')).toBeEnabled()
+  await all.uncheck()
+  await expect(dialog.getByRole('checkbox', { checked: true })).toHaveCount(0)
+  await expect(dialog.getByText(/^0 of \d+ selected$/)).toBeVisible()
 })
 
 test('no confirmed options offers Edit search with the same scope; a failure offers Retry; Stop ends the run', async ({ page }) => {
@@ -173,7 +194,7 @@ test('no confirmed options offers Edit search with the same scope; a failure off
   await board(page)
   await selectCard(page, pottery)
   await button(page, 'Explore board').click()
-  const dialog = page.getByRole('dialog', { name: 'Explore board' })
+  const dialog = page.getByRole('dialog', { name: 'Explore your ideas' })
   await only(page, [pottery])
   await button(page, `Edit search for ${pottery}`).click()
   await dialog.getByLabel('City', { exact: true }).fill('Oakland')
@@ -187,7 +208,8 @@ test('no confirmed options offers Edit search with the same scope; a failure off
   await expect(page.locator('.explore-source-status')).toHaveText('Not confirmed yet')
   await row.getByRole('button', { name: `Edit search for ${pottery}` }).click()
   await expect(dialog.getByLabel('City', { exact: true })).toHaveValue('Oakland')
-  await expect(dialog.getByRole('status')).toHaveText('1 idea selected')
+  await expect(dialog.getByRole('checkbox', { name: pottery, exact: true })).toBeChecked()
+  await expect(dialog.getByRole('checkbox', { checked: true })).toHaveCount(1)
   await page.keyboard.press('Escape')
   await button(page, 'Edit search').click()
   await expect(dialog.getByLabel('City', { exact: true })).toHaveValue('Oakland')
@@ -201,6 +223,7 @@ test('no confirmed options offers Edit search with the same scope; a failure off
   mode = 'hold'
   await selectCard(page, jobs)
   await button(page, 'Explore board').click()
+  await only(page, [jobs])
   await button(page, 'Find options').click()
   await expect(results(page).getByRole('status')).toHaveText('Exploring your cards…')
   // Stop sits on the same line as the running status.
@@ -235,7 +258,7 @@ test('found options sit beside their card, can be searched again or removed, and
   // Like every card, its actions show on hover.
   await options.hover()
   await options.getByRole('button', { name: 'Search again' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Explore board' })
+  const dialog = page.getByRole('dialog', { name: 'Explore your ideas' })
   await expect(dialog.getByRole('checkbox', { name: right, exact: true })).toBeChecked()
   await page.keyboard.press('Escape')
 
