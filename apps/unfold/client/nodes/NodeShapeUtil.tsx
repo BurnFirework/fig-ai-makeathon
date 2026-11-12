@@ -51,6 +51,10 @@ export class NodeShapeUtil extends ShapeUtil<NodeShape> {
 	override canEdit(_shape: NodeShape) {
 		return false
 	}
+	/** The photo hands its pointer to the canvas, so its double-click arrives here: it opens the card's conversation. */
+	override onDoubleClick(shape: NodeShape) {
+		if (shape.props.node.type === 'inspiration') actions.get(this.editor)?.openChat(shape.id)
+	}
 	override canResize(_shape: NodeShape) {
 		return false
 	}

@@ -6,6 +6,9 @@ const CONTROLS = 'button, a[href], select, summary, label, [role="button"], [rol
 const FIELDS = 'input, textarea, [contenteditable="true"], [contenteditable=""]'
 /** How far the pointer may travel before a press on a title counts as a drag rather than a click. */
 const CLICK_SLOP_PX = 4
+/** A second press on the same title this soon is a double-click: it edits the title instead of reaching the canvas. */
+const DOUBLE_PRESS_MS = 500
+let lastPress: { field: HTMLElement; time: number } | undefined
 
 function focusField(field: HTMLElement) {
   field.focus({ preventScroll: true })
@@ -24,6 +27,9 @@ export function cardPointerDown(editor: Editor) {
     const field = target.closest<HTMLElement>(FIELDS)
     if (!field) return
     if (field === document.activeElement || event.button !== 0 || editor.getIsReadonly()) { editor.markEventAsHandled(event); return }
+    const now = performance.now()
+    if (lastPress?.field === field && now - lastPress.time < DOUBLE_PRESS_MS) { lastPress = undefined; editor.markEventAsHandled(event); return }
+    lastPress = { field, time: now }
     // Keep the browser from focusing the field on press, so the canvas can drag the card; a click focuses it after.
     event.preventDefault()
     const { clientX: x, clientY: y, pointerId } = event
@@ -31,7 +37,9 @@ export function cardPointerDown(editor: Editor) {
       if (end.pointerId !== pointerId) return
       window.removeEventListener('pointerup', finish, true)
       window.removeEventListener('pointercancel', finish, true)
-      if (end.type === 'pointerup' && Math.hypot(end.clientX - x, end.clientY - y) < CLICK_SLOP_PX) setTimeout(() => focusField(field), 0)
+      const click = end.type === 'pointerup' && Math.hypot(end.clientX - x, end.clientY - y) < CLICK_SLOP_PX
+      if (click) setTimeout(() => focusField(field), 0)
+      else if (lastPress?.field === field) lastPress = undefined
     }
     window.addEventListener('pointerup', finish, true)
     window.addEventListener('pointercancel', finish, true)
