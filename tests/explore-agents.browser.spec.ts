@@ -8,7 +8,7 @@ const people = 'Meet new people'
 const wheel = { id: 'web:clay', title: 'Saturday wheel group', subtitle: 'claycollective.example · San Francisco', when: 'Saturdays 1–3:30pm', why: 'The organizer’s page confirms San Francisco, Saturday afternoons.', url: 'https://claycollective.example/wheel', source: 'https://claycollective.example/wheel', state: 'new' as const }
 const games = { id: 'web:games', title: 'Board game night', subtitle: 'meetup.com · San Francisco', why: 'The organizer’s page confirms San Francisco.', url: 'https://www.meetup.com/sf-games/', source: 'https://www.meetup.com/sf-games/', state: 'new' as const }
 
-test('a shared step for one option serving two ideas stays single, survives reload and is marked for review after a dismissal', async ({ page }) => {
+test('a shared step for one option serving two ideas stays single, survives reload and shows no review mark after a dismissal', async ({ page }) => {
   await page.route('**/api/config', route => route.fulfill({ json: { mode: 'demo', provider: 'Preview', providers: [] } }))
   await page.route('**/api/agent', route => {
     const request = ExploreRequestSchema.parse(route.request().postDataJSON())
@@ -57,14 +57,11 @@ test('a shared step for one option serving two ideas stays single, survives relo
   await expect(shared).toHaveCount(1)
   await page.getByRole('button', { name: 'Fit board', exact: true }).click()
   await page.getByRole('button', { name: 'Dismiss Saturday wheel group', exact: true }).first().click()
-  await expect(shared).toHaveClass(/is-stale/)
+  // The card is out of date for the agents, but the board shows no review mark on it.
+  await expect(shared.locator('.stale-banner')).toHaveCount(0)
   await run()
   await expect(panel.getByRole('button', { name: 'Add to board' })).toHaveCount(1)
   await panel.getByRole('button', { name: 'Add to board' }).click()
   await expect(shared).toHaveCount(1)
-  await expect(shared).toHaveClass(/is-stale/)
-  // The mark says what changed, and the user can keep the card as it is.
-  await expect(shared.getByRole('status')).toContainText(/Found options for “.*” changed/)
-  await shared.getByRole('button', { name: 'Keep as is' }).click()
-  await expect(shared).not.toHaveClass(/is-stale/)
+  await expect(shared.locator('.stale-banner')).toHaveCount(0)
 })

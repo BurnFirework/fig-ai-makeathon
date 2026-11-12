@@ -47,8 +47,6 @@ export interface UnfoldActions {
   /** Creates (or refreshes) the card for the shared step the agents suggested. */
   addSharedStep(): TLShapeId | undefined
   dismissFinding(id: TLShapeId, findingId: string): void
-  /** Clears a card's review mark when the user decides it still holds. */
-  keepCard(id: TLShapeId): void
   applyBoardEdits(edits: readonly BoardEdit[]): TLShapeId[]
   openChat(id: TLShapeId, chatId?: string): void;
   /** A separate, empty conversation: the person asks first, or lets the agents suggest. */

@@ -95,8 +95,6 @@ const base = {
   chats: z.array(ChatSchema).optional(),
   origin: z.object({ nodeId: z.string(), chatId: z.string(), messageId: z.string(), inputs: z.array(DependencySchema).optional() }).optional(),
   branchId: z.string(), sequence: z.number(), revision: z.number().int().nonnegative(), stale: z.boolean(),
-  /** What changed after this card was made, shown with the stale mark. */
-  staleReason: z.string().max(240).optional(),
   dependsOn: z.array(DependencySchema), agent: z.enum(['you', 'branch', 'research', 'connection']), createdAt: z.number(),
 }
 export const NodeSchema = z.discriminatedUnion('type', [

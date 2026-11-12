@@ -33,15 +33,15 @@ export class UnfoldNodeDefinition extends NodeDefinition<UnfoldNode> {
   getBodyHeightPx(_shape: NodeShape, node: UnfoldNode) {
     if (node.type === 'findings') {
       const count = node.findings.filter(finding => !node.dismissed.includes(finding.id)).length
-      return node.fit ?? (count ? 110 + Math.min(count, node.expanded ? 30 : 2) * 190 : 160) + (node.stale ? 24 : 0)
+      return node.fit ?? (count ? 110 + Math.min(count, node.expanded ? 30 : 2) * 190 : 160)
     }
     if (node.type === 'action') return node.fit ?? actionHeight(node, node.expanded === true)
-    if (node.type === 'artifact') return node.fit ?? 110 + lines(node.content.description, 44) * 21 + (node.content.kind === 'moodboard' ? Math.ceil(node.content.items.length / 2) * 110 : 0) + (node.stale ? 26 : 0)
+    if (node.type === 'artifact') return node.fit ?? 110 + lines(node.content.description, 44) * 21 + (node.content.kind === 'moodboard' ? Math.ceil(node.content.items.length / 2) * 110 : 0)
     if (node.type !== 'inspiration') return 320
     const asset = this.editor.getAssets().find(asset => asset.id === node.assetId)
     const imageWidth = NODE_WIDTH_PX - FRAME_PX * 2
     const imageHeight = asset?.type === 'image' ? imageWidth * asset.props.h / asset.props.w : 260
-    return FRAME_PX + Math.max(200, Math.min(460, imageHeight)) + CAPTION_PX + (node.stale ? 24 : 0)
+    return FRAME_PX + Math.max(200, Math.min(460, imageHeight)) + CAPTION_PX
   }
   getPorts(shape: NodeShape, node: UnfoldNode): NodeTypePorts {
     const output = { id: 'output', terminal: 'start' as const, x: NODE_WIDTH_PX / 2, y: this.getBodyHeightPx(shape, node) }
@@ -100,8 +100,7 @@ function useFittedHeight(shape: NodeShape, deps: unknown[]) {
     const observer = new ResizeObserver(fit)
     observer.observe(element)
     return () => { observer.disconnect() }
-    // The review mark sits beside the content, so its arrival or new wording also refits the card.
-  }, [editor, shape.id, shape.props.node.stale, shape.props.node.staleReason, ...deps])
+  }, [editor, shape.id, ...deps])
   return content
 }
 
@@ -198,7 +197,6 @@ function FindingsCard({ shape, node, selected, hovered, updated }: { shape: Node
     <div className="card-interactive" onPointerDown={event => editor.markEventAsHandled(event)} onKeyDown={event => event.stopPropagation()}>
       <div ref={content} className="card-content findings-body">
         <div className="findings-meta"><strong>{findings.length} {findings.length === 1 ? 'option' : 'options'}</strong>{source && <span> for “{nodeTitle(source.props.node)}”</span>}</div>
-        {node.stale && <div className="stale-banner">Interest changed · search again</div>}
         {findings.slice(0, node.expanded ? undefined : 2).map(finding => <FindingRow key={finding.id} finding={finding} checkedAt={finding.checkedAt ?? node.checkedAt} onDismiss={() => api?.dismissFinding(shape.id, finding.id)}/>)}
         {isEmpty(findings) && <p>All findings dismissed.</p>}
         {findings.length > 2 && <button type="button" className="details-toggle" aria-expanded={node.expanded === true} onClick={() => editor.run(() => editor.updateShape<NodeShape>({ id: shape.id, type: 'node', props: { node: { ...node, expanded: !node.expanded } } }), { history: 'ignore' })}>{node.expanded ? 'Show less' : `Show all ${findings.length}`}<ChevronDown size={12}/></button>}
@@ -233,13 +231,12 @@ function UnfoldCard({ shape, node }: NodeComponentProps<UnfoldNode>) {
   const step = useValue('step number', () => node.type === 'action' ? lineage(nodes(editor).map(item => ({ id: item.id, node: item.props.node })), shape.id).filter(record => record.node.type === 'action').length : 0, [editor, shape.id, node.type])
   if (node.type === 'findings') return <FindingsCard shape={shape} node={node} selected={selected} hovered={hovered} updated={updated}/>
   const label = sharedPlan ? 'Shared plan · Explore board' : node.type === 'inspiration' ? 'Inspiration' : node.type === 'opportunity' ? 'Shared direction' : node.type === 'action' ? `Step ${Math.max(1, step)}` : node.type === 'artifact' ? node.content.kind === 'moodboard' ? 'Moodboard' : 'Note' : 'Earlier exploration'
-  return <article className={`unfold-card card-${node.type} ${active ? 'chat-is-open' : ''} ${selected ? 'is-selected' : ''} ${hovered ? 'is-hovered' : ''} ${busy ? 'is-busy' : ''} ${node.stale ? 'is-stale' : ''} ${sharedPlan ? 'card-explore-shared' : ''} ${updated ? 'explore-updated' : ''}`}>
+  return <article className={`unfold-card card-${node.type} ${active ? 'chat-is-open' : ''} ${selected ? 'is-selected' : ''} ${hovered ? 'is-hovered' : ''} ${busy ? 'is-busy' : ''} ${sharedPlan ? 'card-explore-shared' : ''} ${updated ? 'explore-updated' : ''}`}>
     {runningWorker && <div className="explore-source-status"><LoaderCircle size={13} className="spin"/><span>{runningWorker.label}</span></div>}
     {node.type === 'inspiration' && <Tape/>}
     {node.type === 'inspiration' ? <div className="inspiration-image" title="Drag to move · double-click to explore" onDoubleClick={event => { editor.markEventAsHandled(event); api?.openChat(shape.id) }}>{src ? <img src={src} alt={node.goal} draggable={false}/> : <div className="image-placeholder"><Sparkles/></div>}<Blossom className="card-sticker" size={22}/></div> : <header className="card-header"><span className="card-eyebrow">{label}</span></header>}
     <div className="card-interactive" onPointerDown={event => editor.markEventAsHandled(event)} onKeyDown={event => event.stopPropagation()}>
       {node.type === 'inspiration' ? <div className="inspiration-content"><Input aria-label="Inspiration goal" className="inspiration-title h-auto border-0 bg-transparent p-0 shadow-none focus-visible:ring-0" defaultValue={node.goal} key={`${shape.id}-${node.revision}`} maxLength={600} onBlur={event => { if (event.target.value.trim() && event.target.value.trim() !== node.goal) api?.updateGoal(shape.id, event.target.value) }}/></div> : node.type === 'action' ? <ActionBody shape={shape} node={node}/> : node.type === 'artifact' ? <ArtifactBody shape={shape} node={node}/> : <div className="card-content"><h2>{nodeTitle(node)}</h2>{node.type === 'opportunity' && <p className="description">{node.description}</p>}{node.type === 'opportunity' && <div className="node-benefits"><p>{node.benefitA}</p><p>{node.benefitB}</p></div>}{node.type === 'opportunity' && node.sources && isNotEmpty(node.sources) && <div className="source-chips">{node.sources.map(source => <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer" title={source.title}>{domain(source.url)}<ExternalLink size={11}/></a>)}</div>}</div>}
-      {node.stale && <div className="stale-banner" role="status"><span><strong>May be out of date.</strong> {node.staleReason ?? 'Something this card was based on changed'}.</span><button type="button" onClick={() => api?.keepCard(shape.id)}>Keep as is</button></div>}
       {node.type === 'opportunity' && node.status === 'rejected' && <div className="stale-banner declined-banner">Declined · agents won’t develop this direction</div>}
       {node.type === 'action' && node.completed && node.reflection && <div className="node-completion"><span><small>{node.reflection}</small></span></div>}
       <footer className="card-footer"><Button variant="secondary" size="sm" className="explore-button" aria-label={`Explore ${nodeTitle(node)}`} aria-expanded={active} onClick={() => api?.openChat(shape.id)}>{busy ? <LoaderCircle size={15} className="spin"/> : <MessageCircle size={15}/>}<span>{active || count ? 'Continue' : 'Explore'}</span><ArrowRight size={13}/></Button>{node.type === 'inspiration' && <LinkPill shapeId={shape.id}/>}<Button variant="secondary" size="icon-sm" className="remove-button" aria-label={`Remove ${nodeTitle(node)}`} onClick={() => api?.requestRemove([shape.id])}><Trash2 size={13}/></Button></footer>
