@@ -22,6 +22,7 @@ const FRAME_PX = 10
 const CAPTION_PX = 52
 import { defaultInspiration, nodes } from '../../unfold'
 import type { NodeShape } from '../NodeShapeUtil'
+import { cardPointerDown } from '../card-pointer'
 import { type NodeComponentProps, NodeDefinition } from './shared'
 
 export class UnfoldNodeDefinition extends NodeDefinition<UnfoldNode> {
@@ -194,7 +195,7 @@ function FindingsCard({ shape, node, selected, hovered, updated }: { shape: Node
   }
   return <article className={`unfold-card card-findings ${selected ? 'is-selected' : ''} ${hovered ? 'is-hovered' : ''} ${updated ? 'explore-updated' : ''}`}>
     <header className="card-header"><span className="card-eyebrow"><Search size={11}/>{node.topic.kind === 'web' || node.topic.kind === 'card' ? 'Found options' : `Explore board · ${node.topic.kind === 'events' ? 'Events' : 'Jobs'}`}</span></header>
-    <div className="card-interactive" onPointerDown={event => editor.markEventAsHandled(event)} onKeyDown={event => event.stopPropagation()}>
+    <div className="card-interactive" onPointerDown={cardPointerDown(editor)} onKeyDown={event => event.stopPropagation()}>
       <div ref={content} className="card-content findings-body">
         <div className="findings-meta"><strong>{findings.length} {findings.length === 1 ? 'option' : 'options'}</strong>{source && <span> for “{nodeTitle(source.props.node)}”</span>}</div>
         {findings.slice(0, node.expanded ? undefined : 2).map(finding => <FindingRow key={finding.id} finding={finding} checkedAt={finding.checkedAt ?? node.checkedAt} onDismiss={() => api?.dismissFinding(shape.id, finding.id)}/>)}
@@ -232,7 +233,7 @@ function UnfoldCard({ shape, node }: NodeComponentProps<UnfoldNode>) {
   return <article className={`unfold-card card-${node.type} ${active ? 'chat-is-open' : ''} ${selected ? 'is-selected' : ''} ${hovered ? 'is-hovered' : ''} ${busy ? 'is-busy' : ''} ${sharedPlan ? 'card-explore-shared' : ''} ${updated ? 'explore-updated' : ''}`}>
     {node.type === 'inspiration' && <Tape/>}
     {node.type === 'inspiration' ? <div className="inspiration-image" title="Drag to move · double-click to explore" onDoubleClick={event => { editor.markEventAsHandled(event); api?.openChat(shape.id) }}>{src ? <img src={src} alt={node.goal} draggable={false}/> : <div className="image-placeholder"><Sparkles/></div>}<Blossom className="card-sticker" size={22}/></div> : <header className="card-header"><span className="card-eyebrow">{label}</span></header>}
-    <div className="card-interactive" onPointerDown={event => editor.markEventAsHandled(event)} onKeyDown={event => event.stopPropagation()}>
+    <div className="card-interactive" onPointerDown={cardPointerDown(editor)} onKeyDown={event => event.stopPropagation()}>
       {node.type === 'inspiration' ? <div className="inspiration-content"><Input aria-label="Inspiration goal" className="inspiration-title h-auto border-0 bg-transparent p-0 shadow-none focus-visible:ring-0" defaultValue={node.goal} key={`${shape.id}-${node.revision}`} maxLength={600} onBlur={event => { if (event.target.value.trim() && event.target.value.trim() !== node.goal) api?.updateGoal(shape.id, event.target.value) }}/></div> : node.type === 'action' ? <ActionBody shape={shape} node={node}/> : node.type === 'artifact' ? <ArtifactBody shape={shape} node={node}/> : <div className="card-content"><h2>{nodeTitle(node)}</h2>{node.type === 'opportunity' && <p className="description">{node.description}</p>}{node.type === 'opportunity' && <div className="node-benefits"><p>{node.benefitA}</p><p>{node.benefitB}</p></div>}{node.type === 'opportunity' && node.sources && isNotEmpty(node.sources) && <div className="source-chips">{node.sources.map(source => <a key={source.id} href={source.url} target="_blank" rel="noopener noreferrer" title={source.title}>{domain(source.url)}<ExternalLink size={11}/></a>)}</div>}</div>}
       {node.type === 'opportunity' && node.status === 'rejected' && <div className="stale-banner declined-banner">Declined · agents won’t develop this direction</div>}
       {node.type === 'action' && node.completed && node.reflection && <div className="node-completion"><span><small>{node.reflection}</small></span></div>}

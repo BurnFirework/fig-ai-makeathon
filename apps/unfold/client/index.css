@@ -179,7 +179,10 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .card-header { min-height: 40px; padding: 0 20px; display: flex; align-items: center; cursor: grab; }
 .card-eyebrow { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; background: var(--accent-100); color: var(--accent-600); font-size: 9.5px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; }
 .card-header { justify-content: space-between; gap: 8px; }
-.card-interactive { flex: 1; min-height: 0; display: flex; flex-direction: column; pointer-events: auto; }
+.card-interactive { flex: 1; min-height: 0; display: flex; flex-direction: column; pointer-events: auto; cursor: grab; user-select: none; -webkit-user-select: none; }
+.card-interactive:active { cursor: grabbing; }
+.card-interactive :is(input, textarea, [contenteditable]) { user-select: text; -webkit-user-select: text; }
+.card-interactive :is(input, textarea, [contenteditable]):not(:focus) { cursor: grab; }
 .inspiration-image { position: relative; flex: 1; min-height: 0; border-radius: 3px; background: var(--accent-50); cursor: grab; }
 .inspiration-image .card-sticker { position: absolute; right: -8px; bottom: -8px; transform: rotate(16deg); pointer-events: none; }
 .inspiration-image:active { cursor: grabbing; }
