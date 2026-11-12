@@ -21,8 +21,8 @@ function applyScope(topic: InvestigationTopic, change: ScopeChange): Investigati
     ...(maxPrice !== undefined && Number.isFinite(maxPrice) ? { maxPrice } : {}), ...(region ? { region } : {}) }
 }
 
-/** Optional text field: empty clears the value instead of storing an empty string. */
-const optional = (value: string) => value.trim() ? value.trim().slice(0, 160) : undefined
+/** Optional text field: kept as typed so spaces between words survive; a blank field clears the value. Trimmed on submit. */
+const optional = (value: string) => value.trim() ? value.slice(0, 160) : undefined
 
 export function ExploreBoard() {
   const editor = useEditor()
@@ -60,7 +60,7 @@ export function ExploreBoard() {
     const topics = selected.map(row => row.topic)
     const parsed = ExploreRequestSchema.safeParse({ operation: 'explore', requestId: 'check', topics })
     if (!parsed.success) { setError(parsed.error.issues[0]?.message ?? 'Check the search details.'); return }
-    controller.exploreBoard(topics).then(() => {}, (failure: unknown) => {
+    controller.exploreBoard(parsed.data.topics).then(() => {}, (failure: unknown) => {
       uiState.update(editor, state => ({ ...state, exploreDialog: { reuse: false, error: failure instanceof Error ? failure.message : 'Explore board could not start.' } }))
     })
     setOpen(false)

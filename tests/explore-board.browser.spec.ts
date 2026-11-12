@@ -86,7 +86,11 @@ test('all ideas default to selected and retain their scope; confirmed options, S
   await expect(dialog).not.toContainText('Ticketmaster')
   await expect(dialog.locator('.explore-scope-line').first()).toHaveText('Pottery wheel class · Saturday')
   await button(page, `Edit search for ${pottery}`).click()
-  await dialog.getByLabel('City', { exact: true }).fill('San Francisco')
+  // Typed key by key: a space between words must survive; the trailing one is trimmed on submit.
+  const city = dialog.getByLabel('City', { exact: true })
+  await city.fill('')
+  await city.pressSequentially('San Francisco ')
+  await expect(city).toHaveValue('San Francisco ')
   await expect(dialog.locator('.explore-scope-line').first()).toHaveText('Pottery wheel class · San Francisco · Saturday')
   await expect(dialog.getByLabel('Budget ($)')).toHaveValue('')
   await expect(dialog.getByRole('status')).toHaveText('2 ideas selected')
