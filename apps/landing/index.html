@@ -38,7 +38,15 @@
           <a class="hero-download" href="https://unfold-downloads.bezr.dev/Unfold-0.1.1-arm64.dmg">Download for macOS</a>
         </div>
       </section>
-      <img class="board" src="./board.webp" width="1440" height="1000" alt="An Unfold board with photo goals for live jazz, pottery and design work, branching into notes, found options, suggested questions, a shared direction and a first step, with the chat that connected two goals open beside it.">
+      <div class="demo">
+        <div class="demo-frame">
+          <img class="board" src="./board.webp" width="1440" height="1000" alt="An Unfold board with photo goals for live jazz, pottery and design work, branching into notes, found options, suggested questions, a shared direction and a first step, with the chat that connected two goals open beside it.">
+          <a class="demo-play" href="https://youtu.be/hJiJUeoXvxE">
+            <span><span aria-hidden="true">▶</span> Watch demo</span>
+          </a>
+        </div>
+        <a class="demo-fallback" href="https://youtu.be/hJiJUeoXvxE" target="_blank" rel="noopener">Watch on YouTube <span aria-hidden="true">↗</span></a>
+      </div>
       <section class="privacy" aria-labelledby="privacy-title">
         <div class="privacy-intro">
           <h2 id="privacy-title">Your boards stay on your device.</h2>
@@ -61,6 +69,21 @@
       const updateBorder = () => masthead.classList.toggle('is-scrolled', window.scrollY > 12);
       window.addEventListener('scroll', updateBorder, { passive: true });
       updateBorder();
+
+      const demoPlay = document.querySelector('.demo-play');
+      demoPlay.addEventListener('click', (event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+
+        const player = document.createElement('iframe');
+        player.className = 'demo-player';
+        player.title = 'Unfold product demo';
+        player.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+        player.referrerPolicy = 'strict-origin-when-cross-origin';
+        player.src = 'https://www.youtube-nocookie.com/embed/hJiJUeoXvxE?autoplay=1';
+        demoPlay.parentElement.replaceChildren(player);
+        player.focus();
+      });
     </script>
   </body>
 </html>
