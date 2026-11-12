@@ -12,7 +12,7 @@ import { Button } from './components/ui/button'
 type Appearance = Workspace['appearance']
 const PALETTES = [
   { id: 'lavender', label: 'Lavender', swatch: '#c6b1de', accent: '#9c80c0' },
-  { id: 'rose', label: 'Rose', swatch: '#eca8bd', accent: '#de7499' },
+  { id: 'rose', label: 'Rose', swatch: '#eca8bd', accent: '#9d345d' },
   { id: 'sage', label: 'Sage', swatch: '#b6cca0', accent: '#809f67' },
 ] as const satisfies readonly { id: Appearance['palette']; label: string; swatch: string; accent: string }[]
 const PATTERNS = [

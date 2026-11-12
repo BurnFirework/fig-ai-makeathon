@@ -55,7 +55,7 @@
 /* Main color, chosen in the Style menu and saved in workspace.appearance (data-palette on <html>). */
 :root, :root[data-palette="rose"] {
   --accent-50: #fdf2f5; --accent-100: #fbe7ee; --accent-200: #f5cbd8; --accent-300: #eca8bd;
-  --accent-400: #e5829f; --accent-500: #de7499; --accent-600: #c95a82; --accent-dot: #efcfd8; --accent-glow: #de74991f;
+  --accent-400: #e5829f; --accent-500: #9d345d; --accent-600: #80284b; --accent-dot: #efcfd8; --accent-glow: #9d345d1f;
   --second-ink-dark: #4a5c38;
   --st-light: #f7c6d4; --st-mid: #f3b6c8; --st-deep: #ec9fb8; --st-line: #d6809f; --st-shine: #e39ab2;
 }
