@@ -79,7 +79,9 @@ export async function searchJobs(topic: { query: string; remoteOnly: boolean }, 
 
 async function parallel(tool: 'web_search' | 'web_fetch', args: object, signal: AbortSignal) {
   try {
-    const raw = await post('https://mcp.parallel.ai/mcp', { Accept: 'application/json, text/event-stream' }, {
+    // Without a key Parallel's free tier applies and rate-limits busy sessions; PARALLEL_API_KEY lifts that limit.
+    const key = process.env.PARALLEL_API_KEY
+    const raw = await post('https://mcp.parallel.ai/mcp', { Accept: 'application/json, text/event-stream', ...(key ? { 'x-api-key': key } : {}) }, {
       jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: tool, arguments: args },
     }, signal)
     const message = raw.split(/\r?\n/).find(line => line.startsWith('data: '))?.slice(6) ?? raw

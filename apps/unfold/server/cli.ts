@@ -21,7 +21,7 @@ function candidates(provider: 'claude' | 'codex') {
 /** Environment for CLI processes: subscription login stays with the CLI; don't silently choose API-key billing. */
 function cliEnv() {
   const env = { ...process.env }
-  for (const key of ['OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'CLAUDECODE', 'COMPOSIO_API_KEY', 'TICKETMASTER_API_KEY']) delete env[key]
+  for (const key of ['OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'CLAUDECODE', 'COMPOSIO_API_KEY', 'TICKETMASTER_API_KEY', 'PARALLEL_API_KEY']) delete env[key]
   return env
 }
 const loginCommand = (provider: 'claude' | 'codex') => provider === 'claude' ? 'claude auth login' : 'pnpm --filter unfold exec codex login'
@@ -94,7 +94,11 @@ export function readCliEvent(line: string, provider: 'claude' | 'codex') {
   return { text, searched, urls, error, failure }
 }
 
-export interface CliOptions { search?: boolean; image?: string; images?: string[]; timeoutMs?: number; maxTurns?: number; background?: boolean }
+/** `fast`: a quick model with light reasoning for routine steps. `light`: the selected model with light reasoning. */
+export type CliSpeed = 'default' | 'fast' | 'light'
+export interface CliOptions { search?: boolean; image?: string; images?: string[]; timeoutMs?: number; maxTurns?: number; background?: boolean; speed?: CliSpeed }
+/** The quick model for routine steps: Sonnet for Claude Code, Luna for Codex. UNFOLD_FAST_MODEL overrides it. */
+export function fastModel(provider: 'claude' | 'codex') { return process.env.UNFOLD_FAST_MODEL || (provider === 'claude' ? 'claude-sonnet-5-5' : 'gpt-6-luna') }
 export async function callCli(config: CliConfig, prompt: string, signal: AbortSignal, options: CliOptions = {}): Promise<{ text: string; searched: boolean; urls: string[] }> {
   if (config.provider === 'demo') throw new Error('Preview mode has no live provider.')
   const provider = config.provider
@@ -112,9 +116,12 @@ export async function callCli(config: CliConfig, prompt: string, signal: AbortSi
       await writeFile(imagePath, Buffer.from(image[2], 'base64'), { mode: 0o600 })
       imagePaths.push(imagePath)
     }
+    const fast = options.speed === 'fast'
+    const light = fast || options.speed === 'light'
+    const model = fast ? fastModel(provider) : config.model
     const args = provider === 'codex'
-      ? ['exec', '--json', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check', '--sandbox', 'read-only', '--disable', 'shell_tool', '--disable', 'hooks', '-c', `web_search="${options.search ? 'live' : 'disabled'}"`, ...(config.model ? ['--model', config.model] : []), ...imagePaths.flatMap(path => ['--image', path]), '-']
-      : ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--max-turns', String(options.maxTurns ?? 8), '--permission-mode', 'dontAsk', '--tools', options.search ? 'WebSearch,WebFetch' : '', '--allowedTools', options.search ? 'WebSearch,WebFetch' : '', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '', '--settings', '{"disableAllHooks":true}', ...(config.model ? ['--model', config.model] : [])]
+      ? ['exec', '--json', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check', '--sandbox', 'read-only', '--disable', 'shell_tool', '--disable', 'hooks', '-c', `web_search="${options.search ? 'live' : 'disabled'}"`, ...(light ? ['-c', 'model_reasoning_effort="low"'] : []), ...(model ? ['--model', model] : []), ...imagePaths.flatMap(path => ['--image', path]), '-']
+      : ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--max-turns', String(options.maxTurns ?? 8), '--permission-mode', 'dontAsk', '--tools', options.search ? 'WebSearch,WebFetch' : '', '--allowedTools', options.search ? 'WebSearch,WebFetch' : '', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '', '--settings', '{"disableAllHooks":true}', ...(model ? ['--model', model] : []), ...(light ? ['--effort', 'low'] : [])]
     const env = cliEnv()
     let input = prompt
     if (provider === 'claude') {
