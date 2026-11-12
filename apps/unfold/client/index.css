@@ -237,7 +237,9 @@ a:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 3px; }
 .chat-switcher { flex: 1; min-width: 0; justify-content: space-between; font-size: 12px; color: var(--cocoa-soft); }
 .chat-source-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 12px 24px 0; font-size: 11px; color: var(--cocoa-soft); }
 .chat-source-row button { background: var(--accent-50); padding: 4px 7px; border-radius: 4px; max-width: 145px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
-.chat-messages { padding: 24px 25px 10px; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.chat-messages { padding: 24px 25px 10px; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+  /* Scrolled messages fade out under the header instead of ending in a hard cut through a card. */
+  mask-image: linear-gradient(to bottom, transparent, #000 20px); }
 .chat-message { margin-bottom: 28px; overflow-wrap: anywhere; }
 .message-label { display: flex; gap: 6px; align-items: center; color: var(--cocoa-soft); font-size: 11px; font-weight: 500; margin-bottom: 10px; }
 .chat-message > p { font-size: 14px; line-height: 1.75; margin: 0 0 10px; white-space: pre-wrap; }
