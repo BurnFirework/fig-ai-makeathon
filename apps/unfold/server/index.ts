@@ -6,7 +6,9 @@ import { parseAgentRequest, runRuntime } from './runtime'
 import { discoverProviders, providerConfig, publicConfig, selectProvider } from './cli'
 import { z } from 'zod'
 
-if (existsSync('.env')) process.loadEnvFile('.env')
+const envFile = resolve(import.meta.dirname, '../../../.env')
+if (existsSync(envFile)) process.loadEnvFile(envFile)
+const root = resolve(import.meta.dirname, '../dist')
 const port = Number(process.env.PORT || 3001)
 await discoverProviders()
 const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.json': 'application/json' }
@@ -62,7 +64,6 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     return
   }
   if (request.method !== 'GET') { response.writeHead(405); response.end(); return }
-  const root = resolve('dist')
   let decodedPath: string
   try { decodedPath = decodeURIComponent(pathname) } catch { response.writeHead(400); response.end('Invalid path.'); return }
   const file = resolve(root, '.' + decodedPath)

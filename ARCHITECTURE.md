@@ -27,7 +27,7 @@ Desktop creates and reopens one managed workspace file containing the whole boar
 - Activity, folded branches, pending requests, retries, and undo history are currently temporary. Keep that policy explicit. Preserve document content, dependency revisions, source links, decisions, completion state, reflections, layout, and selected board. Camera position may be retained as separate per-board view state; it must not trigger whole-file autosaves on every pan.
 - There are direct `/api` calls in `client/agentClient.ts`, provider selection in `client/App.tsx`, and configuration loading in `client/unfold.ts`. All belong behind one agent transport.
 - The deterministic preview currently lives in `server/agents.ts`; static Safari cannot complete that flow without extracting the preview into shared code.
-- The local server assumes a development cwd, `.env`, and `node_modules/.bin/codex`. Packaged desktop discovery must use explicit resource and executable locations instead.
+- The local server reads `.env` at the repository root and finds its project-local Codex CLI from the Unfold package. Packaged desktop discovers installed CLIs on the user's machine.
 
 ## Usage before implementation details
 
@@ -52,7 +52,7 @@ Select the platform at application startup, rather than testing `window` or impo
 
 ## Module ownership and type sketch
 
-Keep the current repository layout. A pnpm workspace or wholesale move into `apps/*` is unnecessary for two build targets.
+The repository root owns the pnpm workspace, lockfile, and commands. The landing page lives in `apps/landing`. The browser and Electron app share one package in `apps/unfold`. The paths below are relative to `apps/unfold`.
 
 ```text
 client/

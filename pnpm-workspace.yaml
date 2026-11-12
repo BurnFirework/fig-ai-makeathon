@@ -1,0 +1,8 @@
+packages:
+  - 'apps/*'
+
+overrides:
+  minimatch: ^11.0.1
+
+onlyBuiltDependencies:
+  - esbuild

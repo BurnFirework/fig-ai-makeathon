@@ -72,7 +72,7 @@ test('a research reply that cannot be read pauses the link with a clear error an
   const activity = page.locator('.activity-panel')
   await expect(activity).toContainText('The search did not complete')
   await expect(activity).not.toContainText('No suitable verified option')
-  await page.screenshot({ path: 'output/playwright/research-failure-paused.png' })
+  await page.screenshot({ path: '../../output/playwright/research-failure-paused.png' })
   await button(page, 'Agent activity').click()
 
   // After a reload the paused check and its Retry are still there (the board saves shortly after each change).
@@ -92,7 +92,7 @@ test('a research reply that cannot be read pauses the link with a clear error an
   await ready.first().click()
   await expect(panel(page).locator('.chat-outcome h3')).toHaveText('Saturday clay social')
   await expect(panel(page).locator('.chat-outcome .source-chips a')).toHaveAttribute('href', 'https://studio.example/saturday-clay-social')
-  await page.screenshot({ path: 'output/playwright/research-failure-retried.png' })
+  await page.screenshot({ path: '../../output/playwright/research-failure-retried.png' })
   await button(page, 'Accept').click()
   await expect(page.locator('.card-opportunity')).toHaveCount(1)
 })

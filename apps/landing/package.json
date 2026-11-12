@@ -1,0 +1,10 @@
+{
+  "name": "unfold-landing",
+  "private": true,
+  "scripts": {
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "vite": "^6.4.1"
+  }
+}

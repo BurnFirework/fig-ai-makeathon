@@ -240,7 +240,7 @@ test('found options sit beside their card, can be searched again or removed, and
   expect(overlap(b, c)).toBe(false)
 
   await button(page, 'Fit board').click()
-  await page.screenshot({ path: 'output/findings-layout.png' })
+  await page.screenshot({ path: '../../output/findings-layout.png' })
 
   // Removing the options removes only that card.
   await options.hover()

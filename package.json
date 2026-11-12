@@ -1,70 +1,20 @@
 {
-  "name": "unfold",
-  "version": "0.1.0",
+  "name": "unfold-workspace",
   "private": true,
-  "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"tsx watch server/index.ts\" \"vite --host 127.0.0.1\"",
-    "build": "tsc --noEmit && vite build",
-    "build:site": "vite build apps/landing --outDir ../../output/site --emptyOutDir && vite build --base=/app/ --outDir output/site/app",
-    "start": "tsx server/index.ts",
-    "test": "node --test tests/*.test.mjs && node --import tsx --test --test-force-exit tests/*.test.ts",
-    "check": "tsc --noEmit",
-    "lint": "eslint . --max-warnings 0",
-    "desktop:build": "pnpm build && node scripts/desktop-build.mjs",
-    "desktop:dev": "pnpm desktop:build && pnpm exec electron dist-desktop/main.js",
-    "desktop:package": "pnpm desktop:build && node scripts/desktop-package.mjs",
-    "desktop:package:mac": "pnpm desktop:build && node scripts/desktop-package.mjs --release-mac",
-    "test:web": "playwright test --config tests/playwright.config.ts",
-    "test:desktop": "node --import tsx tests/electron.smoke.mjs"
+    "dev": "pnpm --filter unfold dev",
+    "build": "pnpm --filter unfold build",
+    "start": "pnpm --filter unfold start",
+    "test": "pnpm --filter unfold test",
+    "check": "pnpm --filter unfold check",
+    "lint": "pnpm --filter unfold lint",
+    "desktop:build": "pnpm --filter unfold desktop:build",
+    "desktop:dev": "pnpm --filter unfold desktop:dev",
+    "desktop:package": "pnpm --filter unfold desktop:package",
+    "desktop:package:mac": "pnpm --filter unfold desktop:package:mac",
+    "test:web": "pnpm --filter unfold test:web",
+    "test:desktop": "pnpm --filter unfold test:desktop",
+    "build:site": "pnpm --filter unfold-landing build --outDir ../../output/site --emptyOutDir && pnpm --filter unfold exec vite build --base=/app/ --outDir ../../output/site/app"
   },
-  "dependencies": {
-    "@base-ui/react": "^1.9.0",
-    "@fontsource/caveat": "^5.3.0",
-    "@fontsource/great-vibes": "^5.3.0",
-    "@tailwindcss/vite": "^4.3.5",
-    "@tldraw/assets": "5.6.0",
-    "@tldraw/tlschema": "5.6.0",
-    "@tldraw/validate": "5.6.0",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "fflate": "^0.8.3",
-    "lucide-react": "^0.468.0",
-    "react": "19.2.1",
-    "react-dom": "19.2.1",
-    "sonner": "^2.0.8",
-    "tailwind-merge": "^3.7.0",
-    "tailwindcss": "^4.3.5",
-    "tldraw": "5.6.0",
-    "tw-animate-css": "^1.4.0",
-    "zod": "^4.1.8"
-  },
-  "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@openai/codex": "^0.167.0",
-    "@playwright/test": "^1.65.0",
-    "@types/node": "^22.10.0",
-    "@types/react": "^19.2.7",
-    "@types/react-dom": "^19.2.3",
-    "@typescript-eslint/utils": "^8.72.1",
-    "@vitejs/plugin-react": "^4.4.1",
-    "concurrently": "^9.1.0",
-    "electron": "^45.2.3",
-    "electron-builder": "^26.18.0",
-    "esbuild": "^0.28.2",
-    "eslint": "^10.14.0",
-    "tsx": "^4.20.0",
-    "typescript": "^5.8.3",
-    "typescript-eslint": "^8.72.1",
-    "vite": "^6.4.1"
-  },
-  "packageManager": "pnpm@10.33.1+sha512.05ba3c1d5d1c18f68df06470d74055e62d41fc110a0c660db1b2dfb2785327f04cf0f68345d4609bc52089e7fa0343c31593b2f9594e2c5d5da426230acc9820",
-  "pnpm": {
-    "overrides": {
-      "minimatch": "^11.0.1"
-    },
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
-  }
+  "packageManager": "pnpm@10.33.1+sha512.05ba3c1d5d1c18f68df06470d74055e62d41fc110a0c660db1b2dfb2785327f04cf0f68345d4609bc52089e7fa0343c31593b2f9594e2c5d5da426230acc9820"
 }

@@ -1,8 +1,9 @@
 import { test, expect, type Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 // Opt-in: uses real subscription usage. Start a live helper first, for example
-//   PORT=3003 UNFOLD_PROVIDER=claude pnpm exec tsx server/index.ts   (or UNFOLD_PROVIDER=codex)
+//   PORT=3003 UNFOLD_PROVIDER=claude pnpm start   (or UNFOLD_PROVIDER=codex)
 // then run: UNFOLD_LIVE_URL=http://127.0.0.1:3003 pnpm test:web --project=chromium live-collaboration
 // The two goals and answers are typed like a user would; every agent reply, search and decision is live.
 // It passes only when the user ends with a real result: an accepted shared idea whose first step cites a source the
@@ -12,7 +13,7 @@ const live = process.env.UNFOLD_LIVE_URL
 test.skip(!live, 'Set UNFOLD_LIVE_URL to a running live helper to run this check.')
 test.use({ baseURL: live ?? 'http://127.0.0.1:3003' })
 
-const out = 'output/live'
+const out = resolve(import.meta.dirname, '../../../output/live')
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true })
 const panel = (page: Page) => page.getByRole('complementary', { name: 'Node conversation' })
 const log: string[] = []

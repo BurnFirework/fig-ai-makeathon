@@ -72,11 +72,11 @@ test('agents notice a link between two developed goals, raise a real conflict, a
   await expect(panel(page)).toContainText('Saturday afternoons with friends')
   await expect(panel(page).locator('.collab-stages')).toHaveCount(0)
   expect(await cardAt()).toEqual(before)
-  await page.screenshot({ path: 'output/playwright/link-noticed.png' })
+  await page.screenshot({ path: '../../output/playwright/link-noticed.png' })
   await expect(page.locator('.card-opportunity')).toHaveCount(0)
   await button(page, 'Close chat').click()
   await button(page, 'Fit board').click()
-  await page.screenshot({ path: 'output/playwright/link-pills.png' })
+  await page.screenshot({ path: '../../output/playwright/link-pills.png' })
 
   // The compact entry opens the shared conversation with the decision: what blocks it, the basis and each effect.
   await page.locator('.link-pill').first().click()
@@ -88,7 +88,7 @@ test('agents notice a link between two developed goals, raise a real conflict, a
   await expect(conflict).toContainText('$45')
   await expect(conflict.locator('.source-chips a')).toHaveAttribute('href', /eventbrite/)
   await expect(panel(page).locator('.choice-effect').first()).toContainText('keep the condition')
-  await page.screenshot({ path: 'output/playwright/link-decision.png' })
+  await page.screenshot({ path: '../../output/playwright/link-decision.png' })
   await panel(page).locator('.agent-trace summary').first().click()
   await expect(panel(page).locator('.agent-trace').first()).toContainText('Research agent → Connection agent')
   await panel(page).locator('.agent-trace summary').first().click()
@@ -102,7 +102,7 @@ test('agents notice a link between two developed goals, raise a real conflict, a
   await panel(page).locator('.agent-trace summary').last().click()
   await expect(panel(page).locator('.agent-trace').last()).toContainText('within $45')
   await expect(panel(page).locator('.folded-turn')).toContainText('Raise budget to $45')
-  await page.screenshot({ path: 'output/playwright/link-proposal.png' })
+  await page.screenshot({ path: '../../output/playwright/link-proposal.png' })
 
   // Accepting creates exactly one shared card with both sources; Connect goals reopens the same conversation.
   await button(page, 'Accept').click()

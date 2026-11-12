@@ -19,7 +19,7 @@ await build({
     electronDist,
     appId: 'com.unfold.visionboard',
     productName: 'Unfold',
-    directories: { output: releaseMac ? 'output/desktop-release' : 'output/desktop' },
+    directories: { output: releaseMac ? '../../output/desktop-release' : '../../output/desktop' },
     files: ['dist/**', 'dist-desktop/**', 'package.json'],
     extraMetadata: { main: 'dist-desktop/main.js' },
     asar: true,

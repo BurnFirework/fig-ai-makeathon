@@ -23,7 +23,7 @@ function cliEnv() {
   for (const key of ['OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'CLAUDECODE', 'COMPOSIO_API_KEY', 'TICKETMASTER_API_KEY']) delete env[key]
   return env
 }
-const loginCommand = (provider: 'claude' | 'codex') => provider === 'claude' ? 'claude auth login' : 'pnpm exec codex login'
+const loginCommand = (provider: 'claude' | 'codex') => provider === 'claude' ? 'claude auth login' : 'pnpm --filter unfold exec codex login'
 async function probe(provider: 'claude' | 'codex'): Promise<{ config?: CliConfig; status: ProviderStatus }> {
   for (const binary of candidates(provider)) {
     let version: string

@@ -10,7 +10,11 @@ const libraryPath = join(directory, 'profile', 'workspaces', 'default.unfold')
 const packagedExecutable = process.platform === 'darwin'
   ? `mac${process.arch === 'arm64' ? '-arm64' : ''}/Unfold.app/Contents/MacOS/Unfold`
   : process.platform === 'win32' ? `win${process.arch === 'x64' ? '' : `-${process.arch}`}-unpacked/Unfold.exe` : `linux${process.arch === 'x64' ? '' : `-${process.arch}`}-unpacked/unfold`
-const executablePath = process.env.UNFOLD_SMOKE_EXECUTABLE || resolve('output/desktop', packagedExecutable)
+const workspaceRoot = resolve(import.meta.dirname, '../../..')
+const output = join(workspaceRoot, 'output/desktop')
+const executablePath = process.env.UNFOLD_SMOKE_EXECUTABLE
+  ? resolve(workspaceRoot, process.env.UNFOLD_SMOKE_EXECUTABLE)
+  : join(output, packagedExecutable)
 // Opt out only for this isolated test profile in containers without sandbox support.
 const args = process.env.UNFOLD_SMOKE_NO_SANDBOX === '1' ? ['--no-sandbox'] : []
 let app
@@ -96,7 +100,7 @@ try {
     if (live.mode !== 'live' || !live.edits.some(edit => edit.kind === 'createNode' && edit.content.kind === 'note')) throw new Error('Codex did not return a structured board edit')
     console.log('PASS installed Codex returned a structured board edit from the packaged app outside project cwd')
   }
-  await page.screenshot({ path: resolve('output/desktop/smoke.png') })
+  await page.screenshot({ path: join(output, 'smoke.png') })
   await app.close(); app = undefined
   app = await _electron.launch({ executablePath, args, cwd: directory, env: { ...process.env, UNFOLD_DESKTOP_USER_DATA: join(directory, 'profile'), UNFOLD_PROVIDER: 'demo' } })
   const reopened = await app.firstWindow()
@@ -123,8 +127,8 @@ try {
 } catch (error) {
   const page = app?.windows()[0]
   if (page && !page.isClosed()) {
-    await page.screenshot({ path: resolve('output/desktop/smoke-error.png') }).catch(() => {})
-    await writeFile(resolve('output/desktop/smoke-error.txt'), await page.locator('body').innerText()).catch(() => {})
+    await page.screenshot({ path: join(output, 'smoke-error.png') }).catch(() => {})
+    await writeFile(join(output, 'smoke-error.txt'), await page.locator('body').innerText()).catch(() => {})
   }
   throw error
 } finally {

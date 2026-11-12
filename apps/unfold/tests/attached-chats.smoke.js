@@ -1,7 +1,7 @@
-// Against a separate preview server after pnpm build:
-// PORT=3002 UNFOLD_PROVIDER=demo pnpm exec node --import tsx server/index.ts
+// Run from the repository root against a separate preview server after pnpm build:
+// PORT=3002 UNFOLD_PROVIDER=demo pnpm start
 // pnpm dlx @playwright/cli -s=attached-chats open http://127.0.0.1:3002 --idle-timeout=900000
-// pnpm dlx @playwright/cli -s=attached-chats run-code "$(cat tests/attached-chats.smoke.js)"
+// pnpm dlx @playwright/cli -s=attached-chats run-code --filename apps/unfold/tests/attached-chats.smoke.js
 // pnpm dlx @playwright/cli -s=attached-chats close
 // Uses this browser session's isolated storage. Creates sample and migration boards.
 async (page) => {

@@ -32,5 +32,5 @@ test('a long note grows to show its whole text without an inner scroll', async (
   await title.press('Enter')
   await expect(title).not.toBeFocused()
   await expect.poll(async () => (await title.boundingBox())?.height ?? 0).toBeGreaterThan(line * 1.5)
-  await note.screenshot({ path: 'output/note-card.png' })
+  await note.screenshot({ path: '../../output/note-card.png' })
 })

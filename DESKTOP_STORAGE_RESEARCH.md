@@ -60,10 +60,10 @@ Apple explicitly permits user data managed on the user's behalf in `Application 
 
 Local source inspected at `f1fd701f539d2068aeb0f884540859aa65c88d2c`:
 
-- [Desktop startup](desktop/main.ts) already stores `workspace-recovery.json` beneath Electron `userData`, isolates development as `Unfold Development`, and supports `UNFOLD_DESKTOP_USER_DATA` for an explicit override.
-- [Native persistence](desktop/workspace-files.ts) writes a versioned `.unfold` archive to a chosen working file and a separate JSON recovery checkpoint containing the archive bytes. It already has serialized writes, atomic replacement, revision/session checks, external-change detection, and a best-effort previous checkpoint.
-- [Workspace controller](client/workspace.ts) treats an unnamed workspace as recovery-only. `prepareClose`, Open, and New invoke Save As when no working filename exists. This directly explains the location-selection friction, even though background recovery already persists edits.
-- [Workspace controls](client/workspace-controls.tsx) and the native File menu expose document operations on the entire board library. Import is additive; export creates a copy. [README](README.md#data-storage) and [ARCHITECTURE.md](ARCHITECTURE.md) explicitly describe this earlier document model.
+- [Desktop startup](apps/unfold/desktop/main.ts) already stores `workspace-recovery.json` beneath Electron `userData`, isolates development as `Unfold Development`, and supports `UNFOLD_DESKTOP_USER_DATA` for an explicit override.
+- [Native persistence](apps/unfold/desktop/workspace-files.ts) writes a versioned `.unfold` archive to a chosen working file and a separate JSON recovery checkpoint containing the archive bytes. It already has serialized writes, atomic replacement, revision/session checks, external-change detection, and a best-effort previous checkpoint.
+- [Workspace controller](apps/unfold/client/workspace.ts) treats an unnamed workspace as recovery-only. `prepareClose`, Open, and New invoke Save As when no working filename exists. This directly explains the location-selection friction, even though background recovery already persists edits.
+- [Workspace controls](apps/unfold/client/workspace-controls.tsx) and the native File menu expose document operations on the entire board library. Import is additive; export creates a copy. [README](README.md#data-storage) and [ARCHITECTURE.md](ARCHITECTURE.md) explicitly describe this earlier document model.
 
 ### Accepted product decision
 
